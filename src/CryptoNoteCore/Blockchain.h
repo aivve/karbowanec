@@ -209,6 +209,7 @@ namespace CryptoNote {
     bool checkIfSpent(const Crypto::KeyImage& keyImage);
     bool is_tx_spendtime_unlocked(uint64_t unlock_time);
     bool is_tx_spendtime_unlocked(uint64_t unlock_time, uint32_t height);
+    bool is_output_unlocked(uint64_t unlock_time, uint32_t height);
 
     void rebuildCache();
     bool storeCache();

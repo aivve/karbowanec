@@ -250,6 +250,10 @@ bool constructTransaction(
     tx.outputs.push_back(out);
     output_index++;
     summary_outs_money += dst_entr.amount;
+
+    if (version >= 2) {
+      tx.outputUnlockTimes.push_back(dst_entr.unlockTime);
+    }
   }
 
   //check money
