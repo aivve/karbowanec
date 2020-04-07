@@ -141,7 +141,8 @@ bool constructTransaction(
   Transaction& tx,
   uint64_t unlock_time,
   Crypto::SecretKey &tx_key,
-  Logging::ILogger& log) {
+  Logging::ILogger& log,
+  uint8_t version) {
   LoggerRef logger(log, "construct_tx");
 
   tx.inputs.clear();
