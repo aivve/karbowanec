@@ -58,6 +58,7 @@ public:
   // outputs
   virtual size_t getOutputCount() const override;
   virtual uint64_t getOutputTotalAmount() const override;
+  virtual uint64_t getOutputUnlockTime(size_t index) const override;
   virtual TransactionTypes::OutputType getOutputType(size_t index) const override;
   virtual void getOutput(size_t index, KeyOutput& output, uint64_t& amount) const override;
   virtual void getOutput(size_t index, MultisignatureOutput& output, uint64_t& amount) const override;
@@ -177,6 +178,10 @@ size_t TransactionPrefixImpl::getOutputCount() const {
 uint64_t TransactionPrefixImpl::getOutputTotalAmount() const {
   return std::accumulate(m_txPrefix.outputs.begin(), m_txPrefix.outputs.end(), 0ULL, [](uint64_t val, const TransactionOutput& out) {
     return val + out.amount; });
+}
+
+uint64_t TransactionPrefixImpl::getOutputUnlockTime(size_t index) const {
+  return m_txPrefix.outputs[index].unlockTime;
 }
 
 TransactionTypes::OutputType TransactionPrefixImpl::getOutputType(size_t index) const {

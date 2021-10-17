@@ -230,7 +230,7 @@ void TransfersContainer::addTransaction(const TransactionBlockInfo& block, const
   txInfo.blockHeight = block.height;
   txInfo.timestamp = block.timestamp;
   txInfo.transactionHash = txHash;
-  txInfo.unlockTime = tx.getUnlockTime();
+  txInfo.unlockTime = tx.getUnlockTime(); // TODO: probably not needed in per-output
   txInfo.publicKey = tx.getTransactionPublicKey();
   txInfo.totalAmountIn = tx.getInputTotalAmount();
   txInfo.totalAmountOut = tx.getOutputTotalAmount();
@@ -270,7 +270,7 @@ bool TransfersContainer::addTransactionOutputs(const TransactionBlockInfo& block
     static_cast<TransactionOutputInformationIn&>(info) = transfer;
     info.blockHeight = block.height;
     info.transactionIndex = block.transactionIndex;
-    info.unlockTime = tx.getUnlockTime();
+    info.unlockTime = transfer.unlockTime;
     info.transactionHash = txHash;
     info.visible = true;
 

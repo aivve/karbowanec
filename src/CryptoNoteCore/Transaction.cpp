@@ -76,6 +76,7 @@ namespace CryptoNote {
     // outputs
     virtual size_t getOutputCount() const override;
     virtual uint64_t getOutputTotalAmount() const override;
+    virtual uint64_t getOutputUnlockTime(size_t index) const override;
     virtual TransactionTypes::OutputType getOutputType(size_t index) const override;
     virtual void getOutput(size_t index, KeyOutput& output, uint64_t& amount) const override;
     virtual void getOutput(size_t index, MultisignatureOutput& output, uint64_t& amount) const override;
@@ -492,6 +493,10 @@ namespace CryptoNote {
   uint64_t TransactionImpl::getOutputTotalAmount() const {
     return std::accumulate(transaction.outputs.begin(), transaction.outputs.end(), 0ULL, [](uint64_t val, const TransactionOutput& out) {
       return val + out.amount; });
+  }
+
+  uint64_t TransactionImpl::getOutputUnlockTime(size_t index) const {
+    return transaction.outputs[index].unlockTime;
   }
 
   TransactionTypes::OutputType TransactionImpl::getOutputType(size_t index) const {

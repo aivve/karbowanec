@@ -486,6 +486,8 @@ std::error_code TransfersConsumer::createTransfers(
       info.requiredSignatures = out.requiredSignatureCount;
     }
 
+    info.unlockTime = tx.getOutputUnlockTime(idx);
+
     transfers.push_back(info);
   }
 

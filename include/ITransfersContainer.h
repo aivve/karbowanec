@@ -49,6 +49,7 @@ struct TransactionOutputInformation {
   uint64_t amount;
   uint32_t globalOutputIndex;
   uint32_t outputInTransaction;
+  uint64_t unlockTime;
 
   // transaction info
   Crypto::Hash transactionHash;
