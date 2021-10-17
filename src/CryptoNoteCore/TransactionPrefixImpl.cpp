@@ -1,4 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2016-2021, Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -123,8 +124,7 @@ uint64_t TransactionPrefixImpl::getUnlockTime() const {
     sort(unlocktimes.begin(), unlocktimes.end());
     std::reverse(unlocktimes.begin(), unlocktimes.end());
     return unlocktimes.front();
-  }
-  else {
+  } else {
     return m_txPrefix.unlockTime;
   }
 }

@@ -1,4 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2016-2021, Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -233,7 +234,13 @@ namespace CryptoNote {
 
   void TransactionImpl::setUnlockTime(uint64_t unlockTime) {
     checkIfSigning();
-    transaction.unlockTime = unlockTime;
+    if (transaction.version >= TRANSACTION_VERSION_2) {
+      for (auto & o : transaction.outputs) {
+        o.unlockTime = unlockTime;
+      }
+    } else {
+      transaction.unlockTime = unlockTime;
+    }
     invalidateHash();
   }
 
