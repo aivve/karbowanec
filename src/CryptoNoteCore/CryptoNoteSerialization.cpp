@@ -282,6 +282,15 @@ void serialize(TransactionInputs & inputs, ISerializer & serializer) {
 
 void serialize(TransactionOutput& output, ISerializer& serializer) {
   serializer(output.amount, "amount");
+  if (serializer.type() == ISerializer::OUTPUT) {
+    serializer(output.unlockTime, "unlock_time");
+  }
+  else {
+    if (!serializer(output.unlockTime, "unlock_time")) {
+      uint64_t unlockTime = 0;
+      serializer(unlockTime, "unlock_time");
+    }
+  }
   serializer(output.target, "target");
 }
 

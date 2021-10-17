@@ -55,6 +55,7 @@ typedef boost::variant<KeyOutput, MultisignatureOutput> TransactionOutputTarget;
 
 struct TransactionOutput {
   uint64_t amount;
+  uint64_t unlockTime;
   TransactionOutputTarget target;
 };
 
