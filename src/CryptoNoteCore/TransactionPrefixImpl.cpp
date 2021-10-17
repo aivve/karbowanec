@@ -114,7 +114,19 @@ PublicKey TransactionPrefixImpl::getTransactionPublicKey() const {
 }
 
 uint64_t TransactionPrefixImpl::getUnlockTime() const {
-  return m_txPrefix.unlockTime;
+  if (m_txPrefix.version >= TRANSACTION_VERSION_2) {
+    // return longest unlock time
+    std::vector<uint64_t> unlocktimes;
+    for (const auto& o : m_txPrefix.outputs) {
+      unlocktimes.push_back(o.unlockTime);
+    }
+    sort(unlocktimes.begin(), unlocktimes.end());
+    std::reverse(unlocktimes.begin(), unlocktimes.end());
+    return unlocktimes.front();
+  }
+  else {
+    return m_txPrefix.unlockTime;
+  }
 }
 
 bool TransactionPrefixImpl::getPaymentId(Hash& hash) const {

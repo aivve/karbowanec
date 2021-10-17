@@ -217,7 +217,18 @@ namespace CryptoNote {
   }
 
   uint64_t TransactionImpl::getUnlockTime() const {
-    return transaction.unlockTime;
+    if (transaction.version >= TRANSACTION_VERSION_2) {
+      // return longest unlock time
+      std::vector<uint64_t> unlocktimes;
+      for (const auto& o : transaction.outputs) {
+        unlocktimes.push_back(o.unlockTime);
+      }
+      sort(unlocktimes.begin(), unlocktimes.end());
+      std::reverse(unlocktimes.begin(), unlocktimes.end());
+      return unlocktimes.front();
+    } else {
+      return transaction.unlockTime;
+    }
   }
 
   void TransactionImpl::setUnlockTime(uint64_t unlockTime) {
