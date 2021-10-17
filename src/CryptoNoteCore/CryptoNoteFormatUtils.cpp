@@ -149,7 +149,7 @@ bool constructTransaction(
   tx.outputs.clear();
   tx.signatures.clear();
 
-  tx.version = CURRENT_TRANSACTION_VERSION;
+  tx.version = version;
   tx.unlockTime = unlock_time;
 
   tx.extra = extra;
@@ -252,7 +252,7 @@ bool constructTransaction(
     summary_outs_money += dst_entr.amount;
 
     if (version >= 2) {
-      tx.outputUnlockTimes.push_back(dst_entr.unlockTime);
+      out.unlockTime = dst_entr.unlockTime;
     }
   }
 

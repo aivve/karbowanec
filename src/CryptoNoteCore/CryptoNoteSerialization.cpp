@@ -189,13 +189,16 @@ void serialize(TransactionPrefix& txP, ISerializer& serializer) {
     throw std::runtime_error("Wrong transaction version");
   }
 
-  serializer(txP.unlockTime, "unlock_time");
+  if (txP.version == TRANSACTION_VERSION_1) {
+    serializer(txP.unlockTime, "unlock_time");
+    for (auto& o : txP.outputs) {
+      o.unlockTime = txP.unlockTime;
+    }
+  }
+
   serializer(txP.inputs, "vin");
   serializer(txP.outputs, "vout");
   serializeAsBinary(txP.extra, "extra", serializer);
-  if (txP.version >= TRANSACTION_VERSION_2) {
-    serializer(txP.outputUnlockTimes, "output_unlock_times");
-  }
 }
 
 void serialize(Transaction& tx, ISerializer& serializer) {
@@ -287,15 +290,13 @@ void serialize(TransactionOutput& output, ISerializer& serializer) {
   serializer(output.amount, "amount");
   if (serializer.type() == ISerializer::OUTPUT) {
     serializer(output.unlockTime, "unlock_time");
-  }
-  else {
+  } else {
     if (!serializer(output.unlockTime, "unlock_time")) {
       uint64_t unlockTime = 0;
       serializer(unlockTime, "unlock_time");
     }
   }
   serializer(output.target, "target");
-  //serializer(output.unlockTime, "unlock_time");
 }
 
 void serialize(TransactionOutputTarget& output, ISerializer& serializer) {

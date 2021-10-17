@@ -1466,7 +1466,7 @@ bool Blockchain::add_out_to_get_random_outs(std::vector<std::pair<TransactionInd
 
   //check if transaction is unlocked
   if (tx.version >= 2) {
-    if (!is_output_unlocked(tx.outputUnlockTimes[amount_outs[i].second], getCurrentBlockchainHeight()))
+    if (!is_output_unlocked(tx.outputs[amount_outs[i].second].unlockTime, getCurrentBlockchainHeight()))
       return false;
   }
   else {

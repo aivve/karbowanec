@@ -57,7 +57,7 @@ struct TransactionOutput {
   uint64_t amount;
   uint64_t unlockTime;
   TransactionOutputTarget target;
-  //uint64_t unlockTime;
+  uint64_t unlockTime;
 };
 
 using TransactionInputs = std::vector<TransactionInput>;
@@ -68,7 +68,6 @@ struct TransactionPrefix {
   TransactionInputs inputs;
   std::vector<TransactionOutput> outputs;
   std::vector<uint8_t> extra;
-  std::vector<uint64_t> outputUnlockTimes;
 };
 
 struct Transaction : public TransactionPrefix {

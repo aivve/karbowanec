@@ -59,11 +59,16 @@ bool generateDeterministicTransactionKeys(const Crypto::Hash& inputsHash, const 
 bool generateDeterministicTransactionKeys(const Transaction& tx, const Crypto::SecretKey& viewSecretKey, KeyPair& generatedKeys);
 
 bool constructTransaction(
-  const AccountKeys& senderAccountKeys,
+  const AccountKeys& sender_account_keys,
   const std::vector<TransactionSourceEntry>& sources,
   const std::vector<TransactionDestinationEntry>& destinations,
-  std::vector<uint8_t> extra, Transaction& transaction, uint64_t unlock_time, Crypto::SecretKey &tx_key, Logging::ILogger& log,
-  uint8_t version = CryptoNote::CURRENT_TRANSACTION_VERSION);
+  std::vector<uint8_t> extra,
+  Transaction& tx,
+  uint64_t unlock_time,
+  Crypto::SecretKey &tx_key,
+  Logging::ILogger& log,
+  uint8_t version = CURRENT_TRANSACTION_VERSION;
+);
 
 bool getTransactionProof(const Crypto::Hash& transactionHash, const CryptoNote::AccountPublicAddress& destinationAddress, const Crypto::SecretKey& transactionKey, std::string& transactionProof, Logging::ILogger& log);
 bool getReserveProof(const std::vector<TransactionOutputInformation>& selectedTransfers, const CryptoNote::AccountKeys& accountKeys, const uint64_t& amount, const std::string& message, std::string& reserveProof, Logging::ILogger& log);
