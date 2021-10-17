@@ -67,7 +67,7 @@ bool constructTransaction(
   uint64_t unlock_time,
   Crypto::SecretKey &tx_key,
   Logging::ILogger& log,
-  uint8_t version = CURRENT_TRANSACTION_VERSION;
+  uint8_t version = CURRENT_TRANSACTION_VERSION
 );
 
 bool getTransactionProof(const Crypto::Hash& transactionHash, const CryptoNote::AccountPublicAddress& destinationAddress, const Crypto::SecretKey& transactionKey, std::string& transactionProof, Logging::ILogger& log);

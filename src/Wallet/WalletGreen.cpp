@@ -2300,7 +2300,7 @@ std::unique_ptr<CryptoNote::ITransaction> WalletGreen::makeTransaction(const std
   });
 
   for (const auto& amountToAddress: amountsToAddresses) {
-    tx->addOutput(amountToAddress.second, *amountToAddress.first);
+    tx->addOutput(amountToAddress.second, *amountToAddress.first); // TODO add per output unlock time here
   }
 
   tx->setUnlockTime(unlockTimestamp);

@@ -1833,9 +1833,9 @@ bool Blockchain::check_tx_input(const KeyInput& txin, const Crypto::Hash& tx_pre
 
     bool handle_output(const Transaction& tx, const TransactionOutput& out, size_t transactionOutputIndex) {
       //check tx unlock time
-      if (tx.version == 1 ? !m_bch.is_tx_spendtime_unlocked(tx.unlockTime, m_bch.getCurrentBlockchainHeight()) : !m_bch.is_output_unlocked(tx.outputUnlockTimes[transactionOutputIndex], m_bch.getCurrentBlockchainHeight())) {
+      if (tx.version == 1 ? !m_bch.is_tx_spendtime_unlocked(tx.unlockTime, m_bch.getCurrentBlockchainHeight()) : !m_bch.is_output_unlocked(tx.outputs[transactionOutputIndex].unlockTime, m_bch.getCurrentBlockchainHeight())) {
         logger(INFO, BRIGHT_WHITE) <<
-          "One of outputs for one of inputs has wrong tx.unlockTime = " << (tx.version == 1 ? tx.unlockTime : tx.outputUnlockTimes[transactionOutputIndex]);
+          "One of outputs for one of inputs has wrong tx.unlockTime = " << (tx.version == 1 ? tx.unlockTime : tx.outputs[transactionOutputIndex].unlockTime);
         return false;
       }
 

@@ -1,4 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2016-2021, Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -57,7 +58,6 @@ struct TransactionOutput {
   uint64_t amount;
   uint64_t unlockTime;
   TransactionOutputTarget target;
-  uint64_t unlockTime;
 };
 
 using TransactionInputs = std::vector<TransactionInput>;

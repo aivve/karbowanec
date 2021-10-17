@@ -1,5 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
-// Copyright (c) 2016-2020, Karbo developers
+// Copyright (c) 2016-2021, Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -59,13 +59,13 @@ void createChangeDestinations(const AccountPublicAddress& address, uint64_t need
 }
 
 void constructTx(const AccountKeys keys, const std::vector<TransactionSourceEntry>& sources, const std::vector<TransactionDestinationEntry>& splittedDests,
-    const std::string& extra, uint64_t unlockTimestamp, uint64_t sizeLimit, Transaction& tx, Crypto::SecretKey& tx_key) {
+    const std::string& extra, uint64_t unlockTimestamp, uint64_t sizeLimit, Transaction& tx, Crypto::SecretKey& tx_key, uint8_t version) {
   std::vector<uint8_t> extraVec;
   extraVec.reserve(extra.size());
   std::for_each(extra.begin(), extra.end(), [&extraVec] (const char el) { extraVec.push_back(el);});
 
   Logging::LoggerGroup nullLog;
-  bool r = constructTransaction(keys, sources, splittedDests, extraVec, tx, unlockTimestamp, tx_key, nullLog);
+  bool r = constructTransaction(keys, sources, splittedDests, extraVec, tx, unlockTimestamp, tx_key, nullLog, version);
 
   throwIf(!r, error::INTERNAL_WALLET_ERROR);
   throwIf(getObjectBinarySize(tx) >= sizeLimit, error::TRANSACTION_SIZE_TOO_BIG);
@@ -249,10 +249,12 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
     createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
 
     std::vector<TransactionDestinationEntry> splittedDests;
-    splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
+    splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, transaction.unlockTime, splittedDests);
+
+    uint8_t version = m_node.getLastKnownBlockHeight() >= CryptoNote::parameters::UPGRADE_HEIGHT_V5 ? TRANSACTION_VERSION_2 : TRANSACTION_VERSION_1;
 
     Transaction tx;
-    constructTx(m_keys, sources, splittedDests, transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, tx, context->tx_key);
+    constructTx(m_keys, sources, splittedDests, transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, tx, context->tx_key, version);
 
     getObjectHash(tx, transaction.hash);
 
@@ -332,8 +334,10 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
     std::vector<TransactionDestinationEntry> splittedDests;
     splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, transaction.unlockTime, splittedDests);
 
+    uint8_t version = m_node.getLastKnownBlockHeight() >= CryptoNote::parameters::UPGRADE_HEIGHT_V5 ? TRANSACTION_VERSION_2 : TRANSACTION_VERSION_1;
+
     Transaction tx;
-    constructTx(m_keys, sources, splittedDests, transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, tx, context->tx_key);
+    constructTx(m_keys, sources, splittedDests, transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, tx, context->tx_key, version);
 
     getObjectHash(tx, transaction.hash);
     transaction.secretKey = context->tx_key;
