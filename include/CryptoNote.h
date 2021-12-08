@@ -21,6 +21,7 @@
 #include <boost/variant.hpp>
 #include "android.h"
 #include "CryptoTypes.h"
+#include "../src/ringct/rctTypes.h"
 
 namespace CryptoNote {
 
@@ -70,6 +71,7 @@ struct TransactionPrefix {
 
 struct Transaction : public TransactionPrefix {
   std::vector<std::vector<Crypto::Signature>> signatures;
+  rct::rctSig rct_signatures;
 };
 
 struct ParentBlock {
