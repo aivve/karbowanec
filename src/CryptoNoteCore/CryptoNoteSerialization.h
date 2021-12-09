@@ -22,6 +22,8 @@
 #include "Serialization/ISerializer.h"
 #include "crypto/crypto.h"
 
+#include "ringct/rctTypes.h"
+
 namespace Crypto {
 
 bool serialize(PublicKey& pubKey, Common::StringView name, CryptoNote::ISerializer& serializer);

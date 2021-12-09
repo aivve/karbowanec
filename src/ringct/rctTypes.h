@@ -84,6 +84,10 @@ namespace rct {
         }
         bool operator==(const key &k) const { return !crypto_verify_32(bytes, k.bytes); }
         unsigned char bytes[32];
+
+        ///void serialize(ISerializer& s) {
+        ///    s.binary(&*this, sizeof(*this), "rct_key");
+        ///}
     };
     typedef std::vector<key> keyV; //vector of keys
     typedef std::vector<keyV> keyM; //matrix of keys (indexed by column first)
@@ -96,12 +100,17 @@ namespace rct {
     struct ctkey {
         key dest;
         key mask; //C here if public
+
+        void serialize(ISerializer& s) {
+            KV_MEMBER(dest)
+            KV_MEMBER(mask)
+        }
     };
     typedef std::vector<ctkey> ctkeyV;
     typedef std::vector<ctkeyV> ctkeyM;
 
     //used for multisig data
-    struct multisig_kLRki {
+    /*struct multisig_kLRki {
         key k;
         key L;
         key R;
@@ -116,13 +125,14 @@ namespace rct {
         std::vector<key> c0; // for all inputs
 
         bool serialize(ISerializer& s) {
-            s(c, "c");
-            s(mu_p, "mu_p");
-            s(c0, "c0");
+            //KV_MEMBER(c)
+            //KV_MEMBER(mu_p)
+            //KV_MEMBER(c0)
+
             if (!mu_p.empty() && mu_p.size() != c.size())
                 return false;
         }
-    };
+    };*/
 
     //data for passing the amount to the receiver secretly
     // If the pedersen commitment to an amount is C = aG + bH,
@@ -134,8 +144,8 @@ namespace rct {
         key amount;
 
         void serialize(ISerializer& s) {
-            s(mask, "mask"); // not saved from v2 BPs
-            s(amount, "amount");
+            KV_MEMBER(mask) // not saved from v2 BPs
+            KV_MEMBER(amount)
         }
     };
 
@@ -144,11 +154,17 @@ namespace rct {
     typedef unsigned int bits[ATOMS];
     typedef key key64[64];
 
-    struct boroSig {
+    /*struct boroSig {
         key64 s0;
         key64 s1;
         key ee;
-    };
+
+        void serialize(ISerializer& s) {
+            KV_MEMBER(s0)
+            KV_MEMBER(s1)
+            KV_MEMBER(ee)
+        }
+    };*/
   
     //Container for precomp
     struct geDsmp {
@@ -163,8 +179,8 @@ namespace rct {
         keyV II;
 
         void serialize(ISerializer& s) {
-            s(ss, "ss");
-            s(cc, "cc");
+            KV_MEMBER(ss)
+            KV_MEMBER(cc)
             // FIELD(II) - not serialized, it can be reconstructed
         }
     };
@@ -178,10 +194,10 @@ namespace rct {
         key D; // commitment key image
 
         void serialize(ISerializer& s) {
-            s(s, "s");
-            s(c1, "c1");
-            // FIELD(I) - not serialized, it can be reconstructed
-            s(D, "D");
+            KV_MEMBER(s)
+            KV_MEMBER(c1)
+            // KV_MEMBER(I) - not serialized, it can be reconstructed
+            KV_MEMBER(D)
         }
     };
 
@@ -191,15 +207,15 @@ namespace rct {
     // and the signature proves that each Ci is either
     // a Pedersen commitment to 0 or to 2^i
     //thus proving that C is in the range of [0, 2^64]
-    struct rangeSig {
+    /*struct rangeSig {
         boroSig asig;
         key64 Ci;
 
         void serialize(ISerializer& s) {
-            s(asig, "asig");
-            s(Ci, "Ci");
+            KV_MEMBER(asig)
+            KV_MEMBER(Ci)
         }
-    };
+    };*/
 
     struct Bulletproof
     {
@@ -220,21 +236,22 @@ namespace rct {
 
         bool serialize(ISerializer& s) {
             // Commitments aren't saved, they're restored via outPk
-            // FIELD(V)
-            s(A, "A");
-            s(S, "S");
-            s(T1, "T1");
-            s(T2, "T2");
-            s(taux, "taux");
-            s(mu, "mu");
-            s(L, "L");
-            s(R, "R");
-            s(a, "a");
-            s(b, "b");
-            s(t, "t");
+            // KV_MEMBER(V)
+            KV_MEMBER(A)
+            KV_MEMBER(S)
+            KV_MEMBER(T1)
+            KV_MEMBER(T2)
+            KV_MEMBER(taux)
+            KV_MEMBER(mu)
+            KV_MEMBER(L)
+            KV_MEMBER(R)
+            KV_MEMBER(a)
+            KV_MEMBER(b)
+            KV_MEMBER(t)
 
             if (L.empty() || L.size() != R.size())
                 return false;
+            return true;
         }
     };
 
@@ -272,8 +289,8 @@ namespace rct {
       void serialize(ISerializer& s) {
           int version = 0;
           s(version, "version");
-          s(range_proof_type, "range_proof_type");
-          s(bp_version, "bp_version");
+          KV_MEMBER(range_proof_type)
+          KV_MEMBER(bp_version)
       }
     };
     struct rctSigBase {
@@ -368,18 +385,18 @@ namespace rct {
         END_SERIALIZE()*/
 
         void serialize(ISerializer& s) {
-            s(type, "type");
-            s(message, "message");
-            s(mixRing, "mixRing");
-            s(pseudoOuts, "pseudoOuts");
-            s(ecdhInfo, "ecdhInfo");
-            s(outPk, "outPk");
-            s(txnFee, "txnFee");
+            KV_MEMBER(type)
+            KV_MEMBER(message)
+            KV_MEMBER(mixRing)
+            KV_MEMBER(pseudoOuts)
+            KV_MEMBER(ecdhInfo)
+            KV_MEMBER(outPk)
+            KV_MEMBER(txnFee)
         }
 
     };
     struct rctSigPrunable {
-        std::vector<rangeSig> rangeSigs;
+        //std::vector<rangeSig> rangeSigs;
         std::vector<Bulletproof> bulletproofs;
         std::vector<mgSig> MGs; // simple rct has N, full has 1
         std::vector<clsag> CLSAGs;
@@ -555,11 +572,11 @@ namespace rct {
         END_SERIALIZE()*/
 
         void serialize(ISerializer& s) {
-            s(rangeSigs, "rangeSigs");
-            s(bulletproofs, "bulletproofs");
-            s(MGs, "MGs");
-            s(CLSAGs, "CLSAGs");
-            s(pseudoOuts, "pseudoOuts");
+            //KV_MEMBER(rangeSigs)
+            KV_MEMBER(bulletproofs)
+            KV_MEMBER(MGs)
+            KV_MEMBER(CLSAGs)
+            KV_MEMBER(pseudoOuts)
         }
 
     };
@@ -582,8 +599,8 @@ namespace rct {
         END_SERIALIZE()*/
 
         void serialize(ISerializer& s) {
-            s((rctSigBase&)*this, "rctSigBase");
-            s(p, "rctSigPrunable");
+            KV_MEMBER((rctSigBase&)*this)
+            KV_MEMBER(p)
         }
     };
 
@@ -712,40 +729,47 @@ namespace CryptoNote {
     static inline bool operator!=(const Crypto::SecretKey &k0, const rct::key &k1) { return crypto_verify_32((const unsigned char*)&k0, k1.bytes); }
 }
 
-/*namespace rct {
-inline std::ostream &operator <<(std::ostream &o, const rct::key &v) {
-  epee::to_hex::formatted(o, epee::as_byte_span(v)); return o;
+
+namespace rct {
+
+template <class T>
+std::ostream& print256(std::ostream& o, const T& v) {
+    return o << Common::podToHex(v);
 }
-}*/
+
+inline std::ostream &operator <<(std::ostream &o, const rct::key &v) {
+  return print256(o, v);
+}
+}
 
 
 namespace std
 {
   template<> struct hash<rct::key> { std::size_t operator()(const rct::key &k) const { return reinterpret_cast<const std::size_t&>(k); } };
 }
+
+/*namespace Crypto {
+    bool serialize(rct::key& key, Common::StringView name, CryptoNote::ISerializer& serializer);
+    bool serialize(rct::key64& key, Common::StringView name, CryptoNote::ISerializer& serializer);
+    //bool serialize(rct::multisig_kLRki& key, Common::StringView name, CryptoNote::ISerializer& serializer);
+    bool serialize(rct::boroSig& sig, Common::StringView name, CryptoNote::ISerializer& serializer);
+}*/
+
+namespace CryptoNote {
+    void serialize(rct::key& k, ISerializer& serializer);
+
+    void serialize(rct::keyV& vector, ISerializer& serializer);
+    void serialize(rct::keyM& vector, ISerializer& serializer);
+
+    void serialize(rct::ctkeyV& vector, ISerializer& serializer);
+}
+
 /*
 BLOB_SERIALIZER(rct::key);
 BLOB_SERIALIZER(rct::key64);
 BLOB_SERIALIZER(rct::ctkey);
 BLOB_SERIALIZER(rct::multisig_kLRki);
 BLOB_SERIALIZER(rct::boroSig);
-
-VARIANT_TAG(debug_archive, rct::key, "rct::key");
-VARIANT_TAG(debug_archive, rct::key64, "rct::key64");
-VARIANT_TAG(debug_archive, rct::keyV, "rct::keyV");
-VARIANT_TAG(debug_archive, rct::keyM, "rct::keyM");
-VARIANT_TAG(debug_archive, rct::ctkey, "rct::ctkey");
-VARIANT_TAG(debug_archive, rct::ctkeyV, "rct::ctkeyV");
-VARIANT_TAG(debug_archive, rct::ctkeyM, "rct::ctkeyM");
-VARIANT_TAG(debug_archive, rct::ecdhTuple, "rct::ecdhTuple");
-VARIANT_TAG(debug_archive, rct::mgSig, "rct::mgSig");
-VARIANT_TAG(debug_archive, rct::rangeSig, "rct::rangeSig");
-VARIANT_TAG(debug_archive, rct::boroSig, "rct::boroSig");
-VARIANT_TAG(debug_archive, rct::rctSig, "rct::rctSig");
-VARIANT_TAG(debug_archive, rct::Bulletproof, "rct::bulletproof");
-VARIANT_TAG(debug_archive, rct::multisig_kLRki, "rct::multisig_kLRki");
-VARIANT_TAG(debug_archive, rct::multisig_out, "rct::multisig_out");
-VARIANT_TAG(debug_archive, rct::clsag, "rct::clsag");
 
 VARIANT_TAG(binary_archive, rct::key, 0x90);
 VARIANT_TAG(binary_archive, rct::key64, 0x91);

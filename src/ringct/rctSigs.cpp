@@ -108,7 +108,7 @@ namespace rct {
     }
 
     //Borromean (c.f. gmax/andytoshi's paper)
-    boroSig genBorromean(const key64 x, const key64 P1, const key64 P2, const bits indices) {
+    /*boroSig genBorromean(const key64 x, const key64 P1, const key64 P2, const bits indices) {
         key64 L[2], alpha;
         auto wiper = epee::misc_utils::create_scope_leave_handler([&](){memwipe(alpha, sizeof(alpha));});
         key c;
@@ -137,10 +137,10 @@ namespace rct {
             }
         }
         return bb;
-    }
+    }*/
     
     //see above.
-    bool verifyBorromean(const boroSig &bb, const ge_p3 P1[64], const ge_p3 P2[64]) {
+    /*bool verifyBorromean(const boroSig& bb, const ge_p3 P1[64], const ge_p3 P2[64]) {
         key64 Lv1; key chash, LL;
         int ii = 0;
         ge_p2 p2;
@@ -155,9 +155,9 @@ namespace rct {
         }
         key eeComputed = hash_to_scalar(Lv1); //hash function fine
         return equalKeys(eeComputed, bb.ee);
-    }
+    }*/
 
-    bool verifyBorromean(const boroSig &bb, const key64 P1, const key64 P2) {
+    /*bool verifyBorromean(const boroSig& bb, const key64 P1, const key64 P2) {
       ge_p3 P1_p3[64], P2_p3[64];
       for (size_t i = 0 ; i < 64 ; ++i) {
         CHECK_AND_ASSERT_MES_L1(ge_frombytes_vartime(&P1_p3[i], P1[i].bytes) == 0, false, "point conv failed");
@@ -321,7 +321,7 @@ namespace rct {
           *mspout = mu_P;
 
         return sig;
-    }
+    }*/
 
     clsag CLSAG_Gen(const key &message, const keyV & P, const key & p, const keyV & C, const key & z, const keyV & C_nonzero, const key & C_offset, const unsigned int l) {
         return CLSAG_Gen(message, P, p, C, z, C_nonzero, C_offset, l, NULL, NULL, NULL, hw::get_device("default"));
@@ -503,7 +503,7 @@ namespace rct {
     //   thus this proves that "amount" is in [0, 2^64]
     //   mask is a such that C = aG + bH, and b = amount
     //verRange verifies that \sum Ci = C and that each Ci is a commitment to 0 or 2^i
-    rangeSig proveRange(key & C, key & mask, const xmr_amount & amount) {
+    /*rangeSig proveRange(key& C, key& mask, const xmr_amount& amount) {
         sc_0(mask.bytes);
         identity(C);
         bits b;
@@ -568,7 +568,7 @@ namespace rct {
       }
       // we can get deep throws from ge_frombytes_vartime if input isn't valid
       catch (...) { return false; }
-    }
+    }*/
 
     key get_pre_mlsag_hash(const rctSig &rv, hw::device &hwdev)
     {
@@ -1571,7 +1571,7 @@ namespace rct {
       return decodeRctSimple(rv, sk, i, mask, hwdev);
     }
 
-    bool signMultisigMLSAG(rctSig &rv, const std::vector<unsigned int> &indices, const keyV &k, const multisig_out &msout, const key &secret_key) {
+    /*bool signMultisigMLSAG(rctSig& rv, const std::vector<unsigned int>& indices, const keyV& k, const multisig_out& msout, const key& secret_key) {
         CHECK_AND_ASSERT_MES(rv.type == RCTTypeFull || rv.type == RCTTypeSimple || rv.type == RCTTypeBulletproof || rv.type == RCTTypeBulletproof2,
             false, "unsupported rct type");
         CHECK_AND_ASSERT_MES(indices.size() == k.size(), false, "Mismatched k/indices sizes");
@@ -1624,5 +1624,5 @@ namespace rct {
             return signMultisigCLSAG(rv, indices, k, msout, secret_key);
         else
             return signMultisigMLSAG(rv, indices, k, msout, secret_key);
-    }
+    }*/
 }

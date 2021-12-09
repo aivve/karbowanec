@@ -293,3 +293,58 @@ namespace rct {
     }
 
 }
+
+template <typename T>
+bool serializePod(T& v, Common::StringView name, CryptoNote::ISerializer& serializer) {
+    return serializer.binary(&v, sizeof(v), name);
+}
+
+bool serializeVarintVector(std::vector<rct::key>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+    size_t size = vector.size();
+
+    if (!serializer.beginArray(size, name)) {
+        vector.clear();
+        return false;
+    }
+
+    vector.resize(size);
+
+    for (size_t i = 0; i < size; ++i) {
+        serializer(vector[i], "");
+    }
+
+    serializer.endArray();
+    return true;
+}
+
+/*namespace Crypto {
+    bool serialize(rct::key& key, Common::StringView name, CryptoNote::ISerializer& serializer) {
+        return serializePod(key, name, serializer);
+    }
+    bool serialize(rct::key64& key, Common::StringView name, CryptoNote::ISerializer& serializer) {
+        return serializePod(key, name, serializer);
+    }
+    //bool serialize(rct::multisig_kLRki& key, Common::StringView name, CryptoNote::ISerializer& serializer) {
+    //    return serializePod(key, name, serializer);
+    //}
+    bool serialize(rct::boroSig& sig, Common::StringView name, CryptoNote::ISerializer& serializer) {
+        return serializePod(sig, name, serializer);
+    }
+}*/
+
+namespace CryptoNote {
+    void serialize(rct::key& k, ISerializer& serializer) {
+        s.binary(k, sizeof(k), "rct_key");
+    }
+
+    void serialize(rct::keyV& vector, ISerializer& serializer) {
+        serializer(vector, "keyV");
+    }
+    void serialize(rct::keyM& m, ISerializer& serializer) {
+        serializer(vector, "keyM");
+    }
+
+    void serialize(rct::ctkeyV& vector, ISerializer& serializer) {
+        serializer(vector, "ctkeyV");
+    }
+}

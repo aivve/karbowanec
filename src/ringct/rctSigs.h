@@ -65,8 +65,8 @@ namespace hw {
 
 namespace rct {
 
-    boroSig genBorromean(const key64 x, const key64 P1, const key64 P2, const bits indices);
-    bool verifyBorromean(const boroSig &bb, const key64 P1, const key64 P2);
+    //boroSig genBorromean(const key64 x, const key64 P1, const key64 P2, const bits indices);
+    //bool verifyBorromean(const boroSig &bb, const key64 P1, const key64 P2);
 
     //Multilayered Spontaneous Anonymous Group Signatures (MLSAG signatures)
     //These are aka MG signatutes in earlier drafts of the ring ct paper
@@ -89,8 +89,8 @@ namespace rct {
     //   thus this proves that "amount" is in [0, 2^64]
     //   mask is a such that C = aG + bH, and b = amount
     //verRange verifies that \sum Ci = C and that each Ci is a commitment to 0 or 2^i
-    rangeSig proveRange(key & C, key & mask, const xmr_amount & amount);
-    bool verRange(const key & C, const rangeSig & as);
+    //rangeSig proveRange(key & C, key & mask, const xmr_amount & amount);
+    //bool verRange(const key & C, const rangeSig & as);
 
     //Ring-ct MG sigs
     //Prove:
@@ -138,7 +138,7 @@ namespace rct {
     xmr_amount decodeRctSimple(const rctSig & rv, const key & sk, unsigned int i, key & mask, hw::device &hwdev);
     xmr_amount decodeRctSimple(const rctSig & rv, const key & sk, unsigned int i, hw::device &hwdev);
     key get_pre_mlsag_hash(const rctSig &rv, hw::device &hwdev);
-    bool signMultisig(rctSig &rv, const std::vector<unsigned int> &indices, const keyV &k, const multisig_out &msout, const key &secret_key);
+    //bool signMultisig(rctSig &rv, const std::vector<unsigned int> &indices, const keyV &k, const multisig_out &msout, const key &secret_key);
 }
 #endif  /* RCTSIGS_H */
 
