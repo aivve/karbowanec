@@ -3,6 +3,7 @@ add_definitions(-DSTATICLIB)
 
 include_directories(${CMAKE_SOURCE_DIR}/external/linenoise)
 include_directories(${CMAKE_SOURCE_DIR}/external/parallel_hashmap)
+include_directories(${CMAKE_SOURCE_DIR}/external/libsodium)
 
 file(GLOB_RECURSE BlockchainExplorer BlockchainExplorer/*)
 file(GLOB_RECURSE Checkpoints Checkpoints/*)
@@ -114,13 +115,14 @@ if (OPENSSL_FOUND)
 endif ()
 
 if (MSVC)
-  target_link_libraries(System crypt32 ws2_32)
-  target_link_libraries(Daemon Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
+  target_link_libraries(System crypt32 ws2_32 ${CMAKE_SOURCE_DIR}/external/libsodium/x64/Release/v143/static/libsodium)
+  target_link_libraries(Daemon Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32 )
   target_link_libraries(SimpleWallet Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
   target_link_libraries(PaymentGateService Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
   target_link_libraries(Optimizer Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
   target_link_libraries(Miner Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
-  
+
+  target_link_libraries(CryptoNoteCore ${CMAKE_SOURCE_DIR}/external/libsodium/x64/Release/v143/static/libsodium)
 else()
   target_link_libraries(Daemon ${EXTRA_LIBRARIES})
   target_link_libraries(SimpleWallet ${EXTRA_LIBRARIES})
