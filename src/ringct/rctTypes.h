@@ -39,25 +39,18 @@
 #include <cinttypes>
 #include <sodium/crypto_verify_32.h>
 
-extern "C" {
+//extern "C" {
 #include "crypto/crypto-ops.h"
 #include "crypto/random.h"
 #include "crypto/keccak.h"
-}
+//}
 #include "crypto/generic-ops.h"
 #include "crypto/crypto-util.h"
 #include "crypto/crypto.h"
 
-#include "Common/hex.h"
-#include "Common/span.h"
-#include "Common/memwipe.h"
 #include "Serialization/ISerializer.h"
 
-/*#include "serialization/containers.h"
-#include "serialization/debug_archive.h"
-#include "serialization/binary_archive.h"
-#include "serialization/json_archive.h"*/
-
+#include "Common/StringTools.h"
 
 //Define this flag when debugging to get additional info on the console
 #ifdef DBG
@@ -277,7 +270,8 @@ namespace rct {
         END_SERIALIZE()*/
 
       void serialize(ISerializer& s) {
-          s(0, "version");
+          int version = 0;
+          s(version, "version");
           s(range_proof_type, "range_proof_type");
           s(bp_version, "bp_version");
       }
@@ -292,7 +286,7 @@ namespace rct {
         ctkeyV outPk;
         xmr_amount txnFee; // contains b
 
-        template<bool W, template <bool> class ISerializer>
+        /*template<bool W, template <bool> class ISerializer>
         bool serialize_rctsig_base(ISerializer<W> &ar, size_t inputs, size_t outputs)
         {
           //FIELD(type)
@@ -361,9 +355,9 @@ namespace rct {
           }
           ar.end_array();
           return ar.good();
-        }
+        }*/
 
-        BEGIN_SERIALIZE_OBJECT()
+        /*BEGIN_SERIALIZE_OBJECT()
           FIELD(type)
           FIELD(message)
           FIELD(mixRing)
@@ -371,7 +365,18 @@ namespace rct {
           FIELD(ecdhInfo)
           FIELD(outPk)
           VARINT_FIELD(txnFee)
-        END_SERIALIZE()
+        END_SERIALIZE()*/
+
+        void serialize(ISerializer& s) {
+            s(type, "type");
+            s(message, "message");
+            s(mixRing, "mixRing");
+            s(pseudoOuts, "pseudoOuts");
+            s(ecdhInfo, "ecdhInfo");
+            s(outPk, "outPk");
+            s(txnFee, "txnFee");
+        }
+
     };
     struct rctSigPrunable {
         std::vector<rangeSig> rangeSigs;
@@ -381,7 +386,7 @@ namespace rct {
         keyV pseudoOuts; //C - for simple rct
 
         // when changing this function, update cryptonote::get_pruned_transaction_weight
-        template<bool W, template <bool> class Archive>
+        /*template<bool W, template <bool> class Archive>
         bool serialize_rctsig_prunable(Archive<W> &ar, uint8_t type, size_t inputs, size_t outputs, size_t mixin)
         {
           if (inputs >= 0xffffffff)
@@ -539,15 +544,24 @@ namespace rct {
             ar.end_array();
           }
           return ar.good();
-        }
+        }*/
 
-        BEGIN_SERIALIZE_OBJECT()
+        /*BEGIN_SERIALIZE_OBJECT()
           FIELD(rangeSigs)
           FIELD(bulletproofs)
           FIELD(MGs)
           FIELD(CLSAGs)
           FIELD(pseudoOuts)
-        END_SERIALIZE()
+        END_SERIALIZE()*/
+
+        void serialize(ISerializer& s) {
+            s(rangeSigs, "rangeSigs");
+            s(bulletproofs, "bulletproofs");
+            s(MGs, "MGs");
+            s(CLSAGs, "CLSAGs");
+            s(pseudoOuts, "pseudoOuts");
+        }
+
     };
     struct rctSig: public rctSigBase {
         rctSigPrunable p;
@@ -562,10 +576,15 @@ namespace rct {
           return type == RCTTypeBulletproof || type == RCTTypeBulletproof2 || type == RCTTypeCLSAG ? p.pseudoOuts : pseudoOuts;
         }
 
-        BEGIN_SERIALIZE_OBJECT()
+        /*BEGIN_SERIALIZE_OBJECT()
           FIELDS((rctSigBase&)*this)
           FIELD(p)
-        END_SERIALIZE()
+        END_SERIALIZE()*/
+
+        void serialize(ISerializer& s) {
+            s((rctSigBase&)*this, "rctSigBase");
+            s(p, "rctSigPrunable");
+        }
     };
 
     //other basepoint H = toPoint(cn_fast_hash(G)), G the basepoint
@@ -693,11 +712,11 @@ namespace CryptoNote {
     static inline bool operator!=(const Crypto::SecretKey &k0, const rct::key &k1) { return crypto_verify_32((const unsigned char*)&k0, k1.bytes); }
 }
 
-namespace rct {
+/*namespace rct {
 inline std::ostream &operator <<(std::ostream &o, const rct::key &v) {
   epee::to_hex::formatted(o, epee::as_byte_span(v)); return o;
 }
-}
+}*/
 
 
 namespace std
