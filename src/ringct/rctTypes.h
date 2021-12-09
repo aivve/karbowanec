@@ -33,7 +33,6 @@
 #define RCT_TYPES_H
 
 #include <cstddef>
-#include <stddef.h>
 #include <vector>
 #include <iostream>
 #include <cinttypes>
@@ -69,6 +68,8 @@ extern "C" {
 #define ATOMS 64
 
 //for printing large ints
+
+using namespace CryptoNote;
 
 //Namespace specifically for ring ct code
 namespace rct {
@@ -119,12 +120,13 @@ namespace rct {
         std::vector<key> mu_p; // for all inputs
         std::vector<key> c0; // for all inputs
 
-        BEGIN_SERIALIZE_OBJECT()
-          FIELD(c)
-          FIELD(mu_p)
-          if (!mu_p.empty() && mu_p.size() != c.size())
-            return false;
-        END_SERIALIZE()
+        bool serialize(ISerializer& s) {
+            s(c, "c");
+            s(mu_p, "mu_p");
+            s(c0, "c0");
+            if (!mu_p.empty() && mu_p.size() != c.size())
+                return false;
+        }
     };
 
     //data for passing the amount to the receiver secretly
@@ -136,10 +138,10 @@ namespace rct {
         key mask;
         key amount;
 
-        BEGIN_SERIALIZE_OBJECT()
-          FIELD(mask) // not saved from v2 BPs
-          FIELD(amount)
-        END_SERIALIZE()
+        void serialize(ISerializer& s) {
+            s(mask, "mask"); // not saved from v2 BPs
+            s(amount, "amount");
+        }
     };
 
     //containers for representing amounts
@@ -165,11 +167,11 @@ namespace rct {
         key cc;
         keyV II;
 
-        BEGIN_SERIALIZE_OBJECT()
-            FIELD(ss)
-            FIELD(cc)
+        void serialize(ISerializer& s) {
+            s(ss, "ss");
+            s(cc, "cc");
             // FIELD(II) - not serialized, it can be reconstructed
-        END_SERIALIZE()
+        }
     };
 
     // CLSAG signature
@@ -180,12 +182,12 @@ namespace rct {
         key I; // signing key image
         key D; // commitment key image
 
-        BEGIN_SERIALIZE_OBJECT()
-            FIELD(s)
-            FIELD(c1)
+        void serialize(ISerializer& s) {
+            s(s, "s");
+            s(c1, "c1");
             // FIELD(I) - not serialized, it can be reconstructed
-            FIELD(D)
-        END_SERIALIZE()
+            s(D, "D");
+        }
     };
 
     //contains the data for an Borromean sig
@@ -198,47 +200,47 @@ namespace rct {
         boroSig asig;
         key64 Ci;
 
-        BEGIN_SERIALIZE_OBJECT()
-            FIELD(asig)
-            FIELD(Ci)
-        END_SERIALIZE()
+        void serialize(ISerializer& s) {
+            s(asig, "asig");
+            s(Ci, "Ci");
+        }
     };
 
     struct Bulletproof
     {
-      rct::keyV V;
-      rct::key A, S, T1, T2;
-      rct::key taux, mu;
-      rct::keyV L, R;
-      rct::key a, b, t;
+        rct::keyV V;
+        rct::key A, S, T1, T2;
+        rct::key taux, mu;
+        rct::keyV L, R;
+        rct::key a, b, t;
 
-      Bulletproof():
-        A({}), S({}), T1({}), T2({}), taux({}), mu({}), a({}), b({}), t({}) {}
-      Bulletproof(const rct::key &V, const rct::key &A, const rct::key &S, const rct::key &T1, const rct::key &T2, const rct::key &taux, const rct::key &mu, const rct::keyV &L, const rct::keyV &R, const rct::key &a, const rct::key &b, const rct::key &t):
-        V({V}), A(A), S(S), T1(T1), T2(T2), taux(taux), mu(mu), L(L), R(R), a(a), b(b), t(t) {}
-      Bulletproof(const rct::keyV &V, const rct::key &A, const rct::key &S, const rct::key &T1, const rct::key &T2, const rct::key &taux, const rct::key &mu, const rct::keyV &L, const rct::keyV &R, const rct::key &a, const rct::key &b, const rct::key &t):
-        V(V), A(A), S(S), T1(T1), T2(T2), taux(taux), mu(mu), L(L), R(R), a(a), b(b), t(t) {}
+        Bulletproof():
+            A({}), S({}), T1({}), T2({}), taux({}), mu({}), a({}), b({}), t({}) {}
+        Bulletproof(const rct::key &V, const rct::key &A, const rct::key &S, const rct::key &T1, const rct::key &T2, const rct::key &taux, const rct::key &mu, const rct::keyV &L, const rct::keyV &R, const rct::key &a, const rct::key &b, const rct::key &t):
+            V({V}), A(A), S(S), T1(T1), T2(T2), taux(taux), mu(mu), L(L), R(R), a(a), b(b), t(t) {}
+        Bulletproof(const rct::keyV &V, const rct::key &A, const rct::key &S, const rct::key &T1, const rct::key &T2, const rct::key &taux, const rct::key &mu, const rct::keyV &L, const rct::keyV &R, const rct::key &a, const rct::key &b, const rct::key &t):
+            V(V), A(A), S(S), T1(T1), T2(T2), taux(taux), mu(mu), L(L), R(R), a(a), b(b), t(t) {}
 
-      bool operator==(const Bulletproof &other) const { return V == other.V && A == other.A && S == other.S && T1 == other.T1 && T2 == other.T2 && taux == other.taux && mu == other.mu && L == other.L && R == other.R && a == other.a && b == other.b && t == other.t; }
+        bool operator==(const Bulletproof &other) const { return V == other.V && A == other.A && S == other.S && T1 == other.T1 && T2 == other.T2 && taux == other.taux && mu == other.mu && L == other.L && R == other.R && a == other.a && b == other.b && t == other.t; }
 
-      BEGIN_SERIALIZE_OBJECT()
-        // Commitments aren't saved, they're restored via outPk
-        // FIELD(V)
-        FIELD(A)
-        FIELD(S)
-        FIELD(T1)
-        FIELD(T2)
-        FIELD(taux)
-        FIELD(mu)
-        FIELD(L)
-        FIELD(R)
-        FIELD(a)
-        FIELD(b)
-        FIELD(t)
+        bool serialize(ISerializer& s) {
+            // Commitments aren't saved, they're restored via outPk
+            // FIELD(V)
+            s(A, "A");
+            s(S, "S");
+            s(T1, "T1");
+            s(T2, "T2");
+            s(taux, "taux");
+            s(mu, "mu");
+            s(L, "L");
+            s(R, "R");
+            s(a, "a");
+            s(b, "b");
+            s(t, "t");
 
-        if (L.empty() || L.size() != R.size())
-          return false;
-      END_SERIALIZE()
+            if (L.empty() || L.size() != R.size())
+                return false;
+        }
     };
 
     size_t n_bulletproof_amounts(const Bulletproof &proof);
@@ -266,11 +268,17 @@ namespace rct {
       RangeProofType range_proof_type;
       int bp_version;
 
-      BEGIN_SERIALIZE_OBJECT()
-        VERSION_FIELD(0)
-        VARINT_FIELD(range_proof_type)
-        VARINT_FIELD(bp_version)
-      END_SERIALIZE()
+      /*BEGIN_SERIALIZE_OBJECT()
+          VERSION_FIELD(0)
+          VARINT_FIELD(range_proof_type)
+          VARINT_FIELD(bp_version)
+        END_SERIALIZE()*/
+
+      void serialize(ISerializer& s) {
+          s(0, "version");
+          s(range_proof_type, "range_proof_type");
+          s(bp_version, "bp_version");
+      }
     };
     struct rctSigBase {
         uint8_t type;
@@ -282,15 +290,18 @@ namespace rct {
         ctkeyV outPk;
         xmr_amount txnFee; // contains b
 
-        template<bool W, template <bool> class Archive>
-        bool serialize_rctsig_base(Archive<W> &ar, size_t inputs, size_t outputs)
+        template<bool W, template <bool> class ISerializer>
+        bool serialize_rctsig_base(ISerializer<W> &ar, size_t inputs, size_t outputs)
         {
-          FIELD(type)
-          if (type == RCTTypeNull)
-            return ar.good();
-          if (type != RCTTypeFull && type != RCTTypeSimple && type != RCTTypeBulletproof && type != RCTTypeBulletproof2 && type != RCTTypeCLSAG)
-            return false;
-          VARINT_FIELD(txnFee)
+          //FIELD(type)
+            ar(type, "type");
+            if (type == RCTTypeNull)
+                return true;
+            if (type != RCTTypeFull && type != RCTTypeSimple && type != RCTTypeBulletproof && type != RCTTypeBulletproof2 && type != RCTTypeCLSAG)
+                return false;
+          //VARINT_FIELD(txnFee)
+            ar(txnFee, "txnFee");
+            
           // inputs/outputs not saved, only here for serialization help
           // FIELD(message) - not serialized, it can be reconstructed
           // FIELD(mixRing) - not serialized, it can be reconstructed
@@ -673,7 +684,7 @@ namespace rct {
 }
 
 
-namespace cryptonote {
+namespace CryptoNote {
     static inline bool operator==(const Crypto::PublicKey &k0, const rct::key &k1) { return !crypto_verify_32((const unsigned char*)&k0, k1.bytes); }
     static inline bool operator!=(const Crypto::PublicKey &k0, const rct::key &k1) { return crypto_verify_32((const unsigned char*)&k0, k1.bytes); }
     static inline bool operator==(const Crypto::SecretKey &k0, const rct::key &k1) { return !crypto_verify_32((const unsigned char*)&k0, k1.bytes); }
@@ -691,7 +702,7 @@ namespace std
 {
   template<> struct hash<rct::key> { std::size_t operator()(const rct::key &k) const { return reinterpret_cast<const std::size_t&>(k); } };
 }
-
+/*
 BLOB_SERIALIZER(rct::key);
 BLOB_SERIALIZER(rct::key64);
 BLOB_SERIALIZER(rct::ctkey);
@@ -748,5 +759,5 @@ VARIANT_TAG(json_archive, rct::Bulletproof, "rct_bulletproof");
 VARIANT_TAG(json_archive, rct::multisig_kLRki, "rct_multisig_kLR");
 VARIANT_TAG(json_archive, rct::multisig_out, "rct_multisig_out");
 VARIANT_TAG(json_archive, rct::clsag, "rct_clsag");
-
+*/
 #endif  /* RCTTYPES_H */
