@@ -33,10 +33,11 @@
 #define RCT_TYPES_H
 
 #include <cstddef>
+#include <stddef.h>
 #include <vector>
 #include <iostream>
 #include <cinttypes>
-#include <crypto/include/sodium/crypto_verify_32.h>
+#include <sodium/crypto_verify_32.h>
 
 extern "C" {
 #include "crypto/crypto-ops.h"
@@ -44,6 +45,7 @@ extern "C" {
 #include "crypto/keccak.h"
 }
 #include "crypto/generic-ops.h"
+#include "crypto/crypto-util.h"
 #include "crypto/crypto.h"
 
 #include "Common/hex.h"
@@ -112,7 +114,7 @@ namespace rct {
         key R;
         key ki;
 
-        ~multisig_kLRki() { memwipe(&k, sizeof(k)); }
+        ~multisig_kLRki() { sodium_memzero(&k, sizeof(k)); }
     };
 
     struct multisig_out {

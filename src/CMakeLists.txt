@@ -1,9 +1,8 @@
-
 add_definitions(-DSTATICLIB)
 
 include_directories(${CMAKE_SOURCE_DIR}/external/linenoise)
 include_directories(${CMAKE_SOURCE_DIR}/external/parallel_hashmap)
-include_directories(${CMAKE_SOURCE_DIR}/external/libsodium)
+include_directories(${CMAKE_SOURCE_DIR}/external/libsodium/include)
 
 file(GLOB_RECURSE BlockchainExplorer BlockchainExplorer/*)
 file(GLOB_RECURSE Checkpoints Checkpoints/*)
@@ -65,6 +64,12 @@ add_library(Wallet ${Wallet} ${WalletLegacy})
 add_library(PaymentGate ${PaymentGate})
 add_library(JsonRpcServer ${JsonRpcServer})
 
+if (MSVC)
+  add_library(sodium STATIC IMPORTED )
+  set_property(TARGET sodium PROPERTY IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/external/libsodium/x64/Release/v143/static/libsodium.lib)
+  target_link_libraries(CryptoNoteCore sodium)
+endif()
+
 list(APPEND KarboCommon Common)
 list(APPEND KarboCore Rpc Http CryptoNoteCore Logging Serialization Crypto System Checkpoints)
 list(APPEND KarboWallet Wallet Transfers NodeRpcProxy)
@@ -115,14 +120,11 @@ if (OPENSSL_FOUND)
 endif ()
 
 if (MSVC)
-  target_link_libraries(System crypt32 ws2_32 ${CMAKE_SOURCE_DIR}/external/libsodium/x64/Release/v143/static/libsodium)
   target_link_libraries(Daemon Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32 )
   target_link_libraries(SimpleWallet Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
   target_link_libraries(PaymentGateService Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
   target_link_libraries(Optimizer Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
   target_link_libraries(Miner Rpcrt4 ws2_32 advapi32 crypt32 gdi32 user32)
-
-  target_link_libraries(CryptoNoteCore ${CMAKE_SOURCE_DIR}/external/libsodium/x64/Release/v143/static/libsodium)
 else()
   target_link_libraries(Daemon ${EXTRA_LIBRARIES})
   target_link_libraries(SimpleWallet ${EXTRA_LIBRARIES})
@@ -161,4 +163,3 @@ set_property(TARGET GreenWallet PROPERTY OUTPUT_NAME "greenwallet")
 set_property(TARGET Optimizer PROPERTY OUTPUT_NAME "optimizer")
 set_property(TARGET PaymentGateService PROPERTY OUTPUT_NAME "walletd")
 set_property(TARGET Miner PROPERTY OUTPUT_NAME "miner")
-
