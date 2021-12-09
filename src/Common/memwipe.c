@@ -32,15 +32,20 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#if !defined (_MSC_VER)
 #include <unistd.h>
+#endif
 #ifdef HAVE_EXPLICIT_BZERO
 #include <strings.h>
 #endif
 #include "memwipe.h"
 
 #if defined(_MSC_VER)
-#define SCARECROW \
-    __asm;
+//#define SCARECROW \
+//    __asm;
 #else
 #define SCARECROW \
     __asm__ __volatile__("" : : "r"(ptr) : "memory");
@@ -94,6 +99,8 @@ void *memwipe(void *ptr, size_t n)
  * Commit: ad1907fe73334d6c696c8539646c21b11178f20f
  * BoringSSL (LICENSE: ISC)
  */
+
+#if !defined (_MSC_VER)
 static void memory_cleanse(void *ptr, size_t len)
 {
     memset(ptr, 0, len);
@@ -103,12 +110,17 @@ static void memory_cleanse(void *ptr, size_t len)
        detect memset_s, it would be better to use that. */
     SCARECROW
 }
+#endif
 
 void *memwipe(void *ptr, size_t n)
 {
+#if defined (_MSC_VER)
+    SecureZeroMemory(ptr, n);
+#else
   if (n > 0)
     memory_cleanse(ptr, n);
   SCARECROW
+#endif
   return ptr;
 }
 
