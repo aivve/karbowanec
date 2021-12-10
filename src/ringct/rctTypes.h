@@ -48,9 +48,8 @@
 #include "crypto/crypto-util.h"
 #include "crypto/crypto.h"
 
-#include "Serialization/ISerializer.h"
-
 #include "Common/StringTools.h"
+#include "Serialization/ISerializer.h"
 
 //Define this flag when debugging to get additional info on the console
 #ifdef DBG
@@ -85,10 +84,29 @@ namespace rct {
         bool operator==(const key &k) const { return !crypto_verify_32(bytes, k.bytes); }
         unsigned char bytes[32];
 
-        void serialize(ISerializer& s) {
-            s.binary(&*this, sizeof(*this), "");
-        }
+        //void serialize(ISerializer& s) {
+        //    s.binary(&*this, sizeof(*this), "");
+        //};
     };
+
+    inline bool serializeVarintVector(std::vector<key>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
+
     using keyV = std::vector<key>; //vector of keys
     using keyM = std::vector<keyV>; //matrix of keys (indexed by column first)
 
@@ -193,11 +211,11 @@ namespace rct {
         key I; // signing key image
         key D; // commitment key image
 
-        void serialize(ISerializer& s) {
-            KV_MEMBER(s)
-            KV_MEMBER(c1)
+        void serialize(ISerializer& serializer) {
+            serializeVarintVector(s, serializer, "s");
+            serializer(c1, "c1");
             // KV_MEMBER(I) - not serialized, it can be reconstructed
-            KV_MEMBER(D)
+            serializer(D, "D");
         }
     };
 
@@ -243,8 +261,8 @@ namespace rct {
             KV_MEMBER(T2)
             KV_MEMBER(taux)
             KV_MEMBER(mu)
-            KV_MEMBER(L)
-            KV_MEMBER(R)
+            serializeVarintVector(L, s, "L"); //KV_MEMBER(L)
+            serializeVarintVector(R, s, "R");//KV_MEMBER(R)
             KV_MEMBER(a)
             KV_MEMBER(b)
             KV_MEMBER(t)
@@ -739,6 +757,7 @@ std::ostream& print256(std::ostream& o, const T& v) {
 inline std::ostream &operator <<(std::ostream &o, const rct::key &v) {
   return print256(o, v);
 }
+
 }
 
 

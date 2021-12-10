@@ -457,8 +457,6 @@ void serialize(KeyPair& keyPair, ISerializer& serializer) {
   serializer(keyPair.publicKey, "public_key");
 }
 
-
-
 void serialize(rct::key& key, ISerializer& serializer) {
     serializePod(key, "", serializer);
 }
