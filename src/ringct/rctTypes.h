@@ -89,7 +89,7 @@ namespace rct {
         //};
     };
 
-    inline bool serializeVarintVector(std::vector<key>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+    inline bool serialize_key_vector(std::vector<key>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
         size_t size = vector.size();
 
         if (!serializer.beginArray(size, name)) {
@@ -109,6 +109,24 @@ namespace rct {
 
     using keyV = std::vector<key>; //vector of keys
     using keyM = std::vector<keyV>; //matrix of keys (indexed by column first)
+
+    inline bool serialize_key_matrix(keyM& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
 
     //containers For CT operations
     //if it's  representing a private ctkey then "dest" contains the secret key of the address
@@ -197,7 +215,7 @@ namespace rct {
         keyV II;
 
         void serialize(ISerializer& s) {
-            KV_MEMBER(ss)
+            serialize_key_matrix(ss, s, "ss"); //KV_MEMBER(ss)
             KV_MEMBER(cc)
             // FIELD(II) - not serialized, it can be reconstructed
         }
@@ -212,7 +230,7 @@ namespace rct {
         key D; // commitment key image
 
         void serialize(ISerializer& serializer) {
-            serializeVarintVector(s, serializer, "s");
+            serialize_key_vector(s, serializer, "s");
             serializer(c1, "c1");
             // KV_MEMBER(I) - not serialized, it can be reconstructed
             serializer(D, "D");
@@ -261,8 +279,8 @@ namespace rct {
             KV_MEMBER(T2)
             KV_MEMBER(taux)
             KV_MEMBER(mu)
-            serializeVarintVector(L, s, "L"); //KV_MEMBER(L)
-            serializeVarintVector(R, s, "R");//KV_MEMBER(R)
+            serialize_key_vector(L, s, "L"); //KV_MEMBER(L)
+            serialize_key_vector(R, s, "R");//KV_MEMBER(R)
             KV_MEMBER(a)
             KV_MEMBER(b)
             KV_MEMBER(t)
@@ -405,7 +423,7 @@ namespace rct {
             KV_MEMBER(type)
             KV_MEMBER(message)
             KV_MEMBER(mixRing)
-            KV_MEMBER(pseudoOuts)
+            serialize_key_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
             KV_MEMBER(ecdhInfo)
             KV_MEMBER(outPk)
             KV_MEMBER(txnFee)
@@ -593,7 +611,7 @@ namespace rct {
             KV_MEMBER(bulletproofs)
             KV_MEMBER(MGs)
             KV_MEMBER(CLSAGs)
-            KV_MEMBER(pseudoOuts)
+            serialize_key_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
         }
 
     };
