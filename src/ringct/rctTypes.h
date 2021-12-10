@@ -85,12 +85,12 @@ namespace rct {
         bool operator==(const key &k) const { return !crypto_verify_32(bytes, k.bytes); }
         unsigned char bytes[32];
 
-        ///void serialize(ISerializer& s) {
-        ///    s.binary(&*this, sizeof(*this), "rct_key");
-        ///}
+        void serialize(ISerializer& s) {
+            s.binary(&*this, sizeof(*this), "");
+        }
     };
-    typedef std::vector<key> keyV; //vector of keys
-    typedef std::vector<keyV> keyM; //matrix of keys (indexed by column first)
+    using keyV = std::vector<key>; //vector of keys
+    using keyM = std::vector<keyV>; //matrix of keys (indexed by column first)
 
     //containers For CT operations
     //if it's  representing a private ctkey then "dest" contains the secret key of the address
@@ -106,8 +106,8 @@ namespace rct {
             KV_MEMBER(mask)
         }
     };
-    typedef std::vector<ctkey> ctkeyV;
-    typedef std::vector<ctkeyV> ctkeyM;
+    using ctkeyV = std::vector<ctkey>;
+    using ctkeyM = std::vector<ctkeyV>;
 
     //used for multisig data
     /*struct multisig_kLRki {
@@ -124,13 +124,13 @@ namespace rct {
         std::vector<key> mu_p; // for all inputs
         std::vector<key> c0; // for all inputs
 
-        bool serialize(ISerializer& s) {
+        void serialize(ISerializer& s) {
             //KV_MEMBER(c)
             //KV_MEMBER(mu_p)
             //KV_MEMBER(c0)
 
             if (!mu_p.empty() && mu_p.size() != c.size())
-                return false;
+                throw std::runtime_error("mu_p is empty or mu_p size mismatches c size");
         }
     };*/
 
@@ -234,7 +234,7 @@ namespace rct {
 
         bool operator==(const Bulletproof &other) const { return V == other.V && A == other.A && S == other.S && T1 == other.T1 && T2 == other.T2 && taux == other.taux && mu == other.mu && L == other.L && R == other.R && a == other.a && b == other.b && t == other.t; }
 
-        bool serialize(ISerializer& s) {
+        void serialize(ISerializer& s) {
             // Commitments aren't saved, they're restored via outPk
             // KV_MEMBER(V)
             KV_MEMBER(A)
@@ -250,8 +250,7 @@ namespace rct {
             KV_MEMBER(t)
 
             if (L.empty() || L.size() != R.size())
-                return false;
-            return true;
+                throw std::runtime_error("L is empty or L size mismatches R size");
         }
     };
 
@@ -755,14 +754,6 @@ namespace std
     bool serialize(rct::boroSig& sig, Common::StringView name, CryptoNote::ISerializer& serializer);
 }*/
 
-namespace CryptoNote {
-    void serialize(rct::key& k, ISerializer& serializer);
-
-    void serialize(rct::keyV& vector, ISerializer& serializer);
-    void serialize(rct::keyM& vector, ISerializer& serializer);
-
-    void serialize(rct::ctkeyV& vector, ISerializer& serializer);
-}
 
 /*
 BLOB_SERIALIZER(rct::key);

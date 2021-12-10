@@ -68,4 +68,11 @@ void serialize(AccountKeys& keys, ISerializer& s);
 
 void serialize(KeyPair& keyPair, ISerializer& serializer);
 
+
+void serialize(rct::key& key, ISerializer& serializer);
+
+void serialize(rct::keyV& vector, ISerializer& serializer);
+void serialize(rct::keyM& vector, ISerializer& serializer);
+void serialize(rct::ctkeyV& vector, ISerializer& serializer);
+
 }

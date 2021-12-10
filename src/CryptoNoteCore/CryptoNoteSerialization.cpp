@@ -458,4 +458,21 @@ void serialize(KeyPair& keyPair, ISerializer& serializer) {
 }
 
 
+
+void serialize(rct::key& key, ISerializer& serializer) {
+    serializePod(key, "", serializer);
+}
+
+void serialize(rct::keyV& vector, ISerializer& serializer) {
+    serializer(vector, "keyV");
+}
+
+void serialize(rct::keyM& vector, ISerializer& serializer) {
+    serializer(vector, "keyM");
+}
+
+void serialize(rct::ctkeyV& vector, ISerializer& serializer) {
+    serializer(vector, "ctkeyV");
+}
+
 } //namespace CryptoNote

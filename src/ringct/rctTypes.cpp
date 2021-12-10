@@ -331,20 +331,3 @@ bool serializeVarintVector(std::vector<rct::key>& vector, CryptoNote::ISerialize
         return serializePod(sig, name, serializer);
     }
 }*/
-
-namespace CryptoNote {
-    void serialize(rct::key& k, ISerializer& serializer) {
-        s.binary(k, sizeof(k), "rct_key");
-    }
-
-    void serialize(rct::keyV& vector, ISerializer& serializer) {
-        serializer(vector, "keyV");
-    }
-    void serialize(rct::keyM& m, ISerializer& serializer) {
-        serializer(vector, "keyM");
-    }
-
-    void serialize(rct::ctkeyV& vector, ISerializer& serializer) {
-        serializer(vector, "ctkeyV");
-    }
-}
