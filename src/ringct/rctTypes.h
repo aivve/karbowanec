@@ -415,7 +415,7 @@ namespace rct {
 
     };
     struct rctSigPrunable {
-        //std::vector<rangeSig> rangeSigs;
+        std::vector<rangeSig> rangeSigs;
         std::vector<Bulletproof> bulletproofs;
         std::vector<mgSig> MGs; // simple rct has N, full has 1
         std::vector<clsag> CLSAGs;
@@ -583,7 +583,7 @@ namespace rct {
         }*/
 
         void serialize(ISerializer& s) {
-            //KV_MEMBER(rangeSigs)
+            serialize_rct_vector(rangeSigs, s, "rangeSigs"); //KV_MEMBER(rangeSigs)
             serialize_rct_vector(bulletproofs, s, "bulletproofs"); //KV_MEMBER(bulletproofs)
             serialize_rct_vector(MGs, s, "MGs"); //KV_MEMBER(MGs)
             serialize_rct_vector(CLSAGs, s, "CLSAGs"); //KV_MEMBER(CLSAGs)
