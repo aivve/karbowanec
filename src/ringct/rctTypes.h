@@ -67,6 +67,45 @@ using namespace CryptoNote;
 
 //Namespace specifically for ring ct code
 namespace rct {
+
+    template <typename T>
+    inline bool serialize_rct_vector(std::vector<T>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
+
+    template <typename T>
+    inline bool serialize_rct_matrix(std::vector<T>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serialize_rct_vector(vector[i], serializer, "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
+
     //basic ops containers
     typedef unsigned char * Bytes;
 
@@ -86,44 +125,8 @@ namespace rct {
     };
 
     using keyV = std::vector<key>; //vector of keys
-
-    inline bool serialize_key_vector(rct::keyV& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
     
     using keyM = std::vector<keyV>; //matrix of keys (indexed by column first)
-
-    inline bool serialize_key_matrix(keyM& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serialize_key_vector(vector[i], serializer, "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
 
     //containers For CT operations
     //if it's  representing a private ctkey then "dest" contains the secret key of the address
@@ -141,43 +144,7 @@ namespace rct {
     };
     using ctkeyV = std::vector<ctkey>;
 
-    inline bool serialize_ctkey_vector(rct::ctkeyV& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
-
     using ctkeyM = std::vector<ctkeyV>;
-
-    inline bool serialize_ctkey_matrix(ctkeyM& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serialize_ctkey_vector(vector[i], serializer, "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
 
     //used for multisig data
     struct multisig_kLRki {
@@ -195,9 +162,9 @@ namespace rct {
         std::vector<key> c0; // for all inputs
 
         void serialize(ISerializer& s) {
-            serialize_key_vector(c, s, "c"); //KV_MEMBER(c)
-            serialize_key_vector(mu_p, s, "mu_p"); //KV_MEMBER(mu_p)
-            serialize_key_vector(c0, s, "c0"); //KV_MEMBER(c0)
+            serialize_rct_vector(c, s, "c"); //KV_MEMBER(c)
+            serialize_rct_vector(mu_p, s, "mu_p"); //KV_MEMBER(mu_p)
+            serialize_rct_vector(c0, s, "c0"); //KV_MEMBER(c0)
 
             if (!mu_p.empty() && mu_p.size() != c.size())
                 throw std::runtime_error("mu_p is empty or mu_p size mismatches c size");
@@ -218,24 +185,6 @@ namespace rct {
             KV_MEMBER(amount)
         }
     };
-
-    inline bool serialize_ecdhTuple_vector(std::vector<rct::ecdhTuple>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
 
     //containers for representing amounts
     typedef uint64_t xmr_amount;
@@ -267,29 +216,11 @@ namespace rct {
         keyV II;
 
         void serialize(ISerializer& s) {
-            serialize_key_matrix(ss, s, "ss"); //KV_MEMBER(ss)
+            serialize_rct_matrix(ss, s, "ss"); //KV_MEMBER(ss)
             KV_MEMBER(cc)
             // FIELD(II) - not serialized, it can be reconstructed
         }
     };
-
-    inline bool serialize_mgSig_vector(std::vector<rct::mgSig>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
 
     // CLSAG signature
     struct clsag {
@@ -300,30 +231,12 @@ namespace rct {
         key D; // commitment key image
 
         void serialize(ISerializer& serializer) {
-            serialize_key_vector(s, serializer, "s");
+            serialize_rct_vector(s, serializer, "s");
             serializer(c1, "c1");
             // KV_MEMBER(I) - not serialized, it can be reconstructed
             serializer(D, "D");
         }
     };
-
-    inline bool serialize_clsag_vector(std::vector<rct::clsag>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
 
     //contains the data for an Borromean sig
     // also contains the "Ci" values such that
@@ -367,8 +280,8 @@ namespace rct {
             KV_MEMBER(T2)
             KV_MEMBER(taux)
             KV_MEMBER(mu)
-            serialize_key_vector(L, s, "L"); //KV_MEMBER(L)
-            serialize_key_vector(R, s, "R");//KV_MEMBER(R)
+            serialize_rct_vector(L, s, "L"); //KV_MEMBER(L)
+            serialize_rct_vector(R, s, "R");//KV_MEMBER(R)
             KV_MEMBER(a)
             KV_MEMBER(b)
             KV_MEMBER(t)
@@ -377,24 +290,6 @@ namespace rct {
                 throw std::runtime_error("L is empty or L size mismatches R size");
         }
     };
-
-    inline bool serialize_Bulletproof_vector(std::vector<rct::Bulletproof>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-        size_t size = vector.size();
-
-        if (!serializer.beginArray(size, name)) {
-            vector.clear();
-            return false;
-        }
-
-        vector.resize(size);
-
-        for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
-        }
-
-        serializer.endArray();
-        return true;
-    }
 
     size_t n_bulletproof_amounts(const Bulletproof &proof);
     size_t n_bulletproof_max_amounts(const Bulletproof &proof);
@@ -534,10 +429,10 @@ namespace rct {
         void serialize(ISerializer& s) {
             KV_MEMBER(type)
             KV_MEMBER(message)
-            serialize_ctkey_matrix(mixRing, s, "mixRing"); //KV_MEMBER(mixRing)
-            serialize_key_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
-            serialize_ecdhTuple_vector(ecdhInfo, s, "ecdhInfo"); //KV_MEMBER(ecdhInfo)
-            serialize_ctkey_vector(outPk, s, "outPk"); //KV_MEMBER(outPk)
+            serialize_rct_matrix(mixRing, s, "mixRing"); //KV_MEMBER(mixRing)
+            serialize_rct_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
+            serialize_rct_vector(ecdhInfo, s, "ecdhInfo"); //KV_MEMBER(ecdhInfo)
+            serialize_rct_vector(outPk, s, "outPk"); //KV_MEMBER(outPk)
             KV_MEMBER(txnFee)
         }
 
@@ -720,10 +615,10 @@ namespace rct {
 
         void serialize(ISerializer& s) {
             //KV_MEMBER(rangeSigs)
-            serialize_Bulletproof_vector(bulletproofs, s, "bulletproofs"); //KV_MEMBER(bulletproofs)
-            serialize_mgSig_vector(MGs, s, "MGs"); //KV_MEMBER(MGs)
-            serialize_clsag_vector(CLSAGs, s, "CLSAGs"); //KV_MEMBER(CLSAGs)
-            serialize_key_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
+            serialize_rct_vector(bulletproofs, s, "bulletproofs"); //KV_MEMBER(bulletproofs)
+            serialize_rct_vector(MGs, s, "MGs"); //KV_MEMBER(MGs)
+            serialize_rct_vector(CLSAGs, s, "CLSAGs"); //KV_MEMBER(CLSAGs)
+            serialize_rct_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
         }
 
     };
