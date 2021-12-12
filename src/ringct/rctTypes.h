@@ -246,17 +246,17 @@ namespace rct {
     typedef unsigned int bits[ATOMS];
     typedef key key64[64];
 
-    /*struct boroSig {
+    struct boroSig {
         key64 s0;
         key64 s1;
         key ee;
 
         void serialize(ISerializer& s) {
-            KV_MEMBER(s0)
-            KV_MEMBER(s1)
+            s.binary(s0, sizeof(s0), "s0"); //KV_MEMBER(s0)
+            s.binary(s1, sizeof(s1), "s1"); //KV_MEMBER(s1)
             KV_MEMBER(ee)
         }
-    };*/
+    };
   
     //Container for precomp
     struct geDsmp {
@@ -335,15 +335,15 @@ namespace rct {
     // and the signature proves that each Ci is either
     // a Pedersen commitment to 0 or to 2^i
     //thus proving that C is in the range of [0, 2^64]
-    /*struct rangeSig {
+    struct rangeSig {
         boroSig asig;
         key64 Ci;
 
         void serialize(ISerializer& s) {
             KV_MEMBER(asig)
-            KV_MEMBER(Ci)
+            s.binary(Ci, sizeof(Ci), "Ci"); //KV_MEMBER(Ci)
         }
-    };*/
+    };
 
     struct Bulletproof
     {
