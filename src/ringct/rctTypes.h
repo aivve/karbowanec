@@ -323,6 +323,7 @@ namespace rct {
         END_SERIALIZE()*/
 
         void serialize(ISerializer& s) {
+            //VERSION_FIELD(0)
             if (s.type() == ISerializer::OUTPUT) {
                 int type = (int)range_proof_type;
                 s(type, "range_proof_type");
@@ -345,86 +346,62 @@ namespace rct {
         ctkeyV outPk;
         xmr_amount txnFee; // contains b
 
-        /*template<bool W, template <bool> class ISerializer>
-        bool serialize_rctsig_base(ISerializer<W> &ar, size_t inputs, size_t outputs)
+        //template<bool W, template <bool> class ISerializer>
+        bool serialize_rctsig_base(ISerializer &s, size_t inputs, size_t outputs)
         {
-          //FIELD(type)
-            ar(type, "type");
+            KV_MEMBER(type) //FIELD(type)
             if (type == RCTTypeNull)
                 return true;
             if (type != RCTTypeFull && type != RCTTypeSimple && type != RCTTypeBulletproof && type != RCTTypeBulletproof2 && type != RCTTypeCLSAG)
                 return false;
-          //VARINT_FIELD(txnFee)
-            ar(txnFee, "txnFee");
+            KV_MEMBER(txnFee)
             
-          // inputs/outputs not saved, only here for serialization help
-          // FIELD(message) - not serialized, it can be reconstructed
-          // FIELD(mixRing) - not serialized, it can be reconstructed
-          if (type == RCTTypeSimple) // moved to prunable with bulletproofs
-          {
-            ar.tag("pseudoOuts");
-            ar.begin_array();
-            PREPARE_CUSTOM_VECTOR_SERIALIZATION(inputs, pseudoOuts);
+            // inputs/outputs not saved, only here for serialization help
+            // FIELD(message) - not serialized, it can be reconstructed
+            // FIELD(mixRing) - not serialized, it can be reconstructed
+            if (type == RCTTypeSimple) // moved to prunable with bulletproofs
+            {
+            serialize_rct_vector(pseudoOuts, s, "pseudoOuts");
             if (pseudoOuts.size() != inputs)
-              return false;
-            for (size_t i = 0; i < inputs; ++i)
-            {
-              FIELDS(pseudoOuts[i])
-              if (inputs - i > 1)
-                ar.delimit_array();
+                return false;
             }
-            ar.end_array();
-          }
 
-          ar.tag("ecdhInfo");
-          ar.begin_array();
-          PREPARE_CUSTOM_VECTOR_SERIALIZATION(outputs, ecdhInfo);
-          if (ecdhInfo.size() != outputs)
-            return false;
-          for (size_t i = 0; i < outputs; ++i)
-          {
-            if (type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
+            if (!s.beginArray(outputs, "ecdhInfo"))
+                return false;
+            ecdhInfo.resize(outputs);
+            if (ecdhInfo.size() != outputs)
+                return false;
+            for (size_t i = 0; i < outputs; ++i)
             {
-              ar.begin_object();
-              if (!typename Archive<W>::is_saving())
-                memset(ecdhInfo[i].amount.bytes, 0, sizeof(ecdhInfo[i].amount.bytes));
-              Crypto::Hash8 &amount = (Crypto::Hash8&)ecdhInfo[i].amount;
-              FIELD(amount);
-              ar.end_object();
+                if (type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
+                {
+                    s.beginObject("");
+                    if (s.type() == ISerializer::INPUT) // if (!typename Archive<W>::is_saving())
+                        memset(ecdhInfo[i].amount.bytes, 0, sizeof(ecdhInfo[i].amount.bytes));
+                    Crypto::hash8& amount = (Crypto::hash8&)ecdhInfo[i].amount;
+                    s.binary(reinterpret_cast<char*>(& amount), sizeof(amount), "amount");
+                    s.endObject();
+                }
+                else
+                {
+                    KV_MEMBER(ecdhInfo[i])
+                }
             }
-            else
+            s.endArray();
+
+            if (!s.beginArray(outputs, "outPk"))
+                return false;
+            outPk.resize(outputs);
+            if (outPk.size() != outputs)
+                return false;
+            for (size_t i = 0; i < outputs; ++i)
             {
-              FIELDS(ecdhInfo[i])
+                s(outPk[i].mask, "mask");
             }
-            if (outputs - i > 1)
-              ar.delimit_array();
-          }
-          ar.end_array();
+            s.endArray();
 
-          ar.tag("outPk");
-          ar.begin_array();
-          PREPARE_CUSTOM_VECTOR_SERIALIZATION(outputs, outPk);
-          if (outPk.size() != outputs)
-            return false;
-          for (size_t i = 0; i < outputs; ++i)
-          {
-            FIELDS(outPk[i].mask)
-            if (outputs - i > 1)
-              ar.delimit_array();
-          }
-          ar.end_array();
-          return ar.good();
-        }*/
-
-        /*BEGIN_SERIALIZE_OBJECT()
-          FIELD(type)
-          FIELD(message)
-          FIELD(mixRing)
-          FIELD(pseudoOuts)
-          FIELD(ecdhInfo)
-          FIELD(outPk)
-          VARINT_FIELD(txnFee)
-        END_SERIALIZE()*/
+            return true;
+        }
 
         void serialize(ISerializer& s) {
             KV_MEMBER(type)
@@ -604,14 +581,6 @@ namespace rct {
           }
           return ar.good();
         }*/
-
-        /*BEGIN_SERIALIZE_OBJECT()
-          FIELD(rangeSigs)
-          FIELD(bulletproofs)
-          FIELD(MGs)
-          FIELD(CLSAGs)
-          FIELD(pseudoOuts)
-        END_SERIALIZE()*/
 
         void serialize(ISerializer& s) {
             //KV_MEMBER(rangeSigs)

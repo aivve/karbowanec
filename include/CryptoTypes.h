@@ -36,6 +36,10 @@ struct Hash {
   uint8_t data[32];
 };
 
+struct hash8 {
+  char data[8];
+};
+
 struct PublicKey : public EllipticCurvePoint {};
 
 struct SecretKey : public EllipticCurveScalar {
