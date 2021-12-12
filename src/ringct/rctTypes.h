@@ -39,11 +39,11 @@
 #include <cinttypes>
 #include <sodium/crypto_verify_32.h>
 
-//extern "C" {
+extern "C" {
 #include "crypto/crypto-ops.h"
-#include "crypto/random.h"
 #include "crypto/keccak.h"
-//}
+}
+#include "crypto/random.h"
 #include "crypto/generic-ops.h"
 #include "crypto/crypto-util.h"
 #include "crypto/crypto.h"
@@ -144,7 +144,44 @@ namespace rct {
         }
     };
     using ctkeyV = std::vector<ctkey>;
+
+    inline bool serialize_ctkey_vector(rct::ctkeyV& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
+
     using ctkeyM = std::vector<ctkeyV>;
+
+    inline bool serialize_ctkey_matrix(ctkeyM& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serialize_ctkey_vector(vector[i], serializer, "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
 
     //used for multisig data
     /*struct multisig_kLRki {
@@ -186,6 +223,24 @@ namespace rct {
         }
     };
 
+    inline bool serialize_ecdhTuple_vector(std::vector<rct::ecdhTuple>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
+
     //containers for representing amounts
     typedef uint64_t xmr_amount;
     typedef unsigned int bits[ATOMS];
@@ -222,6 +277,24 @@ namespace rct {
         }
     };
 
+    inline bool serialize_mgSig_vector(std::vector<rct::mgSig>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
+
     // CLSAG signature
     struct clsag {
         keyV s; // scalars
@@ -237,6 +310,24 @@ namespace rct {
             serializer(D, "D");
         }
     };
+
+    inline bool serialize_clsag_vector(std::vector<rct::clsag>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
 
     //contains the data for an Borromean sig
     // also contains the "Ci" values such that
@@ -290,6 +381,24 @@ namespace rct {
                 throw std::runtime_error("L is empty or L size mismatches R size");
         }
     };
+
+    inline bool serialize_Bulletproof_vector(std::vector<rct::Bulletproof>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+        size_t size = vector.size();
+
+        if (!serializer.beginArray(size, name)) {
+            vector.clear();
+            return false;
+        }
+
+        vector.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            serializer(vector[i], "");
+        }
+
+        serializer.endArray();
+        return true;
+    }
 
     size_t n_bulletproof_amounts(const Bulletproof &proof);
     size_t n_bulletproof_max_amounts(const Bulletproof &proof);
@@ -429,10 +538,10 @@ namespace rct {
         void serialize(ISerializer& s) {
             KV_MEMBER(type)
             KV_MEMBER(message)
-            KV_MEMBER(mixRing)
+            serialize_ctkey_matrix(mixRing, s, "mixRing"); //KV_MEMBER(mixRing)
             serialize_key_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
-            KV_MEMBER(ecdhInfo)
-            KV_MEMBER(outPk)
+            serialize_ecdhTuple_vector(ecdhInfo, s, "ecdhInfo"); //KV_MEMBER(ecdhInfo)
+            serialize_ctkey_vector(outPk, s, "outPk"); //KV_MEMBER(outPk)
             KV_MEMBER(txnFee)
         }
 
@@ -615,9 +724,9 @@ namespace rct {
 
         void serialize(ISerializer& s) {
             //KV_MEMBER(rangeSigs)
-            KV_MEMBER(bulletproofs)
-            KV_MEMBER(MGs)
-            KV_MEMBER(CLSAGs)
+            serialize_Bulletproof_vector(bulletproofs, s, "bulletproofs"); //KV_MEMBER(bulletproofs)
+            serialize_mgSig_vector(MGs, s, "MGs"); //KV_MEMBER(MGs)
+            serialize_clsag_vector(CLSAGs, s, "CLSAGs"); //KV_MEMBER(CLSAGs)
             serialize_key_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
         }
 
