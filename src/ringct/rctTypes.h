@@ -162,9 +162,9 @@ namespace rct {
         std::vector<key> c0; // for all inputs
 
         void serialize(ISerializer& s) {
-            serialize_rct_vector(c, s, "c"); //KV_MEMBER(c)
-            serialize_rct_vector(mu_p, s, "mu_p"); //KV_MEMBER(mu_p)
-            serialize_rct_vector(c0, s, "c0"); //KV_MEMBER(c0)
+            serialize_rct_vector(c, s, "c");
+            serialize_rct_vector(mu_p, s, "mu_p");
+            serialize_rct_vector(c0, s, "c0");
 
             if (!mu_p.empty() && mu_p.size() != c.size())
                 throw std::runtime_error("mu_p is empty or mu_p size mismatches c size");
@@ -197,8 +197,8 @@ namespace rct {
         key ee;
 
         void serialize(ISerializer& s) {
-            s.binary(s0, sizeof(s0), "s0"); //KV_MEMBER(s0)
-            s.binary(s1, sizeof(s1), "s1"); //KV_MEMBER(s1)
+            s.binary(s0, sizeof(s0), "s0");
+            s.binary(s1, sizeof(s1), "s1");
             KV_MEMBER(ee)
         }
     };
@@ -216,7 +216,7 @@ namespace rct {
         keyV II;
 
         void serialize(ISerializer& s) {
-            serialize_rct_matrix(ss, s, "ss"); //KV_MEMBER(ss)
+            serialize_rct_matrix(ss, s, "ss");
             KV_MEMBER(cc)
             // FIELD(II) - not serialized, it can be reconstructed
         }
@@ -250,7 +250,7 @@ namespace rct {
 
         void serialize(ISerializer& s) {
             KV_MEMBER(asig)
-            s.binary(Ci, sizeof(Ci), "Ci"); //KV_MEMBER(Ci)
+            s.binary(Ci, sizeof(Ci), "Ci");
         }
     };
 
@@ -280,8 +280,8 @@ namespace rct {
             KV_MEMBER(T2)
             KV_MEMBER(taux)
             KV_MEMBER(mu)
-            serialize_rct_vector(L, s, "L"); //KV_MEMBER(L)
-            serialize_rct_vector(R, s, "R");//KV_MEMBER(R)
+            serialize_rct_vector(L, s, "L");
+            serialize_rct_vector(R, s, "R");
             KV_MEMBER(a)
             KV_MEMBER(b)
             KV_MEMBER(t)
@@ -316,12 +316,6 @@ namespace rct {
         RangeProofType range_proof_type;
         int bp_version;
 
-      /*BEGIN_SERIALIZE_OBJECT()
-          VERSION_FIELD(0)
-          VARINT_FIELD(range_proof_type)
-          VARINT_FIELD(bp_version)
-        END_SERIALIZE()*/
-
         void serialize(ISerializer& s) {
             //VERSION_FIELD(0)
             if (s.type() == ISerializer::OUTPUT) {
@@ -346,7 +340,6 @@ namespace rct {
         ctkeyV outPk;
         xmr_amount txnFee; // contains b
 
-        //template<bool W, template <bool> class ISerializer>
         bool serialize_rctsig_base(ISerializer &s, size_t inputs, size_t outputs)
         {
             KV_MEMBER(type) //FIELD(type)
@@ -406,10 +399,10 @@ namespace rct {
         void serialize(ISerializer& s) {
             KV_MEMBER(type)
             KV_MEMBER(message)
-            serialize_rct_matrix(mixRing, s, "mixRing"); //KV_MEMBER(mixRing)
-            serialize_rct_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
-            serialize_rct_vector(ecdhInfo, s, "ecdhInfo"); //KV_MEMBER(ecdhInfo)
-            serialize_rct_vector(outPk, s, "outPk"); //KV_MEMBER(outPk)
+            serialize_rct_matrix(mixRing, s, "mixRing");
+            serialize_rct_vector(pseudoOuts, s, "pseudoOuts");
+            serialize_rct_vector(ecdhInfo, s, "ecdhInfo");
+            serialize_rct_vector(outPk, s, "outPk");
             KV_MEMBER(txnFee)
         }
 
@@ -422,172 +415,142 @@ namespace rct {
         keyV pseudoOuts; //C - for simple rct
 
         // when changing this function, update cryptonote::get_pruned_transaction_weight
-        /*template<bool W, template <bool> class Archive>
-        bool serialize_rctsig_prunable(Archive<W> &ar, uint8_t type, size_t inputs, size_t outputs, size_t mixin)
+        bool serialize_rctsig_prunable(ISerializer& s, uint8_t type, size_t inputs, size_t outputs, size_t mixin)
         {
-          if (inputs >= 0xffffffff)
+            if (inputs >= 0xffffffff)
             return false;
-          if (outputs >= 0xffffffff)
+            if (outputs >= 0xffffffff)
             return false;
-          if (mixin >= 0xffffffff)
+            if (mixin >= 0xffffffff)
             return false;
-          if (type == RCTTypeNull)
-            return ar.good();
-          if (type != RCTTypeFull && type != RCTTypeSimple && type != RCTTypeBulletproof && type != RCTTypeBulletproof2 && type != RCTTypeCLSAG)
+            if (type == RCTTypeNull)
+            return true;
+            if (type != RCTTypeFull && type != RCTTypeSimple && type != RCTTypeBulletproof && type != RCTTypeBulletproof2 && type != RCTTypeCLSAG)
             return false;
-          if (type == RCTTypeBulletproof || type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
-          {
-            uint32_t nbp = bulletproofs.size();
-            if (type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
-              VARINT_FIELD(nbp)
-            else
-              FIELD(nbp)
-            ar.tag("bp");
-            ar.begin_array();
-            if (nbp > outputs)
-              return false;
-            PREPARE_CUSTOM_VECTOR_SERIALIZATION(nbp, bulletproofs);
-            for (size_t i = 0; i < nbp; ++i)
+            if (type == RCTTypeBulletproof || type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
             {
-              FIELDS(bulletproofs[i])
-              if (nbp - i > 1)
-                ar.delimit_array();
-            }
-            if (n_bulletproof_max_amounts(bulletproofs) < outputs)
-              return false;
-            ar.end_array();
-          }
-          else
-          {
-            ar.tag("rangeSigs");
-            ar.begin_array();
-            PREPARE_CUSTOM_VECTOR_SERIALIZATION(outputs, rangeSigs);
-            if (rangeSigs.size() != outputs)
-              return false;
-            for (size_t i = 0; i < outputs; ++i)
-            {
-              FIELDS(rangeSigs[i])
-              if (outputs - i > 1)
-                ar.delimit_array();
-            }
-            ar.end_array();
-          }
-
-          if (type == RCTTypeCLSAG)
-          {
-            ar.tag("CLSAGs");
-            ar.begin_array();
-            PREPARE_CUSTOM_VECTOR_SERIALIZATION(inputs, CLSAGs);
-            if (CLSAGs.size() != inputs)
-              return false;
-            for (size_t i = 0; i < inputs; ++i)
-            {
-              // we save the CLSAGs contents directly, because we want it to save its
-              // arrays without the size prefixes, and the load can't know what size
-              // to expect if it's not in the data
-              ar.begin_object();
-              ar.tag("s");
-              ar.begin_array();
-              PREPARE_CUSTOM_VECTOR_SERIALIZATION(mixin + 1, CLSAGs[i].s);
-              if (CLSAGs[i].s.size() != mixin + 1)
-                return false;
-              for (size_t j = 0; j <= mixin; ++j)
-              {
-                FIELDS(CLSAGs[i].s[j])
-                if (mixin + 1 - j > 1)
-                  ar.delimit_array();
-              }
-              ar.end_array();
-
-              ar.tag("c1");
-              FIELDS(CLSAGs[i].c1)
-
-              // CLSAGs[i].I not saved, it can be reconstructed
-              ar.tag("D");
-              FIELDS(CLSAGs[i].D)
-              ar.end_object();
-
-              if (inputs - i > 1)
-                 ar.delimit_array();
-            }
-
-            ar.end_array();
-          }
-          else
-          {
-            ar.tag("MGs");
-            ar.begin_array();
-            // we keep a byte for size of MGs, because we don't know whether this is
-            // a simple or full rct signature, and it's starting to annoy the hell out of me
-            size_t mg_elements = (type == RCTTypeSimple || type == RCTTypeBulletproof || type == RCTTypeBulletproof2) ? inputs : 1;
-            PREPARE_CUSTOM_VECTOR_SERIALIZATION(mg_elements, MGs);
-            if (MGs.size() != mg_elements)
-              return false;
-            for (size_t i = 0; i < mg_elements; ++i)
-            {
-              // we save the MGs contents directly, because we want it to save its
-              // arrays and matrices without the size prefixes, and the load can't
-              // know what size to expect if it's not in the data
-              ar.begin_object();
-              ar.tag("ss");
-              ar.begin_array();
-              PREPARE_CUSTOM_VECTOR_SERIALIZATION(mixin + 1, MGs[i].ss);
-              if (MGs[i].ss.size() != mixin + 1)
-                return false;
-              for (size_t j = 0; j < mixin + 1; ++j)
-              {
-                ar.begin_array();
-                size_t mg_ss2_elements = ((type == RCTTypeSimple || type == RCTTypeBulletproof || type == RCTTypeBulletproof2) ? 1 : inputs) + 1;
-                PREPARE_CUSTOM_VECTOR_SERIALIZATION(mg_ss2_elements, MGs[i].ss[j]);
-                if (MGs[i].ss[j].size() != mg_ss2_elements)
-                  return false;
-                for (size_t k = 0; k < mg_ss2_elements; ++k)
+                uint32_t nbp = (uint32_t)bulletproofs.size();
+                KV_MEMBER(nbp)
+                size_t size = bulletproofs.size();
+                if (!s.beginArray(size, "bp"))
+                    return false;
+                if (nbp > outputs)
+                    return false;
+                bulletproofs.resize(nbp);
+                for (size_t i = 0; i < nbp; ++i)
                 {
-                  FIELDS(MGs[i].ss[j][k])
-                  if (mg_ss2_elements - k > 1)
-                    ar.delimit_array();
+                    s(bulletproofs[i], "");
                 }
-                ar.end_array();
-  
-                if (mixin + 1 - j > 1)
-                  ar.delimit_array();
-              }
-              ar.end_array();
-
-              ar.tag("cc");
-              FIELDS(MGs[i].cc)
-              // MGs[i].II not saved, it can be reconstructed
-              ar.end_object();
-
-              if (mg_elements - i > 1)
-                 ar.delimit_array();
+                if (n_bulletproof_max_amounts(bulletproofs) < outputs)
+                    return false;
+                s.endArray();
             }
-            ar.end_array();
-          }
-          if (type == RCTTypeBulletproof || type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
-          {
-            ar.tag("pseudoOuts");
-            ar.begin_array();
-            PREPARE_CUSTOM_VECTOR_SERIALIZATION(inputs, pseudoOuts);
-            if (pseudoOuts.size() != inputs)
-              return false;
-            for (size_t i = 0; i < inputs; ++i)
+            else
             {
-              FIELDS(pseudoOuts[i])
-              if (inputs - i > 1)
-                ar.delimit_array();
+                if (!s.beginArray(outputs, "rangeSigs"))
+                    return false;
+                rangeSigs.resize(outputs);
+                if (rangeSigs.size() != outputs)
+                    return false;
+                for (size_t i = 0; i < outputs; ++i)
+                {
+                    s(rangeSigs[i], ""); 
+                }
+                s.endArray();
             }
-            ar.end_array();
-          }
-          return ar.good();
-        }*/
+
+            if (type == RCTTypeCLSAG)
+            {
+                if (!s.beginArray(inputs, "CLSAGs"))
+                    return false;
+                CLSAGs.resize(inputs);
+                if (CLSAGs.size() != inputs)
+                    return false;
+                for (size_t i = 0; i < inputs; ++i)
+                {
+                    // we save the CLSAGs contents directly, because we want it to save its
+                    // arrays without the size prefixes, and the load can't know what size
+                    // to expect if it's not in the data
+                    s.beginObject("");
+                    size_t size = mixin + 1;
+                    s.beginArray(size, "s");
+                    CLSAGs[i].s.resize(size);
+                    if (CLSAGs[i].s.size() != mixin + 1)
+                        return false;
+                    for (size_t j = 0; j <= mixin; ++j)
+                    {
+                        s(CLSAGs[i].s[j], "");
+                    }
+                    s.endArray();
+                    s(CLSAGs[i].c1, "c1");
+                    // CLSAGs[i].I not saved, it can be reconstructed
+                    s(CLSAGs[i].D, "D");
+                    s.endObject();
+                }
+                s.endArray();
+            }
+            else
+            {
+                // we keep a byte for size of MGs, because we don't know whether this is
+                // a simple or full rct signature, and it's starting to annoy the hell out of me
+                size_t mg_elements = (type == RCTTypeSimple || type == RCTTypeBulletproof || type == RCTTypeBulletproof2) ? inputs : 1;
+                if (!s.beginArray(mg_elements, "MGs"))
+                    return false;
+                MGs.resize(mg_elements);
+                if (MGs.size() != mg_elements)
+                    return false;
+                for (size_t i = 0; i < mg_elements; ++i)
+                {
+                    // we save the MGs contents directly, because we want it to save its
+                    // arrays and matrices without the size prefixes, and the load can't
+                    // know what size to expect if it's not in the data
+                    s.beginObject("");
+                    size_t size = mixin + 1;
+                    s.beginArray(size, "ss");
+                    MGs[i].ss.resize(size);
+                    if (MGs[i].ss.size() != mixin + 1)
+                        return false;
+                    for (size_t j = 0; j < mixin + 1; ++j)
+                    {
+                        s.beginArray(size, "");
+                        size_t mg_ss2_elements = ((type == RCTTypeSimple || type == RCTTypeBulletproof || type == RCTTypeBulletproof2) ? 1 : inputs) + 1;
+                        MGs[i].ss[j].resize(mg_ss2_elements);
+                        if (MGs[i].ss[j].size() != mg_ss2_elements)
+                            return false;
+                        for (size_t k = 0; k < mg_ss2_elements; ++k)
+                        {
+                            s(MGs[i].ss[j][k], "");
+                        }
+                        s.endArray();
+                    }
+                    s.endArray();
+                    s(MGs[i].cc, "cc");
+                    // MGs[i].II not saved, it can be reconstructed
+                }
+                s.endArray();
+
+            }
+            if (type == RCTTypeBulletproof || type == RCTTypeBulletproof2 || type == RCTTypeCLSAG)
+            {
+                s.beginArray(inputs, "pseudoOuts");
+                pseudoOuts.resize(inputs);
+                if (pseudoOuts.size() != inputs)
+                    return false;
+                for (size_t i = 0; i < inputs; ++i)
+                {
+                    s(pseudoOuts[i], "");
+                }
+                s.endArray();
+            }
+            return true;
+        }
 
         void serialize(ISerializer& s) {
-            serialize_rct_vector(rangeSigs, s, "rangeSigs"); //KV_MEMBER(rangeSigs)
-            serialize_rct_vector(bulletproofs, s, "bulletproofs"); //KV_MEMBER(bulletproofs)
-            serialize_rct_vector(MGs, s, "MGs"); //KV_MEMBER(MGs)
-            serialize_rct_vector(CLSAGs, s, "CLSAGs"); //KV_MEMBER(CLSAGs)
-            serialize_rct_vector(pseudoOuts, s, "pseudoOuts"); //KV_MEMBER(pseudoOuts)
+            serialize_rct_vector(rangeSigs, s, "rangeSigs");
+            serialize_rct_vector(bulletproofs, s, "bulletproofs");
+            serialize_rct_vector(MGs, s, "MGs");
+            serialize_rct_vector(CLSAGs, s, "CLSAGs");
+            serialize_rct_vector(pseudoOuts, s, "pseudoOuts");
         }
 
     };
@@ -603,11 +566,6 @@ namespace rct {
         {
           return type == RCTTypeBulletproof || type == RCTTypeBulletproof2 || type == RCTTypeCLSAG ? p.pseudoOuts : pseudoOuts;
         }
-
-        /*BEGIN_SERIALIZE_OBJECT()
-          FIELDS((rctSigBase&)*this)
-          FIELD(p)
-        END_SERIALIZE()*/
 
         void serialize(ISerializer& s) {
             KV_MEMBER((rctSigBase&)*this)
