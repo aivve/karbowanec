@@ -718,12 +718,10 @@ namespace std
   template<> struct hash<rct::key> { std::size_t operator()(const rct::key &k) const { return reinterpret_cast<const std::size_t&>(k); } };
 }
 
-/*namespace Crypto {
+namespace Crypto {
     bool serialize(rct::key& key, Common::StringView name, CryptoNote::ISerializer& serializer);
     bool serialize(rct::key64& key, Common::StringView name, CryptoNote::ISerializer& serializer);
-    //bool serialize(rct::multisig_kLRki& key, Common::StringView name, CryptoNote::ISerializer& serializer);
-    bool serialize(rct::boroSig& sig, Common::StringView name, CryptoNote::ISerializer& serializer);
-}*/
+}
 
 
 /*

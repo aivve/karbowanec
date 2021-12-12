@@ -28,29 +28,13 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "misc_log_ex.h"
-#include "cryptonote_config.h"
+#include "CryptoNoteConfig.h"
 #include "rctTypes.h"
-#include "int-util.h"
+#include "Common/int-util.h"
+#include "Common/mes.h"
+
 using namespace crypto;
 using namespace std;
-
-#include "Common/ConsoleTools.h"
-
-namespace concolor
-{
-    using namespace Common::Console;
-
-    inline std::basic_ostream<char, std::char_traits<char> >& red(std::basic_ostream<char, std::char_traits<char> >& ostr)
-    {
-        setTextColor(Color::BrightRed);
-        return ostr;
-    }
-}
-
-#ifndef CHECK_AND_ASSERT_MES
-#define CHECK_AND_ASSERT_MES(expr, fail_ret_val, message)   do{if(!(expr)) {std::cout << concolor::red << message << concolor::normal << std::endl; return fail_ret_val;};}while(0)
-#endif
 
 namespace rct {
 
@@ -294,40 +278,17 @@ namespace rct {
 
 }
 
-template <typename T>
-bool serializePod(T& v, Common::StringView name, CryptoNote::ISerializer& serializer) {
-    return serializer.binary(&v, sizeof(v), name);
-}
 
-bool serializeVarintVector(std::vector<rct::key>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
-    size_t size = vector.size();
-
-    if (!serializer.beginArray(size, name)) {
-        vector.clear();
-        return false;
+namespace Crypto {
+    template <typename T>
+    bool serializePod(T& v, Common::StringView name, CryptoNote::ISerializer& serializer) {
+        return serializer.binary(&v, sizeof(v), name);
     }
 
-    vector.resize(size);
-
-    for (size_t i = 0; i < size; ++i) {
-        serializer(vector[i], "");
-    }
-
-    serializer.endArray();
-    return true;
-}
-
-/*namespace Crypto {
     bool serialize(rct::key& key, Common::StringView name, CryptoNote::ISerializer& serializer) {
         return serializePod(key, name, serializer);
     }
     bool serialize(rct::key64& key, Common::StringView name, CryptoNote::ISerializer& serializer) {
         return serializePod(key, name, serializer);
     }
-    //bool serialize(rct::multisig_kLRki& key, Common::StringView name, CryptoNote::ISerializer& serializer) {
-    //    return serializePod(key, name, serializer);
-    //}
-    bool serialize(rct::boroSig& sig, Common::StringView name, CryptoNote::ISerializer& serializer) {
-        return serializePod(sig, name, serializer);
-    }
-}*/
+}
