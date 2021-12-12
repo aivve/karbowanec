@@ -84,12 +84,14 @@ namespace rct {
         bool operator==(const key &k) const { return !crypto_verify_32(bytes, k.bytes); }
         unsigned char bytes[32];
 
-        //void serialize(ISerializer& s) {
-        //    s.binary(&*this, sizeof(*this), "");
-        //};
+        void serialize(ISerializer& s) {
+            s.binary(&*this, sizeof(*this), "");
+        };
     };
 
-    inline bool serialize_key_vector(std::vector<key>& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
+    using keyV = std::vector<key>; //vector of keys
+
+    inline bool serialize_key_vector(rct::keyV& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
         size_t size = vector.size();
 
         if (!serializer.beginArray(size, name)) {
@@ -106,8 +108,7 @@ namespace rct {
         serializer.endArray();
         return true;
     }
-
-    using keyV = std::vector<key>; //vector of keys
+    
     using keyM = std::vector<keyV>; //matrix of keys (indexed by column first)
 
     inline bool serialize_key_matrix(keyM& vector, CryptoNote::ISerializer& serializer, Common::StringView name) {
@@ -121,7 +122,7 @@ namespace rct {
         vector.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
-            serializer(vector[i], "");
+            serialize_key_vector(vector[i], serializer, "");
         }
 
         serializer.endArray();
@@ -310,10 +311,10 @@ namespace rct {
       RCTTypeBulletproof2 = 4,
       RCTTypeCLSAG = 5,
     };
-    enum RangeProofType { RangeProofBorromean, RangeProofBulletproof, RangeProofMultiOutputBulletproof, RangeProofPaddedBulletproof };
+    enum RangeProofType : uint8_t { RangeProofBorromean, RangeProofBulletproof, RangeProofMultiOutputBulletproof, RangeProofPaddedBulletproof };
     struct RCTConfig {
-      RangeProofType range_proof_type;
-      int bp_version;
+        RangeProofType range_proof_type;
+        int bp_version;
 
       /*BEGIN_SERIALIZE_OBJECT()
           VERSION_FIELD(0)
@@ -321,12 +322,18 @@ namespace rct {
           VARINT_FIELD(bp_version)
         END_SERIALIZE()*/
 
-      void serialize(ISerializer& s) {
-          int version = 0;
-          s(version, "version");
-          KV_MEMBER(range_proof_type)
-          KV_MEMBER(bp_version)
-      }
+        void serialize(ISerializer& s) {
+            if (s.type() == ISerializer::OUTPUT) {
+                int type = (int)range_proof_type;
+                s(type, "range_proof_type");
+            }
+            else {
+                int type = 0;
+                s(type, "range_proof_type");
+                range_proof_type = (RangeProofType)type;
+            }
+            KV_MEMBER(bp_version)
+        }
     };
     struct rctSigBase {
         uint8_t type;
