@@ -75,12 +75,8 @@ namespace rct {
     //  but uses unsigned chars,
     //  also includes an operator for accessing the i'th byte.
     struct key {
-        unsigned char & operator[](int i) {
-            return bytes[i];
-        }
-        unsigned char operator[](int i) const {
-            return bytes[i];
-        }
+        unsigned char & operator[](int i) { return bytes[i]; }
+        unsigned char operator[](int i) const { return bytes[i]; }
         bool operator==(const key &k) const { return !crypto_verify_32(bytes, k.bytes); }
         unsigned char bytes[32];
 
@@ -184,7 +180,7 @@ namespace rct {
     }
 
     //used for multisig data
-    /*struct multisig_kLRki {
+    struct multisig_kLRki {
         key k;
         key L;
         key R;
@@ -199,14 +195,14 @@ namespace rct {
         std::vector<key> c0; // for all inputs
 
         void serialize(ISerializer& s) {
-            //KV_MEMBER(c)
-            //KV_MEMBER(mu_p)
-            //KV_MEMBER(c0)
+            serialize_key_vector(c, s, "c"); //KV_MEMBER(c)
+            serialize_key_vector(mu_p, s, "mu_p"); //KV_MEMBER(mu_p)
+            serialize_key_vector(c0, s, "c0"); //KV_MEMBER(c0)
 
             if (!mu_p.empty() && mu_p.size() != c.size())
                 throw std::runtime_error("mu_p is empty or mu_p size mismatches c size");
         }
-    };*/
+    };
 
     //data for passing the amount to the receiver secretly
     // If the pedersen commitment to an amount is C = aG + bH,
