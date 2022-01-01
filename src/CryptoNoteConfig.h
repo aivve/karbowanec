@@ -113,7 +113,7 @@ const uint32_t UPGRADE_HEIGHT_V4_1                           = 300000; // LWMA3
 const uint32_t UPGRADE_HEIGHT_V4_2                           = 500000; // Fee per-byte for extra, ban unmixable denominations
 const uint32_t UPGRADE_HEIGHT_V4_3                           = 667000; // Fixed min fee + fee per-byte for extra
 const uint32_t UPGRADE_HEIGHT_V5                             = 700000; // Block v5, back to LWMA1+, Alt. Signed Proof-of-Work
-const uint32_t UPGRADE_HEIGHT_V6                             = 4294967294; // Block v6
+const uint32_t UPGRADE_HEIGHT_V6                             = 700936; // Block v6
 
 const unsigned UPGRADE_VOTING_THRESHOLD                      = 90; // percent
 const uint32_t UPGRADE_VOTING_WINDOW                         = EXPECTED_NUMBER_OF_BLOCKS_PER_DAY;  // blocks
@@ -148,9 +148,9 @@ const size_t   BLOCKS_IDS_SYNCHRONIZING_DEFAULT_COUNT        =  10000;  //by def
 const size_t   BLOCKS_SYNCHRONIZING_DEFAULT_COUNT            =  128;    //by default, blocks count in blocks downloading
 const size_t   COMMAND_RPC_GET_BLOCKS_FAST_MAX_COUNT         =  1000;
 
-const int      P2P_DEFAULT_PORT                              =  32347;
-const int      RPC_DEFAULT_PORT                              =  32348;
-const int      RPC_DEFAULT_SSL_PORT                          =  32448;
+const int      P2P_DEFAULT_PORT                              =  12347;
+const int      RPC_DEFAULT_PORT                              =  12348;
+const int      RPC_DEFAULT_SSL_PORT                          =  12448;
 const int      WALLET_RPC_DEFAULT_PORT                       =  15000;
 const int      WALLET_RPC_DEFAULT_SSL_PORT                   =  15100;
 const int      GATE_RPC_DEFAULT_PORT                         =  16000;
@@ -197,7 +197,7 @@ const uint32_t P2P_IDLE_CONNECTION_KILL_INTERVAL             = (5 * 60);      //
 
 const char     P2P_STAT_TRUSTED_PUB_KEY[]                    = "8f80f9a5a434a9f1510d13336228debfee9c918ce505efe225d8c94d045fa115";
 
-const char* const SEED_NODES[] = { 
+/*const char* const SEED_NODES[] = {
   "seed1.karbowanec.com:32347",
   "seed2.karbowanec.com:32347",
   "seed.karbo.cloud:32347",
@@ -208,6 +208,10 @@ const char* const SEED_NODES[] = {
   "45.32.232.11:32347",
   "46.149.182.151:32347",
   "144.91.94.65:32347"
+};*/
+
+const char* const SEED_NODES[] = {
+  "46.149.182.151:12347"
 };
 
 } // CryptoNote
