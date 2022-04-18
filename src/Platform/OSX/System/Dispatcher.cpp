@@ -68,7 +68,7 @@ Dispatcher::Dispatcher() : lastCreatedTimer(0) {
     message = "kqueue failed, " + lastErrorMessage();
   } else {
     mainContext.uctx = new uctx;
-    if (getcontext(static_cast<uctx*>(mainContext.uctx)) == -1) {
+    if (getcontext(reinterpret_cast<ucontext_t*>(mainContext.uctx)) == -1) {
       message = "getcontext failed, " + lastErrorMessage();
     } else {
       struct kevent event;
@@ -203,7 +203,7 @@ void Dispatcher::dispatch() {
   if (context != currentContext) {
     uctx* oldContext = static_cast<uctx*>(currentContext->uctx);
     currentContext = context;
-    if (swapcontext(oldContext,static_cast<uctx*>(currentContext->uctx)) == -1) {
+    if (swapcontext(reinterpret_cast<ucontext_t*>(oldContext),reinterpret_cast<ucontext_t*>(currentContext->uctx)) == -1) {
       throw std::runtime_error("Dispatcher::dispatch, swapcontext failed, " + lastErrorMessage());
     }
   }
@@ -349,10 +349,10 @@ NativeContext& Dispatcher::getReusableContext() {
     static_cast<uctx*>(newlyCreatedContext)->uc_stack.ss_size = STACK_SIZE;
 
     ContextMakingData makingData{ newlyCreatedContext, this};
-    makecontext(static_cast<uctx*>(newlyCreatedContext), reinterpret_cast<void(*)()>(contextProcedureStatic), reinterpret_cast<intptr_t>(&makingData));
+    makecontext(reinterpret_cast<ucontext_t*>(newlyCreatedContext), reinterpret_cast<void(*)()>(contextProcedureStatic), reinterpret_cast<intptr_t>(&makingData));
 
     uctx* oldContext = static_cast<uctx*>(currentContext->uctx);
-    if (swapcontext(oldContext, newlyCreatedContext) == -1) {
+    if (swapcontext(reinterpret_cast<ucontext_t*>(oldContext), reinterpret_cast<ucontext_t*>(newlyCreatedContext)) == -1) {
       throw std::runtime_error("Dispatcher::getReusableContext, swapcontext failed, " + lastErrorMessage());
     }
 
@@ -397,7 +397,7 @@ void Dispatcher::contextProcedure(void* ucontext) {
   context.inExecutionQueue = false;
   firstReusableContext = &context;
   uctx* oldContext = static_cast<uctx*>(context.uctx);
-  if (swapcontext(oldContext, static_cast<uctx*>(currentContext->uctx)) == -1) {
+  if (swapcontext(reinterpret_cast<ucontext_t*>(oldContext), reinterpret_cast<ucontext_t*>(currentContext->uctx)) == -1) {
     throw std::runtime_error("Dispatcher::contextProcedure, swapcontext failed, " + lastErrorMessage());
   }
 
