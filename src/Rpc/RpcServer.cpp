@@ -196,18 +196,25 @@ std::unordered_map<std::string, RpcServer::RpcHandler<RpcServer::HandlerFunction
   { "/json_rpc", { std::bind(&RpcServer::processJsonRpcRequest, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), true } }
 };
 
-RpcServer::RpcServer(RpcServerConfig& config, Logging::ILogger& log, CryptoNote::Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery) :
+RpcServer::RpcServer(RpcServerConfig& config, Logging::ILogger& log, CryptoNote::Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery,
+  std::string cert_path, std::string key_path) :
   m_config(config), logger(log, "RpcServer"), m_core(core), m_p2p(p2p), m_protocolQuery(protocolQuery), blockchainExplorerDataBuilder(core, protocolQuery),
-  m_restricted_rpc(m_config.restrictedRPC), m_cors_domain(m_config.enableCors)
+  m_restricted_rpc(m_config.restrictedRPC), m_cors_domain(m_config.enableCors), m_cert_path(cert_path), m_key_path(key_path),
+  m_ssl_server(m_cert_path.c_str(), m_key_path.c_str())
 {
-  if (m_config.isEnabledSSL()) {
-     //m_server = new httplib::SSLServer(boost::filesystem::canonical(m_config.getChainFile()).string().c_str(),
-     //  boost::filesystem::canonical(m_config.getKeyFile()).c_str());
-  }
+  m_ssl_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
+    //handleRequest(req, res);
+    processRequest(req, res);
+  });
+
+  m_ssl_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
+    //handleRequest(req, res);
+    processRequest(req, res);
+  });
 
   m_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
     //handleRequest(req, res);
-      processRequest(req, res);
+    processRequest(req, res);
   });
 
   m_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
@@ -254,20 +261,41 @@ RpcServer::~RpcServer() {
 }
 
 void RpcServer::start(const std::string address, const uint16_t port) {
-  m_serverThread = std::thread(&RpcServer::listen, this, address, port);
+  if (m_config.isEnabledSSL()) {
+    uint16_t ssl_port = m_config.getBindPortSSL();
+    m_serverThread = std::thread(&RpcServer::listen_ssl, this, address, ssl_port);
+  }
+  else {
+    m_serverThread = std::thread(&RpcServer::listen, this, address, port);
+  }
 }
 
 void RpcServer::stop() {
-  m_server.stop();
-  if (m_serverThread.joinable()) {
-      m_serverThread.join();
+  if (m_config.isEnabledSSL()) {
+    m_ssl_server.stop();
+    if (m_serverThread.joinable()) {
+        m_serverThread.join();
+    }
+  }
+  else {
+    m_server.stop();
+    if (m_serverThread.joinable()) {
+        m_serverThread.join();
+    }
   }
 }
 
 void RpcServer::listen(const std::string address, const uint16_t port) {
   if (!m_server.listen(address, port)) {
-     std::cout << "Could not bind service to " << address << ":" << port
-       << "\nIs another service using this address and port?\n";
+    std::cout << "Could not bind service to " << address << ":" << port
+      << "\nIs another service using this address and port?\n";
+  }
+}
+
+void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
+  if (!m_ssl_server.listen(address, port)) {
+    std::cout << "Could not bind service to " << address << ":" << port
+      << "\nIs another service using this address and port?\n";
   }
 }
 

@@ -22,6 +22,7 @@
 #include "HttpServer.h"
 
 #include <thread>
+#include <mutex>
 #include <functional>
 #include <unordered_map>
 
@@ -43,13 +44,15 @@ class ICryptoNoteProtocolQuery;
 
 class RpcServer {
 public:
-  RpcServer(RpcServerConfig& config, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery);
+  RpcServer(RpcServerConfig& config, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery, 
+      std::string cert_path = "", std::string key_path = "");
 
   ~RpcServer();
   
   void start(const std::string address, const uint16_t port);
   void stop();
   void listen(const std::string address, const uint16_t port);
+  void listen_ssl(const std::string address, const uint16_t port);
   void handleRequest(const httplib::Request& request, httplib::Response& response);
   typedef std::function<bool(RpcServer*, const httplib::Request& req, httplib::Response& res)> HandlerFunction;
   bool checkIncomingTransactionForFee(const BinaryArray& tx_blob);
@@ -149,12 +152,14 @@ private:
   std::string m_fee_address;
   uint64_t    m_fee_amount;
   std::string m_contact_info;
+  std::string m_cert_path;
+  std::string m_key_path;
   Crypto::SecretKey m_view_key = NULL_SECRET_KEY;
   CryptoNote::AccountPublicAddress m_fee_acc;
   RpcServerConfig m_config;
 
 //#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-//  httplib::SSLServer m_ssl_server;
+  httplib::SSLServer m_ssl_server;
 //#endif
   httplib::Server m_server;
 
