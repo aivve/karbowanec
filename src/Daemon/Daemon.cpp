@@ -330,7 +330,7 @@ int main(int argc, char* argv[])
 
     CryptoNote::CryptoNoteProtocolHandler cprotocol(currency, dispatcher, m_core, nullptr, logManager);
     CryptoNote::NodeServer p2psrv(dispatcher, cprotocol, logManager);
-    CryptoNote::RpcServer rpcServer(dispatcher, logManager, m_core, p2psrv, cprotocol);
+    CryptoNote::RpcServer rpcServer(rpcConfig, logManager, m_core, p2psrv, cprotocol);
 
     cprotocol.set_p2p_endpoint(&p2psrv);
     m_core.set_cryptonote_protocol(&cprotocol);
@@ -388,9 +388,9 @@ int main(int argc, char* argv[])
       if (boost::filesystem::exists(chain_file_path, ec) &&
         boost::filesystem::exists(key_file_path, ec) &&
         boost::filesystem::exists(dh_file_path, ec)) {
-        rpcServer.setCerts(boost::filesystem::canonical(chain_file_path).string(),
-          boost::filesystem::canonical(key_file_path).string(),
-          boost::filesystem::canonical(dh_file_path).string());
+        //rpcServer.setCerts(boost::filesystem::canonical(chain_file_path).string(),
+        //  boost::filesystem::canonical(key_file_path).string(),
+        //  boost::filesystem::canonical(dh_file_path).string());
         server_ssl_enable = true;
       }
       else {
@@ -400,7 +400,7 @@ int main(int argc, char* argv[])
     std::string ssl_info = "";
     if (server_ssl_enable) ssl_info += ", SSL on address " + rpcConfig.getBindAddressSSL();
     logger(INFO) << "Starting core rpc server on address " << rpcConfig.getBindAddress() << ssl_info;
-    rpcServer.start(rpcConfig.getBindIP(), rpcConfig.getBindPort(), rpcConfig.getBindPortSSL(), server_ssl_enable);
+    rpcServer.start(rpcConfig.getBindIP(), rpcConfig.getBindPort()/*, rpcConfig.getBindPortSSL(), server_ssl_enable*/);
     rpcServer.restrictRpc(rpcConfig.restrictedRPC);
     rpcServer.enableCors(rpcConfig.enableCors);
     if (!rpcConfig.nodeFeeAddress.empty() && !rpcConfig.nodeFeeAmountStr.empty()) {

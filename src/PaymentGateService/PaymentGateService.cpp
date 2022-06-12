@@ -207,7 +207,7 @@ void PaymentGateService::runInProcess(Logging::LoggerRef& log) {
 
   CryptoNote::CryptoNoteProtocolHandler protocol(currency, *dispatcher, core, NULL, logger);
   CryptoNote::NodeServer p2pNode(*dispatcher, protocol, logger);
-  CryptoNote::RpcServer rpcServer(*dispatcher, logger, core, p2pNode, protocol);
+  //CryptoNote::RpcServer rpcServer(*dispatcher, logger, core, p2pNode, protocol);
   CryptoNote::Checkpoints checkpoints(logger);
   for (const auto& cp : CryptoNote::CHECKPOINTS) {
     checkpoints.add_checkpoint(cp.height, cp.blockId);
@@ -249,7 +249,7 @@ void PaymentGateService::runInProcess(Logging::LoggerRef& log) {
     throw std::system_error(ec);
   }
 
-  bool rpc_run_ssl = false;
+  /*bool rpc_run_ssl = false;
   std::string rpc_chain_file = "";
   std::string rpc_key_file = "";
   std::string rpc_dh_file = "";
@@ -275,7 +275,7 @@ void PaymentGateService::runInProcess(Logging::LoggerRef& log) {
                   config.remoteNodeConfig.m_daemon_port,
                   config.remoteNodeConfig.m_daemon_port_ssl,
                   rpc_run_ssl);
-  log(Logging::INFO) << "Core rpc server started ok";
+  log(Logging::INFO) << "Core rpc server started ok";*/
 
   log(Logging::INFO) << "Spawning p2p server";
 
@@ -299,7 +299,7 @@ void PaymentGateService::runInProcess(Logging::LoggerRef& log) {
   }
 
   log(Logging::INFO) << "Stopping core rpc server...";
-  rpcServer.stop();
+  //rpcServer.stop();
 
   p2pNode.sendStopSignal();
   context.get();

@@ -21,15 +21,18 @@
 
 #include "HttpServer.h"
 
+#include <thread>
 #include <functional>
 #include <unordered_map>
 
+#include "HTTP/httplib.h"
 #include <Logging/LoggerRef.h>
 #include "ITransaction.h"
 #include "CoreRpcServerCommandsDefinitions.h"
 #include "BlockchainExplorer/BlockchainExplorerDataBuilder.h"
 #include "CryptoNoteCore/Core.h"
 #include "Common/Math.h"
+#include "Rpc/RpcServerConfig.h"
 
 namespace CryptoNote {
 
@@ -38,11 +41,17 @@ class NodeServer;
 class BlockchainExplorer;
 class ICryptoNoteProtocolQuery;
 
-class RpcServer : public HttpServer {
+class RpcServer {
 public:
-  RpcServer(System::Dispatcher& dispatcher, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery);
+  RpcServer(RpcServerConfig& config, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery);
 
-  typedef std::function<bool(RpcServer*, const HttpRequest& request, HttpResponse& response)> HandlerFunction;
+  ~RpcServer();
+  
+  void start(const std::string address, const uint16_t port);
+  void stop();
+  void listen(const std::string address, const uint16_t port);
+  void handleRequest(const httplib::Request& request, httplib::Response& response);
+  typedef std::function<bool(RpcServer*, const httplib::Request& req, httplib::Response& res)> HandlerFunction;
   bool restrictRpc(const bool is_resctricted);
   bool enableCors(const std::string domain);
   bool setFeeAddress(const std::string& fee_address, const AccountPublicAddress& fee_acc);
@@ -60,11 +69,12 @@ private:
     const bool allowBusyCore;
   };
 
-  typedef void (RpcServer::*HandlerPtr)(const HttpRequest& request, HttpResponse& response);
+  typedef void (RpcServer::* HandlerPtr)(const httplib::Request& request, httplib::Response& response);
   static std::unordered_map<std::string, RpcHandler<HandlerFunction>> s_handlers;
 
-  virtual void processRequest(const HttpRequest& request, HttpResponse& response) override;
-  bool processJsonRpcRequest(const HttpRequest& request, HttpResponse& response);
+  //void processRequest(const httplib::Request& request, httplib::Response& response);
+  bool processJsonRpcRequest(const httplib::Request& request, httplib::Response& response);
+  
   bool isCoreReady();
 
   // binary handlers
@@ -147,6 +157,15 @@ private:
   std::string m_contact_info;
   Crypto::SecretKey m_view_key = NULL_SECRET_KEY;
   CryptoNote::AccountPublicAddress m_fee_acc;
+  RpcServerConfig m_config;
+
+//#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+//  httplib::SSLServer m_server;
+//#else
+  httplib::Server m_server;
+//#endif
+  std::thread m_serverThread;
+
 };
 
 }
