@@ -52,12 +52,6 @@ public:
   void listen(const std::string address, const uint16_t port);
   void handleRequest(const httplib::Request& request, httplib::Response& response);
   typedef std::function<bool(RpcServer*, const httplib::Request& req, httplib::Response& res)> HandlerFunction;
-  bool restrictRpc(const bool is_resctricted);
-  bool enableCors(const std::string domain);
-  bool setFeeAddress(const std::string& fee_address, const AccountPublicAddress& fee_acc);
-  bool setFeeAmount(const uint64_t fee_amount);
-  bool setViewKey(const std::string& view_key);
-  bool setContactInfo(const std::string& contact);
   bool checkIncomingTransactionForFee(const BinaryArray& tx_blob);
   std::string getCorsDomain();
 
@@ -160,10 +154,10 @@ private:
   RpcServerConfig m_config;
 
 //#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-//  httplib::SSLServer m_server;
-//#else
-  httplib::Server m_server;
+//  httplib::SSLServer m_ssl_server;
 //#endif
+  httplib::Server m_server;
+
   std::thread m_serverThread;
 
 };
