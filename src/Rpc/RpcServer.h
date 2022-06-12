@@ -66,7 +66,7 @@ private:
   typedef void (RpcServer::* HandlerPtr)(const httplib::Request& request, httplib::Response& response);
   static std::unordered_map<std::string, RpcHandler<HandlerFunction>> s_handlers;
 
-  //void processRequest(const httplib::Request& request, httplib::Response& response);
+  void processRequest(const httplib::Request& request, httplib::Response& response);
   bool processJsonRpcRequest(const httplib::Request& request, httplib::Response& response);
   
   bool isCoreReady();

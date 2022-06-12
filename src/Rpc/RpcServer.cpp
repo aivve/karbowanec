@@ -206,11 +206,13 @@ RpcServer::RpcServer(RpcServerConfig& config, Logging::ILogger& log, CryptoNote:
   }
 
   m_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
-    handleRequest(req, res);
+    //handleRequest(req, res);
+      processRequest(req, res);
   });
 
   m_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
-    handleRequest(req, res);
+    //handleRequest(req, res);
+    processRequest(req, res);
   });
 
   if (!m_config.nodeFeeAddress.empty() && !m_config.nodeFeeAmountStr.empty()) {
@@ -291,175 +293,168 @@ void RpcServer::handleRequest(const httplib::Request& req, httplib::Response& re
     requestHandler->second.handler(this, req, res);
 }
 
-/*
 void RpcServer::processRequest(const httplib::Request& request, httplib::Response& response) {
   //logger(Logging::TRACE) << "RPC request came: \n" << request << std::endl;
 
   try {
+    auto url = request.path;
+    auto it = s_handlers.find(url);
 
-  auto url = request.path;
+    if (it == s_handlers.end()) {
 
-  auto it = s_handlers.find(url);
-  if (it == s_handlers.end()) {
-    if (Common::starts_with(url, "/api/")) {
+      if (Common::starts_with(url, "/api/")) {
 
-      std::string block_height_method = "/api/block/height/";
-      std::string block_hash_method = "/api/block/hash/";
-      std::string tx_hash_method = "/api/transaction/";
-      std::string payment_id_method = "/api/payment_id/";
-      std::string tx_mempool_method = "/api/mempool/";
+        std::string block_height_method = "/api/block/height/";
+        std::string block_hash_method = "/api/block/hash/";
+        std::string tx_hash_method = "/api/transaction/";
+        std::string payment_id_method = "/api/payment_id/";
+        std::string tx_mempool_method = "/api/mempool/";
 
-      if (Common::starts_with(url, block_height_method)) {
+        if (Common::starts_with(url, block_height_method)) {
 
-        std::string height_str = url.substr(block_height_method.size());
-        uint32_t height = Common::integer_cast<uint32_t>(height_str);
-        auto it = s_handlers.find("/get_block_details_by_height");
-        if (!it->second.allowBusyCore && !isCoreReady()) {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Core is busy");
+          std::string height_str = url.substr(block_height_method.size());
+          uint32_t height = Common::integer_cast<uint32_t>(height_str);
+          auto it = s_handlers.find("/get_block_details_by_height");
+          if (!it->second.allowBusyCore && !isCoreReady()) {
+            response.status = 500;
+            response.set_content("Core is busy", "text/html");
+            return;
+          }
+          COMMAND_RPC_GET_BLOCK_DETAILS_BY_HEIGHT::request req;
+          req.blockHeight = height;
+          COMMAND_RPC_GET_BLOCK_DETAILS_BY_HEIGHT::response rsp;
+          bool r = on_get_block_details_by_height(req, rsp);
+          if (r) {
+            response.set_header("Content-Type", "application/json");
+            response.status = 200;
+            response.set_content(storeToJson(rsp), "application/json");
+          } else {
+            response.status = 500;
+            response.set_content("Internal error", "text/html");
+          }
           return;
-        }
-        COMMAND_RPC_GET_BLOCK_DETAILS_BY_HEIGHT::request req;
-        req.blockHeight = height;
-        COMMAND_RPC_GET_BLOCK_DETAILS_BY_HEIGHT::response rsp;
-        bool r = on_get_block_details_by_height(req, rsp);
-        if (r) {
-          response.addHeader("Content-Type", "application/json");
-          response.setStatus(HttpResponse::HTTP_STATUS::STATUS_200);
-          response.setBody(storeToJson(rsp));
-        } else {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Internal error");
-        }
-        return;
 
-      } else if (Common::starts_with(url, block_hash_method)) {
+        } else if (Common::starts_with(url, block_hash_method)) {
 
-        std::string hash_str = url.substr(block_hash_method.size());
-        auto it = s_handlers.find("/get_block_details_by_hash");
-        if (!it->second.allowBusyCore && !isCoreReady()) {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Core is busy");
+          std::string hash_str = url.substr(block_hash_method.size());
+          auto it = s_handlers.find("/get_block_details_by_hash");
+          if (!it->second.allowBusyCore && !isCoreReady()) {
+            response.status = 500;
+            response.set_content("Core is busy", "text/html");
+            return;
+          }
+          COMMAND_RPC_GET_BLOCK_DETAILS_BY_HASH::request req;
+          req.hash = hash_str;
+          COMMAND_RPC_GET_BLOCK_DETAILS_BY_HASH::response rsp;
+          bool r = on_get_block_details_by_hash(req, rsp);
+          if (r) {
+            response.set_header("Content-Type", "application/json");
+            response.status = 200;
+            response.set_content(storeToJson(rsp), "application/json");
+          } else {
+            response.status = 500;
+            response.set_content("Internal error", "text/html");
+          }
           return;
-        }
-        COMMAND_RPC_GET_BLOCK_DETAILS_BY_HASH::request req;
-        req.hash = hash_str;
-        COMMAND_RPC_GET_BLOCK_DETAILS_BY_HASH::response rsp;
-        bool r = on_get_block_details_by_hash(req, rsp);
-        if (r) {
-          response.addHeader("Content-Type", "application/json");
-          response.setStatus(HttpResponse::HTTP_STATUS::STATUS_200);
-          response.setBody(storeToJson(rsp));
-        } else {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Internal error");
-        }
-        return;
 
-      } else if (Common::starts_with(url, tx_hash_method)) {
-
-        std::string hash_str = url.substr(tx_hash_method.size());
-        auto it = s_handlers.find("/get_transaction_details_by_hash");
-        if (!it->second.allowBusyCore && !isCoreReady()) {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Core is busy");
+        } else if (Common::starts_with(url, tx_hash_method)) {
+          std::string hash_str = url.substr(tx_hash_method.size());
+          auto it = s_handlers.find("/get_transaction_details_by_hash");
+          if (!it->second.allowBusyCore && !isCoreReady()) {
+            response.status = 500;
+            response.set_content("Core is busy", "text/html");
+            return;
+          }
+          COMMAND_RPC_GET_TRANSACTION_DETAILS_BY_HASH::request req;
+          req.hash = hash_str;
+          COMMAND_RPC_GET_TRANSACTION_DETAILS_BY_HASH::response rsp;
+          bool r = on_get_transaction_details_by_hash(req, rsp);
+          if (r) {
+            response.set_header("Content-Type", "application/json");
+            response.status = 200;
+            response.set_content(storeToJson(rsp), "application/json");
+          }
+          else {
+            response.status = 500;
+            response.set_content("Internal error", "text/html");
+          }
           return;
-        }
-        COMMAND_RPC_GET_TRANSACTION_DETAILS_BY_HASH::request req;
-        req.hash = hash_str;
-        COMMAND_RPC_GET_TRANSACTION_DETAILS_BY_HASH::response rsp;
-        bool r = on_get_transaction_details_by_hash(req, rsp);
-        if (r) {
-          response.addHeader("Content-Type", "application/json");
-          response.setStatus(HttpResponse::HTTP_STATUS::STATUS_200);
-          response.setBody(storeToJson(rsp));
-        }
-        else {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Internal error");
-        }
-        return;
 
-      } else if (Common::starts_with(url, payment_id_method)) {
+        } else if (Common::starts_with(url, payment_id_method)) {
 
-        std::string pid_str = url.substr(payment_id_method.size());
-        auto it = s_handlers.find("/get_transaction_hashes_by_payment_id");
-        if (!it->second.allowBusyCore && !isCoreReady()) {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Core is busy");
+          std::string pid_str = url.substr(payment_id_method.size());
+          auto it = s_handlers.find("/get_transaction_hashes_by_payment_id");
+          if (!it->second.allowBusyCore && !isCoreReady()) {
+            response.status = 500;
+            response.set_content("Core is busy", "text/html");
+            return;
+          }
+          COMMAND_RPC_GET_TRANSACTION_HASHES_BY_PAYMENT_ID::request req;
+          req.paymentId = pid_str;
+          COMMAND_RPC_GET_TRANSACTION_HASHES_BY_PAYMENT_ID::response rsp;
+          bool r = on_get_transaction_hashes_by_paymentid(req, rsp);
+          if (r) {
+            response.set_header("Content-Type", "application/json");
+            response.status = 200;
+            response.set_content(storeToJson(rsp), "application/json");
+          }
+          else {
+            response.status = 500;
+            response.set_content("Internal error", "text/html");
+          }
           return;
-        }
-        COMMAND_RPC_GET_TRANSACTION_HASHES_BY_PAYMENT_ID::request req;
-        req.paymentId = pid_str;
-        COMMAND_RPC_GET_TRANSACTION_HASHES_BY_PAYMENT_ID::response rsp;
-        bool r = on_get_transaction_hashes_by_paymentid(req, rsp);
-        if (r) {
-          response.addHeader("Content-Type", "application/json");
-          response.setStatus(HttpResponse::HTTP_STATUS::STATUS_200);
-          response.setBody(storeToJson(rsp));
-        }
-        else {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Internal error");
-        }
-        return;
 
-      } else if (Common::starts_with(url, tx_mempool_method)) {
+        } else if (Common::starts_with(url, tx_mempool_method)) {
 
-        auto it = s_handlers.find("/gettransactionsinpool");
-        if (!it->second.allowBusyCore && !isCoreReady())
-        {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Core is busy");
+          auto it = s_handlers.find("/gettransactionsinpool");
+          if (!it->second.allowBusyCore && !isCoreReady())
+          {
+            response.status = 500;
+            response.set_content("Core is busy", "text/html");
+            return;
+          }
+
+          COMMAND_RPC_GET_TRANSACTIONS_POOL::request req;
+          COMMAND_RPC_GET_TRANSACTIONS_POOL::response rsp;
+          bool r = on_get_transactions_pool(req, rsp);
+          if (r) {
+            response.set_header("Content-Type", "application/json");
+            response.status = 200;
+            response.set_content(storeToJson(rsp), "application/json");
+          }
+          else {
+            response.status = 500;
+            response.set_content("Internal error", "text/html");
+          }
+
           return;
-        }
 
-        COMMAND_RPC_GET_TRANSACTIONS_POOL::request req;
-        COMMAND_RPC_GET_TRANSACTIONS_POOL::response rsp;
-        bool r = on_get_transactions_pool(req, rsp);
-        if (r) {
-          response.addHeader("Content-Type", "application/json");
-          response.setStatus(HttpResponse::HTTP_STATUS::STATUS_200);
-          response.setBody(storeToJson(rsp));
         }
-        else {
-          response.setStatus(HttpResponse::STATUS_500);
-          response.setBody("Internal error");
-        }
-
-        return;
-
       }
 
-      response.setStatus(HttpResponse::STATUS_404);
+      response.status = 404;
       return;
     }
-    else {
-      response.setStatus(HttpResponse::STATUS_404);
+
+    if (!it->second.allowBusyCore && !isCoreReady()) {
+      response.status = 500;
+      response.set_content("Core is busy", "text/html");
       return;
     }
-  }
 
-  if (!it->second.allowBusyCore && !isCoreReady()) {
-    response.setStatus(HttpResponse::STATUS_500);
-    response.setBody("Core is busy");
-    return;
-  }
-
-  it->second.handler(this, request, response);
+    it->second.handler(this, request, response);
 
   }
   catch (const JsonRpc::JsonRpcError& err) {
-    response.addHeader("Content-Type", "application/json");
-    response.setStatus(HttpResponse::STATUS_500);
-    response.setBody(storeToJsonValue(err).toString());
+    response.set_header("Content-Type", "application/json");
+    response.status = 500;
+    response.set_content(storeToJsonValue(err).toString(), "application/json");
   }
   catch (const std::exception& e) {
-    response.setStatus(HttpResponse::STATUS_500);
-    response.setBody(e.what());
+    response.status = 500;
+    response.set_content(e.what(), "text/html");
   }
 }
-  */
 
 bool RpcServer::processJsonRpcRequest(const httplib::Request& request, httplib::Response& response) {
 
