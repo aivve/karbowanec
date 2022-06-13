@@ -27,8 +27,6 @@
 #include "PaymentGate/NodeFactory.h"
 #include "PaymentGate/WalletService.h"
 
-#include "Rpc/RpcServerConfig.h"
-
 class PaymentGateService {
 public:
   PaymentGateService();
