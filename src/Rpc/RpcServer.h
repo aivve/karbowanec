@@ -53,9 +53,7 @@ public:
   void stop();
   void listen(const std::string address, const uint16_t port);
   void listen_ssl(const std::string address, const uint16_t port);
-  void handleRequest(const httplib::Request& request, httplib::Response& response);
   typedef std::function<bool(RpcServer*, const httplib::Request& req, httplib::Response& res)> HandlerFunction;
-  bool checkIncomingTransactionForFee(const BinaryArray& tx_blob);
   std::string getCorsDomain();
 
 private:
@@ -73,6 +71,8 @@ private:
   bool processJsonRpcRequest(const httplib::Request& request, httplib::Response& response);
   
   bool isCoreReady();
+
+  bool checkIncomingTransactionForFee(const BinaryArray& tx_blob);
 
   // binary handlers
   bool on_get_blocks(const COMMAND_RPC_GET_BLOCKS_FAST::request& req, COMMAND_RPC_GET_BLOCKS_FAST::response& res);

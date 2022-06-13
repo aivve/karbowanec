@@ -203,22 +203,18 @@ RpcServer::RpcServer(RpcServerConfig& config, Logging::ILogger& log, CryptoNote:
   m_ssl_server(m_cert_path.c_str(), m_key_path.c_str())
 {
   m_ssl_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
-    //handleRequest(req, res);
     processRequest(req, res);
   });
 
   m_ssl_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
-    //handleRequest(req, res);
     processRequest(req, res);
   });
 
   m_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
-    //handleRequest(req, res);
     processRequest(req, res);
   });
 
   m_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
-    //handleRequest(req, res);
     processRequest(req, res);
   });
 
@@ -299,30 +295,8 @@ void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
   }
 }
 
-void RpcServer::handleRequest(const httplib::Request& req, httplib::Response& res)
-{
-    logger(Logging::TRACE) << "Incoming RPC request to endpoint " << req.path;
-
-    const auto requestHandler = s_handlers.find(req.path);
-
-    if (requestHandler == s_handlers.end())
-    {
-        res.status = 404;
-        return;
-    }
-
-    if (!requestHandler->second.allowBusyCore && !isCoreReady())
-    {
-        res.status = 500;
-        res.body = "Core is busy";
-        return;
-    }
-
-    requestHandler->second.handler(this, req, res);
-}
-
 void RpcServer::processRequest(const httplib::Request& request, httplib::Response& response) {
-  //logger(Logging::TRACE) << "RPC request came: \n" << request << std::endl;
+  logger(Logging::TRACE) << "Incoming RPC request to endpoint " << request.path;
 
   try {
     auto url = request.path;
