@@ -271,7 +271,7 @@ RpcServer::~RpcServer() {
 void RpcServer::start(const std::string address, const uint16_t port) {
   if (m_config.isEnabledSSL()) {
     uint16_t ssl_port = m_config.getBindPortSSL();
-    m_serverThread = std::thread(&RpcServer::listen_ssl, this, address, port);
+    m_serverThread = std::thread(&RpcServer::listen_ssl, this, address, ssl_port);
   }
   else {
     m_serverThread = std::thread(&RpcServer::listen, this, address, port);

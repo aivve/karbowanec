@@ -334,15 +334,11 @@ int main(int argc, char* argv[])
     boost::filesystem::path data_dir_path(data_dir);
     boost::filesystem::path chain_file_path(rpcConfig.getChainFile());
     boost::filesystem::path key_file_path(rpcConfig.getKeyFile());
-    boost::filesystem::path dh_file_path(rpcConfig.getDhFile());
     if (!chain_file_path.has_parent_path()) {
          chain_file_path = data_dir_path / chain_file_path;
     }
     if (!key_file_path.has_parent_path()) {
          key_file_path = data_dir_path / key_file_path;
-    }
-    if (!dh_file_path.has_parent_path()) {
-         dh_file_path = data_dir_path / dh_file_path;
     }
 
     CryptoNote::RpcServer rpcServer(dispatcher, rpcConfig, logManager, m_core, p2psrv, cprotocol, chain_file_path.string(), key_file_path.string());
@@ -397,7 +393,8 @@ int main(int argc, char* argv[])
     std::string ssl_info = "";
     if (server_ssl_enable) ssl_info += ", SSL on address " + rpcConfig.getBindAddressSSL();
     logger(INFO) << "Starting core rpc server on address " << rpcConfig.getBindAddress() << ssl_info;
-    rpcServer.start(rpcConfig.getBindIP(), server_ssl_enable ? rpcConfig.getBindPortSSL() : rpcConfig.getBindPort());
+
+    rpcServer.start(rpcConfig.getBindIP(), rpcConfig.getBindPort());
 
     logger(INFO) << "Core rpc server started ok";
 
