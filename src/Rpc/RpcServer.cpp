@@ -271,10 +271,27 @@ RpcServer::~RpcServer() {
 void RpcServer::start(const std::string address, const uint16_t port) {
   if (m_config.isEnabledSSL()) {
     uint16_t ssl_port = m_config.getBindPortSSL(); // make sure to use separate port for SSL server
-    m_threads.push_back(std::thread(std::bind(&RpcServer::listen_ssl, this, address, ssl_port)));
+    //m_threads.push_back(std::thread(std::bind(&RpcServer::listen_ssl, this, address, ssl_port)));
+    //m_workers.emplace_back(
+    //    new System::RemoteContext<void>(m_dispatcher, [&]() {
+    //        listen_ssl(address, ssl_port);
+    //        })
+    //);
+    m_workers.emplace_back(std::unique_ptr<System::RemoteContext<void>>(
+        new System::RemoteContext<void>(m_dispatcher, std::bind(&RpcServer::listen_ssl, this, address, ssl_port)))
+    );
+
   }
 
-  m_threads.push_back(std::thread(std::bind(&RpcServer::listen, this, address, port)));
+  //m_threads.push_back(std::thread(std::bind(&RpcServer::listen, this, address, port)));
+  //m_workers.emplace_back(
+  //    new System::RemoteContext<void>(m_dispatcher, [&]() {
+  //        listen(address, port);
+  //        })
+  //);
+  m_workers.emplace_back(std::unique_ptr<System::RemoteContext<void>>(
+      new System::RemoteContext<void>(m_dispatcher, std::bind(&RpcServer::listen, this, address, port)))
+  );
 }
 
 void RpcServer::stop() {
@@ -284,12 +301,13 @@ void RpcServer::stop() {
 
   http.stop();
 
-  for (auto& th : m_threads) {
-    if (th.joinable()) {
-        th.join();
-    }
-  }
-  m_threads.clear();
+  //for (auto& th : m_threads) {
+  //  if (th.joinable()) {
+  //      th.join();
+  //  }
+  //}
+  //m_threads.clear();
+  m_workers.clear();
 }
 
 void RpcServer::listen(const std::string address, const uint16_t port) {

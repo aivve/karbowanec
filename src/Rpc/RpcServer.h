@@ -35,6 +35,7 @@
 #include "Common/Math.h"
 #include "Rpc/RpcServerConfig.h"
 #include "System/Dispatcher.h"
+#include <System/RemoteContext.h>
 
 namespace CryptoNote {
 
@@ -176,7 +177,8 @@ private:
 //#endif
   httplib::Server http;
 
-  std::list<std::thread> m_threads;
+  std::vector<std::unique_ptr<System::RemoteContext<void>>> m_workers;
+  //std::list<std::thread> m_threads;
 };
 
 }
