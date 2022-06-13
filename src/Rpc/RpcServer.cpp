@@ -271,26 +271,36 @@ RpcServer::~RpcServer() {
 void RpcServer::start(const std::string address, const uint16_t port) {
   if (m_config.isEnabledSSL()) {
     uint16_t ssl_port = m_config.getBindPortSSL();
-    m_serverThread = std::thread(&RpcServer::listen_ssl, this, address, ssl_port);
+    //m_serverThread = std::thread(&RpcServer::listen_ssl, this, address, ssl_port);
+    m_threads.push_back(std::thread(std::bind(&RpcServer::listen_ssl, this, address, ssl_port)));
   }
-  else {
-    m_serverThread = std::thread(&RpcServer::listen, this, address, port);
-  }
+  //else {
+  //  m_serverThread = std::thread(&RpcServer::listen, this, address, port);
+  //}
+
+  m_threads.push_back(std::thread(std::bind(&RpcServer::listen, this, address, port)));
 }
 
 void RpcServer::stop() {
   if (m_config.isEnabledSSL()) {
     https.stop();
-    if (m_serverThread.joinable()) {
-        m_serverThread.join();
-    }
+    //if (m_serverThread.joinable()) {
+    //    m_serverThread.join();
+    //}
   }
-  else {
+  //else {
     http.stop();
-    if (m_serverThread.joinable()) {
-        m_serverThread.join();
+    //if (m_serverThread.joinable()) {
+    //    m_serverThread.join();
+    //}
+  //}
+
+    for (auto& th : m_threads) {
+        if (th.joinable()) {
+            th.join();
+        }
     }
-  }
+    m_threads.clear();
 }
 
 void RpcServer::listen(const std::string address, const uint16_t port) {

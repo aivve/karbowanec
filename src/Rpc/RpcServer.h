@@ -173,8 +173,9 @@ private:
 //#endif
   httplib::Server http;
 
-  std::thread m_serverThread;
+  //std::thread m_serverThread;
 
+  std::list<std::thread> m_threads;
 };
 
 }
