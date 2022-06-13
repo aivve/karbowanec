@@ -292,21 +292,22 @@ void RpcServer::stop() {
 }
 
 void RpcServer::listen(const std::string address, const uint16_t port) {
-  if (!http.listen(address, port)) {
+  if (!http.listen(address.c_str(), port)) {
     logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
       << "\nIs another service using this address and port?\n";
   }
 }
 
 void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
-  if (!https.listen(address, port)) {
+  if (!https.listen(address.c_str(), port)) {
     logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
       << "\nIs another service using this address and port?\n";
   }
 }
 
 int RpcServer::getRpcConnectionsCount() {
-  return http.get_connections_count() + https.get_connections_count();
+  //return http.get_connections_count() + https.get_connections_count();
+  return 0;
 }
 
 void RpcServer::processRequest(const httplib::Request& request, httplib::Response& response) {
