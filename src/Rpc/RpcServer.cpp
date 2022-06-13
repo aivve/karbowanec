@@ -282,14 +282,16 @@ void RpcServer::stop() {
 }
 
 void RpcServer::listen(const std::string address, const uint16_t port) {
-  if (!m_server.listen(address, port)) {
+  const auto listenError = m_server.listen(address, port);
+  if (listenError != httplib::SUCCESS) {
     std::cout << "Could not bind service to " << address << ":" << port
       << "\nIs another service using this address and port?\n";
   }
 }
 
 void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
-  if (!m_ssl_server.listen(address, port)) {
+  const auto listenError = m_ssl_server.listen(address, port);
+  if (listenError != httplib::SUCCESS) {
     std::cout << "Could not bind service to " << address << ":" << port
       << "\nIs another service using this address and port?\n";
   }
