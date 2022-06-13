@@ -178,7 +178,6 @@ private:
   httplib::Server http;
 
   std::vector<std::unique_ptr<System::RemoteContext<void>>> m_workers;
-  //std::list<std::thread> m_threads;
 };
 
 }
