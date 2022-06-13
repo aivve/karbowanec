@@ -265,6 +265,8 @@ public:
     bool is_running() const;
     void stop();
 
+    int get_connections_count();
+
 protected:
     bool process_request(Stream& strm, bool last_connection, bool& connection_close);
 
@@ -1855,6 +1857,10 @@ inline void Server::stop()
         detail::shutdown_socket(sock);
         detail::close_socket(sock);
     }
+}
+
+inline int Server::get_connections_count() {
+    return running_threads_;
 }
 
 inline bool Server::parse_request_line(const char* s, Request& req)

@@ -306,6 +306,10 @@ void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
   }
 }
 
+int RpcServer::getRpcConnectionsCount() {
+  return http.get_connections_count() + https.get_connections_count();
+}
+
 void RpcServer::processRequest(const httplib::Request& request, httplib::Response& response) {
   logger(Logging::TRACE) << "Incoming RPC request to endpoint " << request.path;
 
@@ -1339,7 +1343,7 @@ bool RpcServer::on_get_index(const COMMAND_HTTP::request& req, COMMAND_HTTP::res
       "<li>" + "Transactions in pool: " + std::to_string(tx_pool_count) + "</li>" +
       "<li>" + "Connections:" +
         "<ul>" +
-          "<li>" + "RPC: " + /*std::to_string(get_connections_count()) +*/ "</li>" +
+          "<li>" + "RPC: " + std::to_string(getRpcConnectionsCount()) + "</li>" +
           "<li>" + "OUT: " + std::to_string(outConn) + "</li>" +
           "<li>" + "INC: " + std::to_string(incConn) + "</li>" +
         "</ul>" +
@@ -1383,7 +1387,7 @@ bool RpcServer::on_get_info(const COMMAND_RPC_GET_INFO::request& req, COMMAND_RP
   uint64_t total_conn = m_p2p.get_connections_count();
   res.outgoing_connections_count = m_p2p.get_outgoing_connections_count();
   res.incoming_connections_count = total_conn - res.outgoing_connections_count;
-  //res.rpc_connections_count = get_connections_count();
+  res.rpc_connections_count = getRpcConnectionsCount();
   res.white_peerlist_size = m_p2p.getPeerlistManager().get_white_peers_count();
   res.grey_peerlist_size = m_p2p.getPeerlistManager().get_gray_peers_count();
   res.last_known_block_index = std::max(static_cast<uint32_t>(1), m_protocolQuery.getObservedHeight()) - 1;

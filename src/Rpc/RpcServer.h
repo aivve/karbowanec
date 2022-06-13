@@ -82,6 +82,9 @@ private:
   bool isCoreReady();
 
   bool checkIncomingTransactionForFee(const BinaryArray& tx_blob);
+  
+  int getRpcConnectionsCount();
+
 
   // binary handlers
   bool on_get_blocks(const COMMAND_RPC_GET_BLOCKS_FAST::request& req, COMMAND_RPC_GET_BLOCKS_FAST::response& res);
