@@ -45,8 +45,16 @@ class ICryptoNoteProtocolQuery;
 
 class RpcServer {
 public:
-  RpcServer(System::Dispatcher& dispatcher, RpcServerConfig& config, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery,
-    std::string cert_path = "", std::string key_path = "");
+  RpcServer(
+    System::Dispatcher& dispatcher,
+    RpcServerConfig& config,
+    Logging::ILogger& log,
+    Core& core,
+    NodeServer& p2p,
+    ICryptoNoteProtocolQuery& protocolQuery,
+    std::string cert_path = "",
+    std::string key_path = ""
+  );
 
   ~RpcServer();
   
