@@ -271,10 +271,10 @@ RpcServer::~RpcServer() {
 void RpcServer::start(const std::string address, const uint16_t port) {
   if (m_config.isEnabledSSL()) {
     uint16_t ssl_port = m_config.getBindPortSSL();
-    m_serverThread = std::thread(&RpcServer::listen_ssl, this, address, ssl_port);
+    m_serverThread = std::thread([&]() { https.listen(address, port); });
   }
   else {
-    m_serverThread = std::thread(&RpcServer::listen, this, address, port);
+    m_serverThread = std::thread([&]() { http.listen(address, port); });
   }
 }
 
@@ -290,22 +290,6 @@ void RpcServer::stop() {
     if (m_serverThread.joinable()) {
         m_serverThread.join();
     }
-  }
-}
-
-void RpcServer::listen(const std::string address, const uint16_t port) {
-  const auto listenError = http.listen(address, port);
-  if (listenError != httplib::SUCCESS) {
-    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
-  }
-}
-
-void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
-  const auto listenError = https.listen(address, port);
-  if (listenError != httplib::SUCCESS) {
-    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
   }
 }
 

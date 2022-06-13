@@ -60,8 +60,6 @@ public:
   
   void start(const std::string address, const uint16_t port);
   void stop();
-  void listen(const std::string address, const uint16_t port);
-  void listen_ssl(const std::string address, const uint16_t port);
   typedef std::function<bool(RpcServer*, const httplib::Request& req, httplib::Response& res)> HandlerFunction;
   std::string getCorsDomain();
 
