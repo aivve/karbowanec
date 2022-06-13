@@ -196,11 +196,10 @@ std::unordered_map<std::string, RpcServer::RpcHandler<RpcServer::HandlerFunction
   { "/json_rpc", { std::bind(&RpcServer::processJsonRpcRequest, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), true } }
 };
 
-RpcServer::RpcServer(RpcServerConfig& config, Logging::ILogger& log, CryptoNote::Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery,
+RpcServer::RpcServer(System::Dispatcher& dispatcher, RpcServerConfig& config, Logging::ILogger& log, CryptoNote::Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery,
   std::string cert_path, std::string key_path) :
-  m_config(config), logger(log, "RpcServer"), m_core(core), m_p2p(p2p), m_protocolQuery(protocolQuery), blockchainExplorerDataBuilder(core, protocolQuery),
-  m_restricted_rpc(m_config.restrictedRPC), m_cors_domain(m_config.enableCors), m_cert_path(cert_path), m_key_path(key_path),
-  m_ssl_server(m_cert_path.c_str(), m_key_path.c_str())
+  m_dispatcher(dispatcher), m_config(config), logger(log, "RpcServer"), m_core(core), m_p2p(p2p), m_protocolQuery(protocolQuery), blockchainExplorerDataBuilder(core, protocolQuery),
+  m_restricted_rpc(m_config.restrictedRPC), m_cors_domain(m_config.enableCors), m_cert_path(cert_path), m_key_path(key_path), https(m_cert_path.c_str(), m_key_path.c_str())
 {
   m_ssl_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);

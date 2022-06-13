@@ -345,7 +345,7 @@ int main(int argc, char* argv[])
          dh_file_path = data_dir_path / dh_file_path;
     }
 
-    CryptoNote::RpcServer rpcServer(rpcConfig, logManager, m_core, p2psrv, cprotocol, chain_file_path.string(), key_file_path.string());
+    CryptoNote::RpcServer rpcServer(dispatcher, rpcConfig, logManager, m_core, p2psrv, cprotocol, chain_file_path.string(), key_file_path.string());
 
     cprotocol.set_p2p_endpoint(&p2psrv);
     m_core.set_cryptonote_protocol(&cprotocol);

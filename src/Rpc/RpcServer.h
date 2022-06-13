@@ -34,6 +34,7 @@
 #include "CryptoNoteCore/Core.h"
 #include "Common/Math.h"
 #include "Rpc/RpcServerConfig.h"
+#include "System/Dispatcher.h"
 
 namespace CryptoNote {
 
@@ -44,8 +45,8 @@ class ICryptoNoteProtocolQuery;
 
 class RpcServer {
 public:
-  RpcServer(RpcServerConfig& config, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery, 
-      std::string cert_path = "", std::string key_path = "");
+  RpcServer(System::Dispatcher& dispatcher, RpcServerConfig& config, Logging::ILogger& log, Core& core, NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery,
+    std::string cert_path = "", std::string key_path = "");
 
   ~RpcServer();
   
@@ -142,6 +143,7 @@ private:
 
   void fill_block_header_response(const Block& blk, bool orphan_status, uint32_t height, const Crypto::Hash& hash, block_header_response& responce);
 
+  System::Dispatcher& m_dispatcher;
   Logging::LoggerRef logger;
   CryptoNote::Core& m_core;
   CryptoNote::NodeServer& m_p2p;
