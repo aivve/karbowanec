@@ -161,9 +161,9 @@ private:
   RpcServerConfig m_config;
 
 //#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-  httplib::SSLServer m_ssl_server;
+  httplib::SSLServer https;
 //#endif
-  httplib::Server m_server;
+  httplib::Server http;
 
   std::thread m_serverThread;
 

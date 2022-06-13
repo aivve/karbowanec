@@ -201,19 +201,19 @@ RpcServer::RpcServer(System::Dispatcher& dispatcher, RpcServerConfig& config, Lo
   m_dispatcher(dispatcher), m_config(config), logger(log, "RpcServer"), m_core(core), m_p2p(p2p), m_protocolQuery(protocolQuery), blockchainExplorerDataBuilder(core, protocolQuery),
   m_restricted_rpc(m_config.restrictedRPC), m_cors_domain(m_config.enableCors), m_cert_path(cert_path), m_key_path(key_path), https(m_cert_path.c_str(), m_key_path.c_str())
 {
-  m_ssl_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
+  https.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
   });
 
-  m_ssl_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
+  https.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
   });
 
-  m_server.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
+  http.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
   });
 
-  m_server.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
+  http.Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
   });
 
@@ -267,13 +267,13 @@ void RpcServer::start(const std::string address, const uint16_t port) {
 
 void RpcServer::stop() {
   if (m_config.isEnabledSSL()) {
-    m_ssl_server.stop();
+    https.stop();
     if (m_serverThread.joinable()) {
         m_serverThread.join();
     }
   }
   else {
-    m_server.stop();
+    http.stop();
     if (m_serverThread.joinable()) {
         m_serverThread.join();
     }
@@ -281,17 +281,17 @@ void RpcServer::stop() {
 }
 
 void RpcServer::listen(const std::string address, const uint16_t port) {
-  const auto listenError = m_server.listen(address, port);
+  const auto listenError = http.listen(address, port);
   if (listenError != httplib::SUCCESS) {
-    std::cout << "Could not bind service to " << address << ":" << port
+    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
       << "\nIs another service using this address and port?\n";
   }
 }
 
 void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
-  const auto listenError = m_ssl_server.listen(address, port);
+  const auto listenError = https.listen(address, port);
   if (listenError != httplib::SUCCESS) {
-    std::cout << "Could not bind service to " << address << ":" << port
+    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
       << "\nIs another service using this address and port?\n";
   }
 }
