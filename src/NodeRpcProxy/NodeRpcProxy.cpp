@@ -19,9 +19,7 @@
 #include "NodeRpcProxy.h"
 #include "NodeErrors.h"
 
-#include <atomic>
 #include <system_error>
-#include <thread>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/lexical_cast.hpp>
@@ -35,15 +33,15 @@
 #include <System/EventLock.h>
 #include <System/Timer.h>
 #include <CryptoNoteCore/TransactionApi.h>
-#include "Common/FormatTools.h"
-#include "Common/StringTools.h"
-#include "CryptoNoteCore/CryptoNoteBasicImpl.h"
-#include "CryptoNoteCore/CryptoNoteFormatUtils.h"
-#include "CryptoNoteCore/CryptoNoteTools.h"
-#include "Rpc/CoreRpcServerCommandsDefinitions.h"
-#include "Rpc/HttpClient.h"
-#include "Rpc/JsonRpc.h"
-#include "Serialization\SerializationTools.h"
+#include <Common/FormatTools.h>
+#include <Common/StringTools.h>
+#include <CryptoNoteCore/CryptoNoteBasicImpl.h>
+#include <CryptoNoteCore/CryptoNoteFormatUtils.h>
+#include <CryptoNoteCore/CryptoNoteTools.h>
+#include <Rpc/CoreRpcServerCommandsDefinitions.h>
+#include <Rpc/HttpClient.h>
+#include <Rpc/JsonRpc.h>
+#include <Serialization/SerializationTools.h>
 
 #ifndef AUTO_VAL_INIT
 #define AUTO_VAL_INIT(n) boost::value_initialized<decltype(n)>()
