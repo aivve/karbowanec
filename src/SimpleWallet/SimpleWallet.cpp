@@ -1865,7 +1865,7 @@ void simple_wallet::initCompleted(std::error_code result) {
 //----------------------------------------------------------------------------------------------------
 void simple_wallet::connectionStatusUpdated(bool connected) {
   if (connected) {
-    logger(INFO, GREEN) << "Wallet connected to daemon.";
+    logger(TRACE, GREEN) << "Wallet connected to daemon.";
   } else {
     printConnectionError();
   }

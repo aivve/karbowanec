@@ -173,7 +173,10 @@ private:
   Tools::ObserverManager<CryptoNote::INodeRpcProxyObserver> m_rpcProxyObserverManager;
 
   unsigned int m_rpcTimeout;
-  httplib::Client* m_httpClient = nullptr;
+  //httplib::Client* m_httpClient = nullptr;
+
+  std::shared_ptr<httplib::Client> m_httpClient = nullptr;
+
   httplib::Headers m_requestHeaders;
   System::Event* m_httpEvent = nullptr;
 

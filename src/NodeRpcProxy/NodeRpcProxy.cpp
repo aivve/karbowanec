@@ -183,15 +183,11 @@ void NodeRpcProxy::workerThread(const INode::Callback& initialized_callback) {
     m_dispatcher = &dispatcher;
     ContextGroup contextGroup(dispatcher);
     m_context_group = &contextGroup;
-    //HttpClient httpClient(dispatcher, m_nodeHost, m_nodePort, m_daemon_ssl);
-
     if (m_daemon_ssl) {
-      httplib::SSLClient httpsClient(m_nodeHost, m_nodePort);
-      m_httpClient = &httpsClient;
+        m_httpClient = std::make_shared<httplib::SSLClient>(m_nodeHost.c_str(), m_nodePort);
     }
     else {
-      httplib::Client httpClient(m_nodeHost, m_nodePort);
-      m_httpClient = &httpClient;
+        m_httpClient = std::make_shared<httplib::Client>(m_nodeHost.c_str(), m_nodePort);
     }
     
     Event httpEvent(dispatcher);
@@ -999,7 +995,7 @@ std::error_code NodeRpcProxy::binaryCommand(const std::string& comm, const Reque
   try {
     EventLock eventLock(*m_httpEvent);
 
-    auto rsp = m_httpClient->Post(rpc_url.c_str(), m_requestHeaders, storeToBinaryKeyValue(req), "application/octet-stream");
+    const auto rsp = m_httpClient->Post(rpc_url.c_str(), m_requestHeaders, storeToBinaryKeyValue(req), "application/octet-stream");
     
     if (rsp && rsp->status == 200) {
       if (!loadFromBinaryKeyValue(res, rsp->body)) {
@@ -1027,7 +1023,7 @@ std::error_code NodeRpcProxy::jsonCommand(const std::string& comm, const Request
   try {
     EventLock eventLock(*m_httpEvent);
 
-    auto rsp = m_httpClient->Get(rpc_url.c_str(), m_requestHeaders);
+    const auto rsp = m_httpClient->Get(rpc_url.c_str());
 
     if (rsp && rsp->status == 200) {
       if (!loadFromJson(res, rsp->body)) {
@@ -1060,7 +1056,7 @@ std::error_code NodeRpcProxy::jsonRpcCommand(const std::string& method, const Re
 
     std::string rpc_url = this->m_daemon_path + "json_rpc";
 
-    auto rsp = m_httpClient->Post(rpc_url.c_str(), m_requestHeaders, jsReq.getBody(), "application/json");
+    const auto rsp = m_httpClient->Post(rpc_url.c_str(), m_requestHeaders, jsReq.getBody(), "application/json");
 
     JsonRpc::JsonRpcResponse jsRes;
 
