@@ -31,6 +31,7 @@ public:
   void init(const boost::program_options::variables_map& options);
 
   bool isEnabledSSL() const;
+  bool isRestricted() const;
   uint16_t getBindPort() const;
   uint16_t getBindPortSSL() const;
   std::string getBindIP() const;
@@ -39,8 +40,13 @@ public:
   std::string getDhFile() const;
   std::string getChainFile() const;
   std::string getKeyFile() const;
+  std::string getCors() const;
+  std::string getNodeFeeAddress() const;
+  uint64_t    getNodeFeeAmount() const;
+  std::string getNodeFeeViewKey() const;
+  std::string getContactInfo() const;
 
-//private:
+private:
   bool        restrictedRPC;
   bool        enableSSL;
   uint16_t    bindPort;
@@ -53,6 +59,7 @@ public:
   std::string contactInfo;
   std::string nodeFeeAddress;
   std::string nodeFeeAmountStr;
+  uint64_t    nodeFeeAmount = 0;
   std::string nodeFeeViewKey;
 };
 

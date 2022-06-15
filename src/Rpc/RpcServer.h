@@ -169,7 +169,7 @@ private:
   std::string m_cert_path;
   std::string m_key_path;
   Crypto::SecretKey m_view_key = NULL_SECRET_KEY;
-  CryptoNote::AccountPublicAddress m_fee_acc;
+  CryptoNote::AccountPublicAddress m_fee_acc = boost::value_initialized<AccountPublicAddress>();
   RpcServerConfig m_config;
 
 //#ifdef CPPHTTPLIB_OPENSSL_SUPPORT

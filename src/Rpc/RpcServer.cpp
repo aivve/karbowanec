@@ -209,12 +209,15 @@ RpcServer::RpcServer(
     m_core(core), m_p2p(p2p),
     m_protocolQuery(protocolQuery),
     blockchainExplorerDataBuilder(core, protocolQuery),
-    m_restricted_rpc(/*m_config.restrictedRPC*/false),
-    m_cors_domain(m_config.enableCors),
-    m_cert_path(cert_path), 
-    m_key_path(key_path), 
+    m_restricted_rpc(m_config.isRestricted()),
+    m_fee_address(""),
+    m_fee_amount(0),
+    m_cors_domain(m_config.getCors()),
+    m_cert_path(cert_path),
+    m_key_path(key_path),
     https(m_cert_path.c_str(), m_key_path.c_str())
 {
+
   https.Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
   });
@@ -231,35 +234,21 @@ RpcServer::RpcServer(
     processRequest(req, res);
   });
 
-  if (!m_config.nodeFeeAddress.empty() && !m_config.nodeFeeAmountStr.empty()) {
-    AccountPublicAddress acc = boost::value_initialized<AccountPublicAddress>();
-    if (!m_core.currency().parseAccountAddressString(m_config.nodeFeeAddress, acc)) {
-      throw std::runtime_error("Bad fee address: " + m_config.nodeFeeAddress);
-    }
-    m_fee_address = m_config.nodeFeeAddress;
-    m_fee_acc = acc;
-
-    uint64_t fee;
-    if (!Common::Format::parseAmount(m_config.nodeFeeAmountStr, fee)) {
-      throw std::runtime_error("Couldn't parse fee amount");
-    }
-    if (fee > CryptoNote::parameters::COIN) {
-      throw std::runtime_error("Maximum allowed fee is " + Common::Format::formatAmount(CryptoNote::parameters::COIN));
-    }
-
-    m_fee_amount = fee;
+  if (!m_config.getNodeFeeAddress().empty() && m_config.getNodeFeeAmount() != 0) {
+    m_fee_address = m_config.getNodeFeeAddress();
+    m_fee_amount = m_config.getNodeFeeAmount();
   }
 
-  if (!m_config.nodeFeeViewKey.empty()) {
+  if (!m_config.getNodeFeeViewKey().empty()) {
     Crypto::Hash private_view_key_hash;
     size_t size;
-    if (!Common::fromHex(m_config.nodeFeeViewKey, &private_view_key_hash, sizeof(private_view_key_hash), size) || size != sizeof(private_view_key_hash)) {
+    if (!Common::fromHex(m_config.getNodeFeeViewKey(), &private_view_key_hash, sizeof(private_view_key_hash), size) || size != sizeof(private_view_key_hash)) {
       throw std::runtime_error("Could not parse private view key");
     }
     m_view_key = *(struct Crypto::SecretKey*)&private_view_key_hash;
   }
-  if (!m_config.contactInfo.empty()) {
-    m_contact_info = m_config.contactInfo;
+  if (!m_config.getContactInfo().empty()) {
+    m_contact_info = m_config.getContactInfo();
   }
 
 }
@@ -1641,10 +1630,6 @@ bool RpcServer::on_stop_daemon(const COMMAND_RPC_STOP_DAEMON::request& req, COMM
 }
 
 bool RpcServer::on_get_fee_address(const COMMAND_RPC_GET_FEE_ADDRESS::request& req, COMMAND_RPC_GET_FEE_ADDRESS::response& res) {
-  if (m_fee_address.empty()) {
-    res.status = CORE_RPC_STATUS_OK;
-    return false; 
-  }
   res.fee_address = m_fee_address;
   res.fee_amount = m_fee_amount;
   res.status = CORE_RPC_STATUS_OK;

@@ -254,19 +254,6 @@ int main(int argc, char* argv[])
     RpcServerConfig rpcConfig;
     rpcConfig.init(vm);
 
-    std::string contact_str = rpcConfig.contactInfo;
-    if (!contact_str.empty() && contact_str.size() > 128) {
-      logger(ERROR, BRIGHT_RED) << "Too long contact info";
-      return 1;
-    }
-
-    // check this early
-    if ((rpcConfig.nodeFeeAddress.empty() && !rpcConfig.nodeFeeAmountStr.empty()) ||
-       (!rpcConfig.nodeFeeAddress.empty() && rpcConfig.nodeFeeAmountStr.empty())) {
-      logger(ERROR, BRIGHT_RED) << "Need to set both, fee-address and fee-amount";
-      return 1;
-    }
-
     //create objects and link them
     CryptoNote::CurrencyBuilder currencyBuilder(logManager);
     currencyBuilder.testnet(testnet_mode);
