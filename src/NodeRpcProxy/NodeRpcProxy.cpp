@@ -158,6 +158,8 @@ bool NodeRpcProxy::shutdown() {
     }
   }
 
+  m_httpClient = nullptr;
+
   assert(m_state == STATE_INITIALIZED);
   assert(m_dispatcher != nullptr);
 
