@@ -26,6 +26,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/lexical_cast.hpp>
 
+#include "version.h"
 #include <HTTP/HttpRequest.h>
 #include <HTTP/HttpResponse.h>
 #include <System/ContextGroup.h>
@@ -42,6 +43,7 @@
 #include "Rpc/CoreRpcServerCommandsDefinitions.h"
 #include "Rpc/HttpClient.h"
 #include "Rpc/JsonRpc.h"
+#include "Serialization\SerializationTools.h"
 
 #ifndef AUTO_VAL_INIT
 #define AUTO_VAL_INIT(n) boost::value_initialized<decltype(n)>()
@@ -56,9 +58,9 @@ namespace CryptoNote {
 namespace {
 
 std::error_code interpretResponseStatus(const std::string& status) {
-  if (CORE_RPC_STATUS_BUSY == status) {
+  if (500 == std::stoi(status)) {
     return make_error_code(error::NODE_BUSY);
-  } else if (CORE_RPC_STATUS_OK != status) {
+  } else if (200 != std::stoi(status)) {
     return make_error_code(error::INTERNAL_NODE_ERROR);
   }
   return std::error_code();
@@ -92,6 +94,9 @@ NodeRpcProxy::NodeRpcProxy(const std::string& nodeHost, unsigned short nodePort,
     m_whitePeerlistSize(0),
     m_greyPeerlistSize(0)
 {
+  std::stringstream userAgent;
+  userAgent << "NodeRpcProxy/" << PROJECT_VERSION_LONG;
+  m_requestHeaders = { {"User-Agent", userAgent.str()}, { "Connection", "keep-alive" } };
   resetInternalState();
 }
 
@@ -178,10 +183,17 @@ void NodeRpcProxy::workerThread(const INode::Callback& initialized_callback) {
     m_dispatcher = &dispatcher;
     ContextGroup contextGroup(dispatcher);
     m_context_group = &contextGroup;
-    HttpClient httpClient(dispatcher, m_nodeHost, m_nodePort, m_daemon_ssl);
-    m_httpClient = &httpClient;
-    if (!m_daemon_cert.empty()) m_httpClient->setRootCert(m_daemon_cert);
-    if (m_daemon_no_verify) m_httpClient->disableVerify();
+    //HttpClient httpClient(dispatcher, m_nodeHost, m_nodePort, m_daemon_ssl);
+
+    if (m_daemon_ssl) {
+      httplib::SSLClient httpsClient(m_nodeHost, m_nodePort);
+      m_httpClient = &httpsClient;
+    }
+    else {
+      httplib::Client httpClient(m_nodeHost, m_nodePort);
+      m_httpClient = &httpClient;
+    }
+    
     Event httpEvent(dispatcher);
     m_httpEvent = &httpEvent;
     m_httpEvent->set();
@@ -319,10 +331,8 @@ void NodeRpcProxy::updateBlockchainStatus() {
     if (Common::Format::parseAmount(boost::lexical_cast<std::string>(getInfoResp.already_generated_coins), alreadyGenCoins)) {
       m_alreadyGeneratedCoins.store(alreadyGenCoins, std::memory_order_relaxed);
     }
-  }
 
-  if (m_connected != m_httpClient->isConnected()) {
-    m_connected = m_httpClient->isConnected();
+    m_connected = true;
     m_rpcProxyObserverManager.notify(&INodeRpcProxyObserver::connectionStatusUpdated, m_connected);
   }
 }
@@ -970,10 +980,10 @@ void NodeRpcProxy::scheduleRequest(std::function<std::error_code()>&& procedure,
           callback(std::make_error_code(std::errc::operation_canceled));
         } else {
           std::error_code ec = procedure();
-          if (m_connected != m_httpClient->isConnected()) {
-            m_connected = m_httpClient->isConnected();
-            m_rpcProxyObserverManager.notify(&INodeRpcProxyObserver::connectionStatusUpdated, m_connected);
-          }
+          //if (m_connected != m_httpClient->isConnected()) {
+          //  m_connected = m_httpClient->isConnected();
+          //  m_rpcProxyObserverManager.notify(&INodeRpcProxyObserver::connectionStatusUpdated, m_connected);
+          //}
           callback(m_stop ? std::make_error_code(std::errc::operation_canceled) : ec);
         }
       }, std::move(procedure), std::move(callback)));
@@ -988,8 +998,17 @@ std::error_code NodeRpcProxy::binaryCommand(const std::string& comm, const Reque
 
   try {
     EventLock eventLock(*m_httpEvent);
-    invokeBinaryCommand(*m_httpClient, rpc_url, req, res);
-    ec = interpretResponseStatus(res.status);
+
+    auto rsp = m_httpClient->Post(rpc_url.c_str(), m_requestHeaders, storeToBinaryKeyValue(req), "application/octet-stream");
+    
+    if (rsp && rsp->status == 200) {
+      if (!loadFromBinaryKeyValue(res, rsp->body)) {
+        throw std::runtime_error("Failed to parse binary response");
+      }
+    }
+
+    ec = interpretResponseStatus(std::to_string(rsp->status));
+
   } catch (const ConnectException&) {
     ec = make_error_code(error::CONNECT_ERROR);
   } catch (const std::exception&) {
@@ -1007,8 +1026,17 @@ std::error_code NodeRpcProxy::jsonCommand(const std::string& comm, const Request
 
   try {
     EventLock eventLock(*m_httpEvent);
-    invokeJsonCommand(*m_httpClient, rpc_url, req, res);
-    ec = interpretResponseStatus(res.status);
+
+    auto rsp = m_httpClient->Get(rpc_url.c_str(), m_requestHeaders);
+
+    if (rsp && rsp->status == 200) {
+      if (!loadFromJson(res, rsp->body)) {
+        throw std::runtime_error("Failed to parse JSON response");
+      }
+    }
+
+    ec = interpretResponseStatus(std::to_string(rsp->status));
+
   } catch (const ConnectException&) {
     ec = make_error_code(error::CONNECT_ERROR);
   } catch (const std::exception&) {
@@ -1030,23 +1058,16 @@ std::error_code NodeRpcProxy::jsonRpcCommand(const std::string& method, const Re
     jsReq.setMethod(method);
     jsReq.setParams(req);
 
-    HttpRequest httpReq;
-    HttpResponse httpRes;
-
     std::string rpc_url = this->m_daemon_path + "json_rpc";
 
-    httpReq.addHeader("Content-Type", "application/json");
-    httpReq.setUrl(rpc_url);
-    httpReq.setBody(jsReq.getBody());
-
-    m_httpClient->request(httpReq, httpRes);
+    auto rsp = m_httpClient->Post(rpc_url.c_str(), m_requestHeaders, jsReq.getBody(), "application/json");
 
     JsonRpc::JsonRpcResponse jsRes;
 
-    if (httpRes.getStatus() == HttpResponse::STATUS_200) {
-      jsRes.parse(httpRes.getBody());
+    if (rsp && rsp->status == 200) {
+      jsRes.parse(rsp->body);
       if (jsRes.getResult(res)) {
-        ec = interpretResponseStatus(res.status);
+        ec = interpretResponseStatus(std::to_string(rsp->status));
       }
     }
   } catch (const ConnectException&) {

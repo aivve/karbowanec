@@ -55,6 +55,9 @@
 #include <System/Dispatcher.h>
 #include <System/Ipv4Address.h>
 
+using namespace Logging;
+#undef ERROR
+
 namespace{
 	Tools::PasswordContainer pwd_container;
 }
