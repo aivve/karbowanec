@@ -209,7 +209,7 @@ RpcServer::RpcServer(
     m_core(core), m_p2p(p2p),
     m_protocolQuery(protocolQuery),
     blockchainExplorerDataBuilder(core, protocolQuery),
-    m_restricted_rpc(m_config.restrictedRPC), 
+    m_restricted_rpc(/*m_config.restrictedRPC*/false),
     m_cors_domain(m_config.enableCors),
     m_cert_path(cert_path), 
     m_key_path(key_path), 
