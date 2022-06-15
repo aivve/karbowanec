@@ -200,10 +200,11 @@ RpcServer::RpcServer(
   System::Dispatcher& dispatcher,
   Logging::ILogger& log,
   CryptoNote::Core& core,
-  NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery)
-  :
-  HttpServer(dispatcher, log),
+  NodeServer& p2p, ICryptoNoteProtocolQuery& protocolQuery,
+  std::string cert_path, std::string key_path
+) :
   m_config(config),
+  m_dispatcher(dispatcher),
   logger(log, "RpcServer"),
   m_core(core),
   m_p2p(p2p),
