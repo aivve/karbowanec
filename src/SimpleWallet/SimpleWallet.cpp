@@ -1798,9 +1798,9 @@ bool simple_wallet::start_mining(const std::vector<std::string>& args) {
   std::string err;
 
   try {
-    httplib::Client cli(m_daemon_address);
+    httplib::Client cli(m_daemon_address.c_str());
     if (m_daemon_ssl && m_daemon_no_verify) {
-      cli.enable_server_certificate_verification(!m_daemon_no_verify);
+      //cli.enable_server_certificate_verification(!m_daemon_no_verify);
     }
     const auto rsp = cli.Post(rpc_url.c_str(), m_requestHeaders, storeToJson(req), "application/json");
     if (rsp) {
@@ -1836,9 +1836,9 @@ bool simple_wallet::stop_mining(const std::vector<std::string>& args)
   std::string err;
 
   try {
-    httplib::Client cli(m_daemon_address);
+    httplib::Client cli(m_daemon_address.c_str());
     if (m_daemon_ssl && m_daemon_no_verify) {
-      cli.enable_server_certificate_verification(!m_daemon_no_verify);
+      //cli.enable_server_certificate_verification(!m_daemon_no_verify);
     }
     const auto rsp = cli.Post(rpc_url.c_str(), m_requestHeaders, storeToJson(req), "application/json");
     if (rsp) {

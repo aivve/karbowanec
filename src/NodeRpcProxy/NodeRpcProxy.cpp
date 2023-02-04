@@ -983,9 +983,9 @@ std::error_code NodeRpcProxy::binaryCommand(const std::string& comm, const Reque
   try {
     EventLock eventLock(*m_httpEvent);
 
-    httplib::Client httpClient(m_node_url);
-    httpClient.enable_server_certificate_verification(false);
-    httpClient.set_connection_timeout(1000);
+    httplib::Client httpClient(m_node_url.c_str());
+    //httpClient.enable_server_certificate_verification(false);
+    //httpClient.set_connection_timeout(1000);
 
     const auto rsp = httpClient.Post(rpc_url.c_str(), m_requestHeaders, storeToBinaryKeyValue(req), "application/octet-stream");
     if (rsp) {
@@ -1013,9 +1013,9 @@ std::error_code NodeRpcProxy::jsonCommand(const std::string& comm, const Request
   try {
     EventLock eventLock(*m_httpEvent);
 
-    httplib::Client httpClient(m_node_url);
-    httpClient.enable_server_certificate_verification(false);
-    httpClient.set_connection_timeout(1000);
+    httplib::Client httpClient(m_node_url.c_str());
+    //httpClient.enable_server_certificate_verification(false);
+    //httpClient.set_connection_timeout(1000);
 
     const auto rsp = httpClient.Post(rpc_url.c_str(), m_requestHeaders, storeToJson(req), "application/json");
     if (rsp) {
@@ -1047,9 +1047,9 @@ std::error_code NodeRpcProxy::jsonRpcCommand(const std::string& method, const Re
     jsReq.setParams(req);
     JsonRpc::JsonRpcResponse jsRes;
 
-    httplib::Client httpClient(m_node_url);
-    httpClient.enable_server_certificate_verification(false);
-    httpClient.set_connection_timeout(1000);
+    httplib::Client httpClient(m_node_url.c_str());
+    //httpClient.enable_server_certificate_verification(false);
+    //httpClient.set_connection_timeout(1000);
 
     const auto rsp = httpClient.Post(rpc_url.c_str(), m_requestHeaders, jsReq.getBody(), "application/json");
     if (rsp) {

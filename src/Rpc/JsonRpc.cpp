@@ -42,7 +42,7 @@ JsonRpcError::JsonRpcError(int c, const std::string& msg) : code(c), message(msg
 
 void invokeJsonRpcCommand(httplib::Client& httpClient, JsonRpcRequest& jsReq, JsonRpcResponse& jsRes, const std::string& user, const std::string& password) {
   if (!user.empty() || !password.empty()) {
-    httpClient.set_basic_auth(user.c_str(), password.c_str());
+    //httpClient.set_basic_auth(user.c_str(), password.c_str());
   }
 
   auto rsp = httpClient.Post("/json_rpc", jsReq.getBody(), "application/json");
