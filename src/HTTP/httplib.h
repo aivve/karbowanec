@@ -30,17 +30,26 @@
 #define S_ISDIR(m)  (((m)&S_IFDIR)==S_IFDIR)
 #endif //S_ISDIR
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif // NOMINMAX
 
 #include <io.h>
+//# if !defined(_WINSOCKAPI_) && !defined(_WINSOCK2API_)
 #include <winsock2.h>
+//#endif
 #include <ws2tcpip.h>
 
+
+#ifdef _MSC_VER
+#pragma comment(lib, "ws2_32.lib")
+#endif
 #ifndef strcasecmp
 #define strcasecmp _stricmp
 #endif //strcasecmp
 
-typedef SOCKET socket_t;
+using socket_t = SOCKET;
+
 #else
 #include <pthread.h>
 #include <unistd.h>
