@@ -77,6 +77,7 @@ typedef int socket_t;
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <System/Dispatcher.h>
 
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
 #include <openssl/ssl.h>
@@ -246,7 +247,7 @@ public:
     typedef std::function<void (const Request&, Response&)> Handler;
     typedef std::function<void (const Request&, const Response&)> Logger;
 
-    Server();
+    Server(System::Dispatcher& dispatcher);
 
     virtual ~Server();
 
@@ -312,6 +313,7 @@ private:
     // TODO: Use thread pool...
     std::mutex  running_threads_mutex_;
     int         running_threads_;
+    System::Dispatcher& m_dispatcher;
 };
 
 class Client {
@@ -386,7 +388,7 @@ private:
 
 class SSLServer : public Server {
 public:
-    SSLServer(
+    SSLServer(System::Dispatcher& dispatcher,
         const char* cert_path, const char* private_key_path);
 
     virtual ~SSLServer();
@@ -1759,11 +1761,12 @@ inline const std::string& BufferStream::get_buffer() const {
 
 
 // HTTP server implementation
-inline Server::Server()
+inline Server::Server(System::Dispatcher& dispatcher)
     : keep_alive_max_count_(5)
     , is_running_(false)
     , svr_sock_(INVALID_SOCKET)
     , running_threads_(0)
+    , m_dispatcher(dispatcher)
 {
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
@@ -2877,8 +2880,9 @@ inline std::string SSLSocketStream::get_remote_addr() const {
     return detail::get_remote_addr(sock_);
 }
 
-// SSL HTTP server implementation
-inline SSLServer::SSLServer(const char* cert_path, const char* private_key_path)
+//  HTTP server implementation
+inline SSLServer::SSLServer(System::Dispatcher& dispatcher,
+  const char* cert_path, const char* private_key_path) : Server(dispatcher)
 {
     ctx_ = SSL_CTX_new(SSLv23_server_method());
 
