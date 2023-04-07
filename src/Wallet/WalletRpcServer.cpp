@@ -83,7 +83,6 @@ wallet_rpc_server::wallet_rpc_server(
   const std::string& walletFilename) :
   logger(log, "WalletRpc"),
   m_dispatcher(dispatcher),
-  m_stopComplete(dispatcher),
   m_wallet(w),
   m_node(n),
   m_currency(currency),
@@ -95,7 +94,6 @@ wallet_rpc_server::wallet_rpc_server(
 //------------------------------------------------------------------------------------------------------------------------------
 
 wallet_rpc_server::~wallet_rpc_server() {
-  stop();
 }
 
 //------------------------------------------------------------------------------------------------------------------------------
@@ -112,22 +110,7 @@ bool wallet_rpc_server::run()
     new System::RemoteContext<void>(m_dispatcher, std::bind(&wallet_rpc_server::listen, this, m_bind_ip, m_port)))
   );
 
-  m_stopComplete.wait();
-
   return true;
-}
-
-//------------------------------------------------------------------------------------------------------------------------------
-
-
-void wallet_rpc_server::send_stop_signal()
-{
-  m_dispatcher.remoteSpawn([this]
-    {
-      std::cout << "wallet_rpc_server::send_stop_signal()" << std::endl;
-      stop();
-      m_stopComplete.set();
-    });
 }
 
 //------------------------------------------------------------------------------------------------------------------------------
@@ -708,7 +691,7 @@ bool wallet_rpc_server::on_stop_wallet(const wallet_rpc::COMMAND_RPC_STOP::reque
     logger(Logging::ERROR) << "Couldn't save wallet: " << e.what();
     throw JsonRpc::JsonRpcError(WALLET_RPC_ERROR_CODE_UNKNOWN_ERROR, std::string("Couldn't save wallet: ") + e.what());
   }
-  wallet_rpc_server::send_stop_signal();
+  wallet_rpc_server::stop();
   return true;
 }
 

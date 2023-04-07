@@ -2693,8 +2693,13 @@ int main(int argc, char* argv[]) {
       return 1;
     }
 
-    Tools::SignalHandler::install([&wrpc, &wallet] {
-      wrpc.send_stop_signal();
+    Tools::SignalHandler::install([&m_stopComplete, &dispatcher, &wrpc, &wallet] {
+      wrpc.stop();
+
+      dispatcher.remoteSpawn([&] {
+        m_stopComplete.set();
+      });
+
     });
 
     bool enable_ssl;

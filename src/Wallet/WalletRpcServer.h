@@ -104,7 +104,6 @@ private:
   httplib::SSLServer* https;
   Logging::LoggerRef logger;
   System::Dispatcher& m_dispatcher;
-  System::Event m_stopComplete;
   std::vector<std::unique_ptr<System::RemoteContext<void>>> m_workers;
 
   bool m_enable_ssl;
