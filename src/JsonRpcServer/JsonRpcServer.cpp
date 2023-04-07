@@ -129,17 +129,11 @@ bool JsonRpcServer::authenticate(const httplib::Request& request) const {
 }
 
 void JsonRpcServer::listen(const std::string address, const uint16_t port) {
-  if (!http->listen(address.c_str(), port)) {
-    logger(Logging::WARNING) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
-  }
+  auto r = http->listen(address.c_str(), port);
 }
 
 void JsonRpcServer::listen_ssl(const std::string address, const uint16_t port) {
-  if (!https->listen(address.c_str(), port)) {
-    logger(Logging::WARNING) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
-  }
+  auto r = https->listen(address.c_str(), port);
 }
 
 void JsonRpcServer::processRequest(const httplib::Request& req, httplib::Response& resp) {

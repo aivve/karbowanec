@@ -128,17 +128,11 @@ void wallet_rpc_server::stop() {
 //------------------------------------------------------------------------------------------------------------------------------
 
 void wallet_rpc_server::listen(const std::string address, const uint16_t port) {
-  if (!http->listen(address.c_str(), port)) {
-    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
-  }
+  auto r = http->listen(address.c_str(), port);
 }
 
 void wallet_rpc_server::listen_ssl(const std::string address, const uint16_t port) {
-  if (!https->listen(address.c_str(), port)) {
-    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
-  }
+  auto r = https->listen(address.c_str(), port);
 }
 
 //------------------------------------------------------------------------------------------------------------------------------
