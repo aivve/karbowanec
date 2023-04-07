@@ -2686,20 +2686,15 @@ int main(int argc, char* argv[]) {
       return 1;
     }
 
-    Tools::wallet_rpc_server wrpc(logManager, *wallet, *node, currency, walletFileName);
+    Tools::wallet_rpc_server wrpc(dispatcher, logManager, *wallet, *node, currency, walletFileName);
 
     if (!wrpc.init(vm)) {
       logger(ERROR, BRIGHT_RED) << "Failed to initialize wallet rpc server";
       return 1;
     }
 
-    Tools::SignalHandler::install([&m_stopComplete, &dispatcher, &wrpc, &wallet] {
-      wrpc.stop();
-
-      dispatcher.remoteSpawn([&] {
-        m_stopComplete.set();
-      });
-
+    Tools::SignalHandler::install([&wrpc, &wallet] {
+      wrpc.send_stop_signal();
     });
 
     bool enable_ssl;

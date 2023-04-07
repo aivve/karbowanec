@@ -241,9 +241,9 @@ RpcServer::RpcServer(
     m_contact_info = m_config.getContactInfo();
   }
 
-  http = new httplib::Server();
+  http = new httplib::Server(m_dispatcher);
 
-  https = new httplib::SSLServer(m_config.getChainFile().c_str(), m_config.getKeyFile().c_str());
+  https = new httplib::SSLServer(m_dispatcher, m_config.getChainFile().c_str(), m_config.getKeyFile().c_str());
 
   http->Get(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
