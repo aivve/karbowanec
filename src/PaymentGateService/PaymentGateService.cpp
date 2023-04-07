@@ -254,15 +254,7 @@ void PaymentGateService::runInProcess(Logging::LoggerRef& log) {
 
   p2pStarted.wait();
 
-  if (config.gateConfiguration.generateNewContainer) {
-    generateNewWallet(currency, getWalletConfig(), logger, *dispatcher, *node);
-  }
-  else if (config.gateConfiguration.changePassword) {
-    changePassword(currency, getWalletConfig(), logger, *dispatcher, *node, config.gateConfiguration.newContainerPassword);
-  }
-  else {
-    runWalletService(currency, *node);
-  }
+  runWalletServiceOr(currency, *node);
 
   p2pNode.sendStopSignal();
   context.get();
@@ -292,14 +284,18 @@ void PaymentGateService::runRpcProxy(Logging::LoggerRef& log) {
       _daemon_path,
       _daemon_ssl));
 
+  runWalletServiceOr(currency, *node);
+}
+
+void PaymentGateService::runWalletServiceOr(const CryptoNote::Currency& currency, CryptoNote::INode& node) {
   if (config.gateConfiguration.generateNewContainer) {
-    generateNewWallet(currency, getWalletConfig(), logger, *dispatcher, *node);
+    generateNewWallet(currency, getWalletConfig(), logger, *dispatcher, node);
   }
   else if (config.gateConfiguration.changePassword) {
-    changePassword(currency, getWalletConfig(), logger, *dispatcher, *node, config.gateConfiguration.newContainerPassword);
+    changePassword(currency, getWalletConfig(), logger, *dispatcher, node, config.gateConfiguration.newContainerPassword);
   }
   else {
-    runWalletService(currency, *node);
+    runWalletService(currency, node);
   }
 }
 
@@ -350,6 +346,10 @@ void PaymentGateService::runWalletService(const CryptoNote::Currency& currency, 
     rpcServer.init(rpc_chain_file, rpc_key_file, rpc_run_ssl);
 
     rpcServer.setAuth(config.gateConfiguration.m_rpcUser, config.gateConfiguration.m_rpcPassword);
+
+    Tools::SignalHandler::install([&rpcServer] {
+      rpcServer.stop();
+    });
 
     rpcServer.start(config.gateConfiguration.m_bind_address,
                     config.gateConfiguration.m_bind_port,
