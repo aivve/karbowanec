@@ -88,14 +88,14 @@ void JsonRpcServer::init(const std::string& chain_file, const std::string& key_f
   m_key_file = key_file;
   m_enable_ssl = server_ssl_enable;
 
-  http = new httplib::Server();
+  http = new httplib::Server(m_dispatcher);
 
   http->Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
     processRequest(req, res);
   });
 
   if (server_ssl_enable) {
-    https = new httplib::SSLServer(m_chain_file.c_str(), m_key_file.c_str());
+    https = new httplib::SSLServer(m_dispatcher, m_chain_file.c_str(), m_key_file.c_str());
 
     https->Post(".*", [this](const httplib::Request& req, httplib::Response& res) {
       processRequest(req, res);
