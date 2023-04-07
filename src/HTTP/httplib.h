@@ -77,8 +77,8 @@ typedef int socket_t;
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <assert.h>
-#include "System/Dispatcher.h"
-#include "System/RemoteContext.h"
+#include <System/Dispatcher.h>
+#include <System/RemoteContext.h>
 
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
 #include <openssl/ssl.h>
@@ -315,7 +315,7 @@ private:
     std::mutex  running_threads_mutex_;
     int         running_threads_;
     System::Dispatcher& m_dispatcher;
-
+    std::vector<std::unique_ptr<System::RemoteContext<void>>> m_workers;
 };
 
 class Client {
@@ -1870,6 +1870,8 @@ inline void Server::stop()
         svr_sock_ = INVALID_SOCKET;
         detail::shutdown_socket(sock);
         detail::close_socket(sock);
+
+        m_workers.clear();
     }
 }
 
@@ -2231,7 +2233,7 @@ inline bool Server::listen_internal()
             break;
         }
 
-        m_dispatcher.remoteSpawn([=] {
+        /*m_dispatcher.remoteSpawn([=] {
           {
             std::lock_guard<std::mutex> guard(running_threads_mutex_);
             running_threads_++;
@@ -2243,7 +2245,26 @@ inline bool Server::listen_internal()
             std::lock_guard<std::mutex> guard(running_threads_mutex_);
             running_threads_--;
           }
-        });
+        });*/
+
+        m_workers.emplace_back(
+          new System::RemoteContext<void>(m_dispatcher, [=]() {
+            
+            {
+              std::lock_guard<std::mutex> guard(running_threads_mutex_);
+              running_threads_++;
+            }
+
+            read_socket(sock);
+
+            {
+              std::lock_guard<std::mutex> guard(running_threads_mutex_);
+              running_threads_--;
+            }
+
+          })
+        );
+
     }
 
     for (;;) {
