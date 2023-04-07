@@ -77,7 +77,8 @@ typedef int socket_t;
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <assert.h>
-#include <System/Dispatcher.h>
+#include "System/Dispatcher.h"
+#include "System/RemoteContext.h"
 
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
 #include <openssl/ssl.h>
@@ -314,6 +315,7 @@ private:
     std::mutex  running_threads_mutex_;
     int         running_threads_;
     System::Dispatcher& m_dispatcher;
+
 };
 
 class Client {
@@ -2229,23 +2231,21 @@ inline bool Server::listen_internal()
             break;
         }
 
-        // TODO: Use thread pool...
-        std::thread([=]() {
-            {
-                std::lock_guard<std::mutex> guard(running_threads_mutex_);
-                running_threads_++;
-            }
+        m_dispatcher.remoteSpawn([=] {
+          {
+            std::lock_guard<std::mutex> guard(running_threads_mutex_);
+            running_threads_++;
+          }
 
-            read_socket(sock);
+          read_socket(sock);
 
-            {
-                std::lock_guard<std::mutex> guard(running_threads_mutex_);
-                running_threads_--;
-            }
-        }).detach();
+          {
+            std::lock_guard<std::mutex> guard(running_threads_mutex_);
+            running_threads_--;
+          }
+        });
     }
 
-    // TODO: Use thread pool...
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         std::lock_guard<std::mutex> guard(running_threads_mutex_);
