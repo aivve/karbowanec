@@ -129,10 +129,16 @@ void wallet_rpc_server::stop() {
 
 void wallet_rpc_server::listen(const std::string address, const uint16_t port) {
   auto r = http->listen(address.c_str(), port);
+  if (r != 0) {
+    logger(Logging::ERROR) << "Could not bind service . Error nr: " << r;
+  }
 }
 
 void wallet_rpc_server::listen_ssl(const std::string address, const uint16_t port) {
   auto r = https->listen(address.c_str(), port);
+  if (r != 0) {
+    logger(Logging::ERROR) << "Could not bind service . Error nr: " << r;
+  }
 }
 
 //------------------------------------------------------------------------------------------------------------------------------

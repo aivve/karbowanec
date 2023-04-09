@@ -297,17 +297,15 @@ void RpcServer::stop() {
 
 void RpcServer::listen(const std::string address, const uint16_t port) {
   auto r = http->listen(address.c_str(), port);
-  if (!r) {
-    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
+  if (r != 0) {
+    logger(Logging::ERROR) << "Could not bind service . Error nr: " << r;
   }
 }
 
 void RpcServer::listen_ssl(const std::string address, const uint16_t port) {
   auto r = https->listen(address.c_str(), port);
-  if (!r) {
-    logger(Logging::ERROR) << "Could not bind service to " << address << ":" << port
-      << "\nIs another service using this address and port?\n";
+  if (r != 0) {
+    logger(Logging::ERROR) << "Could not bind service . Error nr: " << r;
   }
 }
 
