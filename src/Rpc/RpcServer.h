@@ -33,7 +33,6 @@
 #include "Rpc/RpcServerConfig.h"
 #include "Rpc/JsonRpc.h"
 #include "System/Dispatcher.h"
-#include "System/RemoteContext.h"
 
 namespace CryptoNote {
 
@@ -173,7 +172,7 @@ private:
   Crypto::SecretKey m_view_key;
   CryptoNote::AccountPublicAddress m_fee_acc;
 
-  std::vector<std::unique_ptr<System::RemoteContext<void>>> m_workers;
+  std::list<std::thread> m_workers;
 
 };
 

@@ -20,10 +20,10 @@
 #pragma once
 
 #include <system_error>
+#include <thread>
 
 #include "System/Dispatcher.h"
 #include "System/Event.h"
-#include "System/RemoteContext.h"
 #include "Logging/ILogger.h"
 #include "Logging/LoggerRef.h"
 #include "HTTP/httplib.h"
@@ -80,7 +80,7 @@ private:
   httplib::Server* http;
   httplib::SSLServer* https;
 
-  std::vector<std::unique_ptr<System::RemoteContext<void>>> m_workers;
+  std::list<std::thread> m_workers;
 
   std::string m_chain_file;
   std::string m_key_file;

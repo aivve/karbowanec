@@ -56,14 +56,10 @@ JsonRpcServer::~JsonRpcServer() {
 
 void JsonRpcServer::start(const std::string& bindAddress, uint16_t bindPort, uint16_t bindPortSSL) {
   if (m_enable_ssl) {
-    m_workers.emplace_back(std::unique_ptr<System::RemoteContext<void>>(
-      new System::RemoteContext<void>(m_dispatcher, std::bind(&JsonRpcServer::listen_ssl, this, bindAddress, bindPortSSL)))
-    );
+    m_workers.push_back(std::thread(std::bind(&JsonRpcServer::listen_ssl, this, bindAddress, bindPortSSL)));
   }
 
-  m_workers.emplace_back(std::unique_ptr<System::RemoteContext<void>>(
-    new System::RemoteContext<void>(m_dispatcher, std::bind(&JsonRpcServer::listen, this, bindAddress, bindPort)))
-  );
+  m_workers.push_back(std::thread(std::bind(&JsonRpcServer::listen, this, bindAddress, bindPort)));
 
   stopEvent.wait();
 }
@@ -79,6 +75,12 @@ void JsonRpcServer::stop() {
   {
     stopEvent.set();
   });
+
+  for (auto& th : m_workers) {
+    if (th.joinable()) {
+      th.join();
+    }
+  }
 
   m_workers.clear();
 }
