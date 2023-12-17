@@ -2208,7 +2208,7 @@ bool simple_wallet::transfer(const std::vector<std::string> &args) {
     CryptoNote::TransactionId tx;
 
     if (!m_do_not_relay_tx) {
-      tx = m_wallet->sendTransaction(cmd.dsts, cmd.fee, extraString, cmd.fake_outs_count, 0);
+      tx = m_wallet->makeTransaction(cmd.dsts, cmd.fee, extraString, cmd.fake_outs_count, 0);
     }
     else {
       raw_tx = m_wallet->prepareRawTransaction(tx, cmd.dsts, cmd.fee, extraString, cmd.fake_outs_count, 0);

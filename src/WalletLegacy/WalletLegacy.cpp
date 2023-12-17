@@ -807,6 +807,48 @@ TransactionId WalletLegacy::sendTransaction(const std::vector<WalletLegacyTransf
   return txId;
 }
 
+TransactionId WalletLegacy::makeTransaction(const WalletLegacyTransfer& transfer, uint64_t fee, const std::string& extra, uint64_t mixIn, uint64_t unlockTimestamp) {
+  std::vector<WalletLegacyTransfer> transfers;
+  transfers.push_back(transfer);
+  throwIfNotInitialised();
+
+  return makeTransaction(transfers, fee, extra, mixIn, unlockTimestamp);
+}
+
+TransactionId WalletLegacy::makeTransaction(const std::vector<WalletLegacyTransfer>& transfers, uint64_t fee, const std::string& extra, uint64_t mixIn, uint64_t unlockTimestamp) {
+  TransactionId txId = 0;
+  std::shared_ptr<WalletRequest> request;
+  std::deque<std::shared_ptr<WalletLegacyEvent>> events;
+  throwIfNotInitialised();
+
+  std::list<CryptoNote::TransactionOutputInformation> _selectedOuts = {};
+
+  {
+    std::unique_lock<std::mutex> lock(m_cacheMutex);
+    std::string txKey = m_sender->makeTransaction(txId, events, transfers, _selectedOuts, fee, extra, mixIn, unlockTimestamp);
+  }
+
+  notifyClients(events);
+
+  return txId;
+}
+
+TransactionId WalletLegacy::makeTransaction(const std::vector<WalletLegacyTransfer>& transfers, const std::list<TransactionOutputInformation>& selectedOuts, uint64_t fee, const std::string& extra, uint64_t mixIn, uint64_t unlockTimestamp) {
+  TransactionId txId = 0;
+  std::shared_ptr<WalletRequest> request;
+  std::deque<std::shared_ptr<WalletLegacyEvent>> events;
+  throwIfNotInitialised();
+
+  {
+    std::unique_lock<std::mutex> lock(m_cacheMutex);
+    std::string txKey = m_sender->makeTransaction(txId, events, transfers, selectedOuts, fee, extra, mixIn, unlockTimestamp);
+  }
+
+  notifyClients(events);
+
+  return txId;
+}
+
 std::string WalletLegacy::prepareRawTransaction(TransactionId& transactionId, const std::vector<WalletLegacyTransfer>& transfers, uint64_t fee, const std::string& extra, uint64_t mixIn, uint64_t unlockTimestamp) {
   std::deque<std::shared_ptr<WalletLegacyEvent>> events;
   throwIfNotInitialised();

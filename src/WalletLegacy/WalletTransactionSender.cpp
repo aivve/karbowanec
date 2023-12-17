@@ -28,6 +28,7 @@
 #include "WalletLegacy/WalletUtils.h"
 
 #include "CryptoNoteCore/CryptoNoteBasicImpl.h"
+#include "CryptoNoteCore/TransactionApi.h"
 
 #include <Logging/LoggerGroup.h>
 
@@ -73,6 +74,52 @@ void constructTx(const AccountKeys keys, const std::vector<TransactionSourceEntr
 std::shared_ptr<WalletLegacyEvent> makeCompleteEvent(WalletUserTransactionsCache& transactionCache, size_t transactionId, std::error_code ec) {
   transactionCache.updateTransactionSendingState(transactionId, ec);
   return std::make_shared<WalletSendTransactionCompletedEvent>(transactionId, ec);
+}
+
+std::vector<TransactionTypes::InputKeyInfo> convertSources(std::vector<TransactionSourceEntry>&& sources)
+{
+  std::vector<TransactionTypes::InputKeyInfo> inputs;
+  inputs.reserve(sources.size());
+
+  for (TransactionSourceEntry& source : sources)
+  {
+    TransactionTypes::InputKeyInfo input;
+    input.amount = source.amount;
+
+    input.outputs.reserve(source.outputs.size());
+    for (const TransactionSourceEntry::OutputEntry& sourceOutput : source.outputs)
+    {
+      TransactionTypes::GlobalOutput output;
+      output.outputIndex = sourceOutput.first;
+      output.targetKey = sourceOutput.second;
+
+      input.outputs.emplace_back(std::move(output));
+    }
+
+    input.realOutput.transactionPublicKey = source.realTransactionPublicKey;
+    input.realOutput.outputInTransaction = source.realOutputIndexInTransaction;
+    input.realOutput.transactionIndex = source.realOutput;
+
+    inputs.emplace_back(std::move(input));
+  }
+
+  return inputs;
+}
+
+Transaction convertTransaction(const ITransaction& transaction, size_t upperTransactionSizeLimit)
+{
+  BinaryArray serializedTransaction = transaction.getTransactionData();
+  CryptoNote::throwIf(serializedTransaction.size() >= upperTransactionSizeLimit, error::TRANSACTION_SIZE_TOO_BIG);
+
+  Transaction result;
+  Crypto::Hash transactionHash;
+  Crypto::Hash transactionPrefixHash;
+  if (!parseAndValidateTransactionFromBinaryArray(serializedTransaction, result, transactionHash, transactionPrefixHash))
+  {
+    throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR), "Cannot convert transaction");
+  }
+
+  return result;
 }
 
 } //namespace
@@ -273,6 +320,160 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
   return raw_tx;
 }
 
+std::string WalletTransactionSender::makeTransaction(TransactionId& transactionId, std::deque<std::shared_ptr<WalletLegacyEvent>>& events,
+  const std::vector<WalletLegacyTransfer>& transfers, const std::list<CryptoNote::TransactionOutputInformation>& selectedOuts,
+  uint64_t fee, const std::string& extra, uint64_t mixIn, uint64_t unlockTimestamp)
+{
+
+  std::string raw_tx;
+
+  using namespace CryptoNote;
+
+  throwIf(transfers.empty(), error::ZERO_DESTINATION);
+  validateTransfersAddresses(transfers);
+  uint64_t neededMoney = countNeededMoney(fee, transfers);
+
+  std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
+
+  if (selectedOuts.size() > 0) {
+    for (auto& out : selectedOuts) {
+      context->foundMoney += out.amount;
+    }
+    context->selectedTransfers = selectedOuts;
+  }
+  else {
+    context->foundMoney = selectTransfersToSend(neededMoney, 0 == mixIn, context->dustPolicy.dustThreshold, context->selectedTransfers);
+  }
+
+  throwIf(context->foundMoney < neededMoney, error::WRONG_AMOUNT);
+
+  // add tx to wallet cache to prevent reuse of outputs used in this tx
+  transactionId = m_transactionsCache.addNewTransaction(neededMoney, fee, extra, transfers, unlockTimestamp);
+  context->transactionId = transactionId;
+  context->mixIn = mixIn;
+
+  if (context->mixIn) {
+    uint64_t outsCount = mixIn + 1; // add one to make possible (if need) to skip real output key
+    std::vector<uint64_t> amounts;
+
+    for (const auto& td : context->selectedTransfers) {
+      amounts.push_back(td.amount);
+    }
+
+    auto queryAmountsCompleted = std::promise<std::error_code>();
+    auto queryAmountsWaitFuture = queryAmountsCompleted.get_future();
+
+    m_node.getRandomOutsByAmounts(std::move(amounts),
+      outsCount,
+      std::ref(context->outs),
+      [&queryAmountsCompleted](std::error_code ec) {
+        auto detachedPromise = std::move(queryAmountsCompleted);
+        detachedPromise.set_value(ec);
+      });
+
+    queryAmountsWaitFuture.get();
+
+    auto scanty_it = std::find_if(context->outs.begin(), context->outs.end(),
+      [&](COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount& out) {
+        return out.outs.size() < mixIn;
+      });
+
+    if (scanty_it != context->outs.end()) {
+      throw std::system_error(make_error_code(error::MIXIN_COUNT_TOO_BIG));
+      return raw_tx;
+    }
+  }
+
+  // instead of doSendTransaction prepare and send tx here
+  try
+  {
+    WalletLegacyTransaction& transaction = m_transactionsCache.getTransaction(context->transactionId);
+
+    std::vector<TransactionSourceEntry> sources;
+    prepareInputs(context->selectedTransfers, context->outs, sources, context->mixIn);
+
+    TransactionDestinationEntry changeDts;
+    changeDts.amount = 0;
+    uint64_t totalAmount = -transaction.totalAmount;
+    createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
+
+    std::vector<TransactionDestinationEntry> splittedDests;
+    splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
+
+    std::unique_ptr<ITransaction> tx = createTransaction();
+  
+    std::shuffle(splittedDests.begin(), splittedDests.end(), Random::generator());
+    std::sort(splittedDests.begin(), splittedDests.end(), [](const TransactionDestinationEntry& left, const TransactionDestinationEntry& right) {
+      return left.amount < right.amount;
+    });
+
+    for (const auto& amountToAddress : splittedDests) {
+      tx->addOutput(amountToAddress.amount, amountToAddress.addr);
+    }
+
+    tx->setUnlockTime(unlockTimestamp);
+    tx->appendExtra(Common::asBinaryArray(extra));
+
+    std::vector<KeyPair> ephKeys;
+    ephKeys.reserve(sources.size());
+
+    std::vector<TransactionTypes::InputKeyInfo> inputs = convertSources(std::move(sources));
+
+    for (const auto& input : inputs)
+    {
+      KeyPair ephKey;
+      tx->addInput(m_keys, input, ephKey);
+      ephKeys.push_back(std::move(ephKey));
+    }
+
+    for (size_t i = 0; i < inputs.size(); ++i)
+    {
+      tx->signInputKey(i, inputs[i], ephKeys[i]);
+    }
+
+    transaction.hash = tx->getTransactionHash();
+    tx.get()->getTransactionSecretKey(context->tx_key);
+    transaction.secretKey = context->tx_key;
+
+    Transaction lowlevelTransaction = convertTransaction(*tx, static_cast<size_t>(m_upperTransactionSizeLimit));
+
+    m_transactionsCache.updateTransaction(context->transactionId, lowlevelTransaction, totalAmount, context->selectedTransfers, context->tx_key);
+
+    notifyBalanceChanged(events);
+
+    raw_tx = Common::podToHex(context->tx_key);
+
+    std::error_code ec;
+
+    try {
+      auto relayTransactionCompleted = std::promise<std::error_code>();
+      auto relayTransactionWaitFuture = relayTransactionCompleted.get_future();
+
+      m_node.relayTransaction(lowlevelTransaction, [&ec, &relayTransactionCompleted, this](std::error_code error) {
+        auto detachedPromise = std::move(relayTransactionCompleted);
+        detachedPromise.set_value(ec);
+        });
+      ec = relayTransactionWaitFuture.get();
+    }
+    catch (const std::exception&) {
+      events.push_back(makeCompleteEvent(m_transactionsCache, context->transactionId, make_error_code(error::INTERNAL_WALLET_ERROR)));
+    }
+    if (ec) {
+      events.push_back(makeCompleteEvent(m_transactionsCache, context->transactionId, make_error_code(error::INTERNAL_WALLET_ERROR))); 
+    }
+
+    events.push_back(makeCompleteEvent(m_transactionsCache, context->transactionId, std::error_code()));
+  }
+  catch (std::system_error& ec) {
+    events.push_back(makeCompleteEvent(m_transactionsCache, context->transactionId, ec.code()));
+  }
+  catch (std::exception&) {
+    events.push_back(makeCompleteEvent(m_transactionsCache, context->transactionId, make_error_code(error::INTERNAL_WALLET_ERROR)));
+  }
+
+  return raw_tx;
+}
+
 std::shared_ptr<WalletRequest> WalletTransactionSender::makeGetRandomOutsRequest(std::shared_ptr<SendTransactionContext> context) {
   uint64_t outsCount = context->mixIn + 1;// add one to make possible (if need) to skip real output key
   std::vector<uint64_t> amounts;
@@ -438,10 +639,10 @@ void WalletTransactionSender::prepareInputs(
     real_oe.first = td.globalOutputIndex;
     real_oe.second = td.outputKey;
 
-    auto interted_it = src.outputs.insert(it_to_insert, real_oe);
+    auto inserted_it = src.outputs.insert(it_to_insert, real_oe);
 
     src.realTransactionPublicKey = td.transactionPublicKey;
-    src.realOutput = interted_it - src.outputs.begin();
+    src.realOutput = inserted_it - src.outputs.begin();
     src.realOutputIndexInTransaction = td.outputInTransaction;
     ++i;
   }
