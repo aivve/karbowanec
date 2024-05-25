@@ -30,6 +30,7 @@ jobs:
         with:
           boost_version: 1.84.0
           toolset: msvc
+          link: static
 
       - name: Build
         shell: powershell
