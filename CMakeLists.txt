@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.8)
+
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)
+endif()
+
 if(WIN32)
  option(CMAKE_USE_WIN32_THREADS_INIT "using WIN32 threads" ON)
 endif()
