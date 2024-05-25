@@ -9,8 +9,6 @@ jobs:
   build-windows:
     name: Windows
     runs-on: windows-2019
-    env:
-      BOOST_ROOT: C:\thirdparties\boost-1.72.0
     steps:
       - uses: actions/checkout@master
         with:
@@ -18,17 +16,16 @@ jobs:
           ref: ${{ github.ref }}
 
       - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v1.1
+        uses: microsoft/setup-msbuild@v2
 
       - name: Install OpenSSL
         run: choco install openssl
 
-      - name: Install Boost
-        shell: powershell
-        run: |
-          $Url = "https://sourceforge.net/projects/boost/files/boost-binaries/1.72.0/boost_1_72_0-msvc-14.2-64.exe"
-          (New-Object System.Net.WebClient).DownloadFile($Url, "$env:TEMP\boost-installer.exe")
-          Start-Process -Wait -FilePath "$env:TEMP\boost-installer.exe" "/SILENT","/SP-","/SUPPRESSMSGBOXES","/DIR=$env:BOOST_ROOT"
+      - name: Install boost
+        uses: MarkusJx/install-boost@v2.4.5
+        id: install-boost
+        with:
+          toolset: msvc
 
       - name: Build
         shell: powershell
