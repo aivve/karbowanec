@@ -494,6 +494,7 @@ if(STATIC AND MINGW)
 endif() 
 
 # Link static BOOST libraries everywhere
+set(Boost_NO_BOOST_CMAKE ON)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
 
