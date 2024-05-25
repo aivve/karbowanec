@@ -31,6 +31,7 @@ jobs:
           boost_version: 1.84.0
           toolset: msvc
           link: static
+          platform_version: 2019
 
       - name: Build
         shell: powershell
