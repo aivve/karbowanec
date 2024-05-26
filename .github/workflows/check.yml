@@ -45,7 +45,7 @@ jobs:
           $release_name = "karbo-cli-win64-$krb_ver"
           mkdir "$build_folder"
           cd "$build_folder"
-          cmake -G "Visual Studio 16 2019" -A x64 -D_boost_RELEASE_ABI_TAG="" -DCMAKE_BUILD_TYPE=Build -DBoost_INCLUDE_DIR=${{steps.install-boost.outputs.BOOST_ROOT}}/include -DBoost_LIBRARY_DIRS=${{steps.install-boost.outputs.BOOST_ROOT}}/lib -DBOOST_ROOT="$env:BOOST_ROOT" ..
+          cmake -G "Visual Studio 16 2019" -A x64 -DBoost_DEBUG=ON -D_boost_RELEASE_ABI_TAG="" -DCMAKE_BUILD_TYPE=Build -DBoost_INCLUDE_DIR=${{steps.install-boost.outputs.BOOST_ROOT}}/include -DBoost_LIBRARY_DIRS=${{steps.install-boost.outputs.BOOST_ROOT}}/lib -DBOOST_ROOT="$env:BOOST_ROOT" ..
           msbuild Karbowanec.sln /p:Configuration=Release /m
           cd src\Release
           Compress-Archive -Path *.exe -DestinationPath "$release_name.zip"
