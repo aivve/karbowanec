@@ -12,8 +12,6 @@ jobs:
   build-windows:
     name: Windows
     runs-on: windows-2019
-    env:
-      BOOST_ROOT: C:\thirdparties\boost-1.72.0
     steps:
       - uses: actions/checkout@master
         with:
@@ -26,12 +24,13 @@ jobs:
       - name: Install OpenSSL
         run: choco install openssl
 
-      - name: Install Boost
-        shell: powershell
-        run: |
-          $Url = "https://sourceforge.net/projects/boost/files/boost-binaries/1.72.0/boost_1_72_0-msvc-14.2-64.exe"
-          (New-Object System.Net.WebClient).DownloadFile($Url, "$env:TEMP\boost-installer.exe")
-          Start-Process -Wait -FilePath "$env:TEMP\boost-installer.exe" "/SILENT","/SP-","/SUPPRESSMSGBOXES","/DIR=$env:BOOST_ROOT"
+      - name: Install boost
+        uses: MarkusJx/install-boost@v2
+        id: install-boost
+        with:
+          boost_version: 1.78.0
+          platform_version: 2019
+          toolset: msvc
 
       - name: Build
         shell: powershell
@@ -43,7 +42,7 @@ jobs:
           $release_name = "karbo-cli-win64-$krb_ver"
           mkdir "$build_folder"
           cd "$build_folder"
-          cmake -G "Visual Studio 16 2019" -A x64 -DBOOST_ROOT="$env:BOOST_ROOT" -DBOOST_INCLUDE_DIRS="$env:BOOST_ROOT/include" ..
+          cmake -G "Visual Studio 16 2019" -A x64 -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake ..
           msbuild Karbowanec.sln /p:Configuration=Release /m
           cd src\Release
           Compress-Archive -Path *.exe -DestinationPath "$release_name.zip"
@@ -64,6 +63,7 @@ jobs:
           path: ${{ steps.build.outputs.artifact_path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
 
   build-mingw:
     name: MinGW
@@ -121,7 +121,7 @@ jobs:
 
   build-macos:
     name: macOS
-    runs-on: macos-12
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@master
         with:
