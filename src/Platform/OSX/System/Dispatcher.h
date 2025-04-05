@@ -25,6 +25,9 @@
 #include <queue>
 #include <stack>
 #include <stdexcept>
+#include <mutex>
+#include <condition_variable>
+#include <memory>
 
 namespace System {
 
@@ -41,18 +44,27 @@ struct NativeContext {
   NativeContext* groupNext;
   std::function<void()> procedure;
   std::function<void()> interruptProcedure;
+
+  NativeContext() = default;
+  ~NativeContext() = default;
 };
 
 struct NativeContextGroup {
-  NativeContext* firstContext;
-  NativeContext* lastContext;
-  NativeContext* firstWaiter;
-  NativeContext* lastWaiter;
+  NativeContext* firstContext{nullptr};
+  NativeContext* lastContext{nullptr};
+  NativeContext* firstWaiter{nullptr};
+  NativeContext* lastWaiter{nullptr};
+
+  NativeContextGroup() = default;
+  ~NativeContextGroup() = default;
 };
 
 struct OperationContext {
   NativeContext* context;
   bool interrupted;
+
+  OperationContext() = default;
+  ~OperationContext() = default;
 };
 
 class Dispatcher {
@@ -77,29 +89,33 @@ public:
   int getTimer();
   void pushTimer(int timer);
 
-#ifdef __LP64__
-  static const int SIZEOF_PTHREAD_MUTEX_T = 56 + sizeof(long);
-#else
-  static const int SIZEOF_PTHREAD_MUTEX_T = 40 + sizeof(long);
-#endif
+  #ifdef __LP64__
+    static const int SIZEOF_PTHREAD_MUTEX_T = 56 + sizeof(long);
+  #else
+    static const int SIZEOF_PTHREAD_MUTEX_T = 40 + sizeof(long);
+  #endif
 
 private:
   void spawn(std::function<void()>&& procedure);
 
   int kqueue;
   int lastCreatedTimer;
-  alignas(std::max_align_t) uint8_t mutex[SIZEOF_PTHREAD_MUTEX_T];
+  
+  alignas(std::max_align_t) uint8_t alignas_mutex[SIZEOF_PTHREAD_MUTEX_T];
+  mutable std::mutex dispatcherMutex;
+  std::condition_variable_any remoteSpawnedCv;
+
   std::atomic<bool> remoteSpawned;
   std::queue<std::function<void()>> remoteSpawningProcedures;
   std::stack<int> timers;
 
   NativeContext mainContext;
   NativeContextGroup contextGroup;
-  NativeContext* currentContext;
-  NativeContext* firstResumingContext;
-  NativeContext* lastResumingContext;
-  NativeContext* firstReusableContext;
-  size_t runningContextCount;
+  NativeContext* currentContext{nullptr};
+  NativeContext* firstResumingContext{nullptr};
+  NativeContext* lastResumingContext{nullptr};
+  NativeContext* firstReusableContext{nullptr};
+  size_t runningContextCount{0};
 
   void contextProcedure(void* uctx);
   static void contextProcedureStatic(intptr_t context);
