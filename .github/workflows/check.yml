@@ -12,6 +12,8 @@ jobs:
   build-windows:
     name: Windows
     runs-on: windows-2019
+    env:
+      BOOST_ROOT: C:\thirdparties\boost-1.83.0
 
     steps:
       - uses: actions/checkout@master
@@ -25,24 +27,16 @@ jobs:
       - name: Install OpenSSL
         run: choco install openssl
 
-      - name: Install boost
-        uses: MarkusJx/install-boost@v2
-        id: install-boost
-        with:
-          boost_version: 1.83.0
-          platform_version: 2019
-          toolset: msvc
-          link: static
-
-      - name: Move Boost Files
-        shell: powershell
+      - name: Install curl
         run: |
-          $sourceDir = Join-Path $env:BOOST_ROOT 'include\boost-1_83\boost'
-          $destinationDir = Join-Path $env:BOOST_ROOT 'boost'
-          Remove-Item -Path (Join-Path $destinationDir '*') -Recurse -Force
-          Move-Item -Path (Join-Path $sourceDir '*') -Destination $destinationDir -Force
-        env:
-          BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
+          choco install curl -y
+
+      - name: Download and Install Boost 1.83
+        run: |
+          $Url = "https://sourceforge.net/projects/boost/files/boost-binaries/1.83.0/boost_1_83_0-msvc-14.2-64.exe"
+          $OutputPath = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\boost-installer.exe"
+          curl -L $Url -o $OutputPath
+          Start-Process -Wait -FilePath $OutputPath "/SILENT","/SP-","/SUPPRESSMSGBOXES","/DIR=C:\\thirdparties\\boost-1.83.0"
 
       - name: Build
         shell: powershell
@@ -67,8 +61,6 @@ jobs:
           echo "asset_path=${asset_path}" >> $env:GITHUB_OUTPUT
           echo "krb_ver=${krb_ver}" >> $env:GITHUB_OUTPUT
           echo "artifact_path=$build_folder/src/Release/$release_name" >> $env:GITHUB_OUTPUT
-        env:
-          BOOST_ROOT: ${{ steps.install-boost.outputs.BOOST_ROOT }}
 
       - name: Upload To GH Artifacts
         uses: actions/upload-artifact@v4
