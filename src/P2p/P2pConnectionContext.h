@@ -11,9 +11,6 @@
 
 namespace CryptoNote {
 
-  class LevinProtocol;
-  class ISerializer;
-
   struct P2pMessage {
     enum Type {
       COMMAND,
@@ -50,6 +47,14 @@ namespace CryptoNote {
       logger(log, "node_server"),
       queueEvent(dispatcher) {
     }
+	
+    // Move constructor/assignment
+    P2pConnectionContext(P2pConnectionContext&&) = default;
+    P2pConnectionContext& operator=(P2pConnectionContext&&) = default;
+
+    // Delete copy constructor and copy assignment operator
+    P2pConnectionContext(const P2pConnectionContext&) = delete;
+    P2pConnectionContext& operator=(const P2pConnectionContext&) = delete;
 
     bool pushMessage(P2pMessage&& msg);
     std::vector<P2pMessage> popBuffer();
