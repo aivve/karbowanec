@@ -129,7 +129,7 @@ jobs:
     name: macOS
     if: false  # skip the job for now
     runs-on: macos-14
-    steps:   
+    steps:
       - uses: actions/checkout@master
         with:
           fetch-depth: 0
