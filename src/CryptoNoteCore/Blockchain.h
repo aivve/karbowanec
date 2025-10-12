@@ -56,7 +56,7 @@ namespace CryptoNote {
   using CryptoNote::BlockInfo;
   class Blockchain : public CryptoNote::ITransactionValidator {
   public:
-    Blockchain(const Currency& currency, tx_memory_pool& tx_pool, Logging::ILogger& logger, bool blockchainIndexesEnabled, bool allowDeepReorg, bool noBlobs);
+    Blockchain(const Currency& currency, tx_memory_pool& tx_pool, Logging::ILogger& logger, bool allowDeepReorg, bool noBlobs);
 
     bool addObserver(IBlockchainStorageObserver* observer);
     bool removeObserver(IBlockchainStorageObserver* observer);
@@ -283,7 +283,6 @@ namespace CryptoNote {
     typedef parallel_flat_hash_map<Crypto::Hash, TransactionIndex> TransactionMap;
     typedef BasicUpgradeDetector<Blocks> UpgradeDetector;
     friend class BlockCacheSerializer;
-    friend class BlockchainIndicesSerializer;
 
     Blocks m_blocks;
     CryptoNote::BlockIndex m_blockIndex;
@@ -302,7 +301,6 @@ namespace CryptoNote {
     TimestampBlocksIndex m_timestampIndex;
     GeneratedTransactionsIndex m_generatedTransactionsIndex;
     OrphanBlocksIndex m_orphanBlocksIndex;
-    bool m_blockchainIndexesEnabled;
     bool m_allowDeepReorg;
     bool m_no_blobs;
 
@@ -346,9 +344,6 @@ namespace CryptoNote {
     bool checkCheckpoints(uint32_t& lastValidCheckpointHeight);
     void removeLastBlock();
     bool checkUpgradeHeight(const UpgradeDetector& upgradeDetector);
-
-    bool storeBlockchainIndices();
-    bool loadBlockchainIndices();
 
     bool loadTransactions(const Block& block, std::vector<Transaction>& transactions);
     void saveTransactions(const std::vector<Transaction>& transactions);

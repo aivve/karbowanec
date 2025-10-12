@@ -18,6 +18,7 @@
 #pragma once
 
 #include <boost/functional/hash.hpp>
+#include <functional>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -38,7 +39,7 @@ inline size_t paymentIdHash(const Crypto::Hash& paymentId) {
 
 class PaymentIdIndex {
 public:
-  PaymentIdIndex(bool enabled);
+  PaymentIdIndex();
 
   bool add(const Transaction& transaction);
   bool remove(const Transaction& transaction);
@@ -48,18 +49,17 @@ public:
 
   void serialize(ISerializer& s);
 
-  template<class Archive> 
+  template<class Archive>
   void serialize(Archive& archive, unsigned int version) {
     archive & index;
   }
 private:
   std::unordered_multimap<Crypto::Hash, Crypto::Hash, std::function<decltype(paymentIdHash)>> index;
-  bool enabled = false;
 };
 
 class TimestampBlocksIndex {
 public:
-  TimestampBlocksIndex(bool enabled);
+  TimestampBlocksIndex();
 
   bool add(uint64_t timestamp, const Crypto::Hash& hash);
   bool remove(uint64_t timestamp, const Crypto::Hash& hash);
@@ -68,18 +68,17 @@ public:
 
   void serialize(ISerializer& s);
 
-  template<class Archive> 
+  template<class Archive>
   void serialize(Archive& archive, unsigned int version) {
     archive & index;
   }
 private:
   std::multimap<uint64_t, Crypto::Hash> index;
-  bool enabled = false;
 };
 
 class TimestampTransactionsIndex {
 public:
-  TimestampTransactionsIndex(bool enabled);
+  TimestampTransactionsIndex();
 
   bool add(uint64_t timestamp, const Crypto::Hash& hash);
   bool remove(uint64_t timestamp, const Crypto::Hash& hash);
@@ -94,12 +93,11 @@ public:
   }
 private:
   std::multimap<uint64_t, Crypto::Hash> index;
-  bool enabled = false;
 };
 
 class GeneratedTransactionsIndex {
 public:
-  GeneratedTransactionsIndex(bool enabled);
+  GeneratedTransactionsIndex();
 
   bool add(const Block& block);
   bool remove(const Block& block);
@@ -108,7 +106,7 @@ public:
 
   void serialize(ISerializer& s);
 
-  template<class Archive> 
+  template<class Archive>
   void serialize(Archive& archive, unsigned int version) {
     archive & index;
     archive & lastGeneratedTxNumber;
@@ -117,12 +115,11 @@ private:
   flat_hash_map<uint32_t, uint64_t> index;
 
   uint64_t lastGeneratedTxNumber;
-  bool enabled = false;
 };
 
 class OrphanBlocksIndex {
 public:
-  OrphanBlocksIndex(bool enabled);
+  OrphanBlocksIndex();
 
   bool add(const Block& block);
   bool remove(const Block& block);
@@ -130,7 +127,6 @@ public:
   void clear();
 private:
   std::unordered_multimap<uint32_t, Crypto::Hash> index;
-  bool enabled = false;
 };
 
 }

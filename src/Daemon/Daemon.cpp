@@ -280,7 +280,7 @@ int main(int argc, char* argv[])
       logger(INFO) << "Enabled full Proof of Work validation without hashing blobs cache";
     }
 
-    CryptoNote::Core m_core(currency, nullptr, logManager, dispatcher, vm["enable-blockchain-indexes"].as<bool>(), allow_reorg, no_blobs);
+    CryptoNote::Core m_core(currency, nullptr, logManager, dispatcher, allow_reorg, no_blobs);
 
     bool disable_checkpoints = command_line::get_arg(vm, arg_disable_checkpoints);
     if (!disable_checkpoints) {

@@ -90,8 +90,7 @@ namespace CryptoNote {
       CryptoNote::ITransactionValidator& validator,
       CryptoNote::ICore& core,
       CryptoNote::ITimeProvider& timeProvider,
-      Logging::ILogger& log,
-      bool blockchainIndexesEnabled);
+      Logging::ILogger& log);
 
     bool addObserver(ITxPoolObserver* observer);
     bool removeObserver(ITxPoolObserver* observer);

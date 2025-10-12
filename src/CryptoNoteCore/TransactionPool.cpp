@@ -104,20 +104,19 @@ namespace CryptoNote {
   //---------------------------------------------------------------------------------
   tx_memory_pool::tx_memory_pool(
     const CryptoNote::Currency& currency,
-    CryptoNote::ITransactionValidator& validator, 
+    CryptoNote::ITransactionValidator& validator,
     CryptoNote::ICore& core,
     CryptoNote::ITimeProvider& timeProvider,
-    Logging::ILogger& log,
-    bool blockchainIndexesEnabled) :
+    Logging::ILogger& log) :
     m_currency(currency),
     m_validator(validator),
     m_core(core),
-    m_timeProvider(timeProvider), 
+    m_timeProvider(timeProvider),
     m_txCheckInterval(60, timeProvider),
     m_fee_index(boost::get<1>(m_transactions)),
     logger(log, "txpool"),
-    m_paymentIdIndex(blockchainIndexesEnabled),
-    m_timestampIndex(blockchainIndexesEnabled) {
+    m_paymentIdIndex(),
+    m_timestampIndex() {
   }
   //---------------------------------------------------------------------------------
   bool tx_memory_pool::add_tx(const Transaction &tx, /*const Crypto::Hash& tx_prefix_hash,*/ const Crypto::Hash &id, size_t blobSize, tx_verification_context& tvc, bool keptByBlock) {
@@ -694,6 +693,8 @@ namespace CryptoNote {
 
   void tx_memory_pool::buildIndices() {
     std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
+    m_paymentIdIndex.clear();
+    m_timestampIndex.clear();
     for (auto it = m_transactions.begin(); it != m_transactions.end(); it++) {
       m_paymentIdIndex.add(it->tx);
       m_timestampIndex.add(it->receiveTime, it->id);
@@ -702,9 +703,7 @@ namespace CryptoNote {
 
   bool tx_memory_pool::getTransactionIdsByPaymentId(const Crypto::Hash& paymentId, std::vector<Crypto::Hash>& transactionIds) {
     std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
-    //return m_paymentIdIndex.find(paymentId, transactionIds);
-	transactionIds = m_paymentIdIndex.find(paymentId);
-	return true;
+    return m_paymentIdIndex.find(paymentId, transactionIds);
   }
 
   bool tx_memory_pool::getTransactionIdsByTimestamp(uint64_t timestampBegin, uint64_t timestampEnd, uint32_t transactionsNumberLimit, std::vector<Crypto::Hash>& hashes, uint64_t& transactionsNumberWithinTimestamps) {

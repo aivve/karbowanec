@@ -59,11 +59,7 @@ public:
 
 TestBlockchainGenerator::TestBlockchainGenerator(const CryptoNote::Currency& currency) :
   m_currency(currency),
-  generator(currency),
-  m_paymentIdIndex(true),
-  m_timestampIndex(true),
-  m_generatedTransactionsIndex(true),
-  m_orthanBlocksIndex(true) {
+  generator(currency) {
   std::unique_lock<std::mutex> lock(m_mutex);
 
   miner_acc.generate();
