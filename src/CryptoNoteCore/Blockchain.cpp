@@ -192,9 +192,6 @@ public:
     logger(INFO) << operation << "generated transactions index...";
     s(m_bs.m_generatedTransactionsIndex, "generatedTransactionsIndex");
 
-    logger(INFO) << operation << "orphan blocks index...";
-    s(m_bs.m_orphanBlocksIndex, "orphanBlocksIndex");
-
     auto dur = std::chrono::steady_clock::now() - start;
 
     logger(INFO) << "Serialization time: " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << "ms";
