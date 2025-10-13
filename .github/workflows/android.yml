@@ -61,6 +61,10 @@ jobs:
           wget -nv https://github.com/dec1/Boost-for-Android/releases/download/ndk_26b_boost_1.83.0/ndk_26b_boost_1.83.0.zip
           unzip -q ndk_26b_boost_1.83.0.zip -d ${HOME}/opt/android/boost/
 
+          echo "BOOST_ROOT=$HOME/opt/android/boost/ndk_26b_boost_1.83.0" >> $GITHUB_ENV
+          echo "BOOST_INCLUDEDIR=$HOME/opt/android/boost/ndk_26b_boost_1.83.0/include" >> $GITHUB_ENV
+          echo "BOOST_LIBRARYDIR=$HOME/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a" >> $GITHUB_ENV
+
       - name: Fetch OpenSSL prebuilt
         run: |
           git clone --depth 1 https://github.com/PurpleI2P/OpenSSL-for-Android-Prebuilt.git ${HOME}/opt/android/openssl
@@ -100,9 +104,9 @@ jobs:
             -DBoost_LIB_PREFIX="lib" \
             -DBOOST_IGNORE_SYSTEM_PATHS_DEFAULT=ON \
             -DBOOST_ROOT=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0 \
-            -DBoost_INCLUDE_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/include \
-            -DBoost_LIBRARY_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
-            -DBoost_LIBRARY_DIRS=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
+            -DBOOST_INCLUDE_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/include \
+            -DBOOST_LIBRARY_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
+            -DBOOST_LIBRARY_DIRS=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
             -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=OFF \
             -DCMAKE_POLICY_DEFAULT_CMP0074=NEW \
             -DCMAKE_POLICY_DEFAULT_CMP0144=OLD \
