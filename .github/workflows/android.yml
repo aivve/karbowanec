@@ -61,10 +61,6 @@ jobs:
           wget -nv https://github.com/dec1/Boost-for-Android/releases/download/ndk_26b_boost_1.83.0/ndk_26b_boost_1.83.0.zip
           unzip -q ndk_26b_boost_1.83.0.zip -d ${HOME}/opt/android/boost/
 
-          echo "BOOST_ROOT=$HOME/opt/android/boost/ndk_26b_boost_1.83.0" >> $GITHUB_ENV
-          echo "BOOST_INCLUDEDIR=$HOME/opt/android/boost/ndk_26b_boost_1.83.0/include" >> $GITHUB_ENV
-          echo "BOOST_LIBRARYDIR=$HOME/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a" >> $GITHUB_ENV
-
       - name: Fetch OpenSSL prebuilt
         run: |
           git clone --depth 1 https://github.com/PurpleI2P/OpenSSL-for-Android-Prebuilt.git ${HOME}/opt/android/openssl
