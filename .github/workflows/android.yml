@@ -84,6 +84,11 @@ jobs:
           export BOOST_USE_STATIC_RUNTIME=ON
           export BOOST_NO_SYSTEM_PATHS=ON
 
+          # Force CMake to use legacy FindBoost before configure
+          mkdir -p cmake/Modules
+          wget -q https://raw.githubusercontent.com/Kitware/CMake/release/3.26/Modules/FindBoost.cmake \
+            -O cmake/Modules/FindBoost.cmake
+
           cmake ../.. \
             -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=$ANDROID_ABI \
@@ -96,6 +101,7 @@ jobs:
             -DOPENSSL_SSL_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libssl.a \
             -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libcrypto.a \
             -DOPENSSL_INCLUDE_DIR=$OPENSSL_ROOT/include \
+            -DCMAKE_MODULE_PATH=$PWD/cmake/Modules \
             -DBoost_DEBUG=ON \
             -DBoost_LIB_PREFIX="lib" \
             -DBOOST_IGNORE_SYSTEM_PATHS_DEFAULT=ON \
