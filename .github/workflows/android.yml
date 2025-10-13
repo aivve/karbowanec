@@ -66,15 +66,6 @@ jobs:
           git clone --depth 1 https://github.com/PurpleI2P/OpenSSL-for-Android-Prebuilt.git ${HOME}/opt/android/openssl
           echo "OPENSSL_ROOT=${HOME}/opt/android/openssl/openssl-1.1.1k-clang" >> $GITHUB_ENV
 
-      - name: Downgrade CMake to 3.27.9
-        run: |
-          sudo apt-get remove -y cmake
-          wget https://github.com/Kitware/CMake/releases/download/v3.27.9/cmake-3.27.9-linux-x86_64.tar.gz
-          tar -xzf cmake-3.27.9-linux-x86_64.tar.gz
-          sudo cp -r cmake-3.27.9-linux-x86_64/bin/* /usr/local/bin/
-          sudo cp -r cmake-3.27.9-linux-x86_64/share/* /usr/local/share/
-          cmake --version
-
       - name: Configure CMake
         run: |
           set -x
