@@ -98,11 +98,11 @@ jobs:
             -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libcrypto.a \
             -DOPENSSL_INCLUDE_DIR=$OPENSSL_ROOT/include \
             -DBoost_DEBUG=ON \
-            -DBoost_COMPILER:STRING="-" \
+            -DBoost_COMPILER:STRING="" \
             -DBoost_USE_MULTITHREADED=OFF \
             -DBoost_THREADAPI=pthread \
             -DBoost_USE_STATIC_LIBS=ON \
-            -DBoost_USE_STATIC_RUNTIME=ON \
+            -DBoost_USE_STATIC_RUNTIME=OFF \
             -DBoost_NO_SYSTEM_PATHS=ON \
             -DBoost_LIB_PREFIX="lib" \
             -DBOOST_IGNORE_SYSTEM_PATHS_DEFAULT=ON \
