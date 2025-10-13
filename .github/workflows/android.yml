@@ -66,6 +66,15 @@ jobs:
           git clone --depth 1 https://github.com/PurpleI2P/OpenSSL-for-Android-Prebuilt.git ${HOME}/opt/android/openssl
           echo "OPENSSL_ROOT=${HOME}/opt/android/openssl/openssl-1.1.1k-clang" >> $GITHUB_ENV
 
+      - name: Downgrade CMake to 3.27.9
+        run: |
+          sudo apt-get remove -y cmake
+          wget https://github.com/Kitware/CMake/releases/download/v3.27.9/cmake-3.27.9-linux-x86_64.tar.gz
+          tar -xzf cmake-3.27.9-linux-x86_64.tar.gz
+          sudo cp -r cmake-3.27.9-linux-x86_64/bin/* /usr/local/bin/
+          sudo cp -r cmake-3.27.9-linux-x86_64/share/* /usr/local/share/
+          cmake --version
+
       - name: Configure CMake
         run: |
           set -x
@@ -84,11 +93,6 @@ jobs:
           export BOOST_USE_STATIC_RUNTIME=ON
           export BOOST_NO_SYSTEM_PATHS=ON
 
-          # Force CMake to use legacy FindBoost before configure
-          mkdir -p cmake/Modules
-          wget -q https://raw.githubusercontent.com/Kitware/CMake/release/3.26/Modules/FindBoost.cmake \
-            -O cmake/Modules/FindBoost.cmake
-
           cmake ../.. \
             -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=$ANDROID_ABI \
@@ -101,7 +105,6 @@ jobs:
             -DOPENSSL_SSL_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libssl.a \
             -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libcrypto.a \
             -DOPENSSL_INCLUDE_DIR=$OPENSSL_ROOT/include \
-            -DCMAKE_MODULE_PATH=$PWD/cmake/Modules \
             -DBoost_DEBUG=ON \
             -DBoost_LIB_PREFIX="lib" \
             -DBOOST_IGNORE_SYSTEM_PATHS_DEFAULT=ON \
