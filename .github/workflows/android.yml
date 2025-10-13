@@ -92,6 +92,13 @@ jobs:
             -DBoost_THREADAPI=pthread \
             -DBoost_USE_STATIC_LIBS=ON \
             -DBoost_USE_STATIC_RUNTIME=ON \
+            -DBoost_USE_MULTITHREADED=OFF \
+            -D_boost_MULTITHREADED="" \
+            -DBoost_USE_STATIC_RUNTIME=OFF \
+            -DBoost_COMPILER="" \
+            -D_boost_COMPILER="" \
+            -D_boost_RELEASE_ABI_TAG="" \
+            -D_boost_DEBUG_ABI_TAG="" \
             -DBoost_NO_SYSTEM_PATHS=ON \
             -DBoost_LIB_PREFIX="lib" \
             -DBOOST_IGNORE_SYSTEM_PATHS_DEFAULT=ON \
