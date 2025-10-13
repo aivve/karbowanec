@@ -57,6 +57,7 @@ jobs:
 
       - name: Fetch Boost
         run: |
+          mkdir -p ${HOME}/opt/android
           wget -nv https://github.com/dec1/Boost-for-Android/releases/download/ndk_26b_boost_1.83.0/ndk_26b_boost_1.83.0.zip
           unzip -q ndk_26b_boost_1.83.0.zip -d ${HOME}/opt/android/boost/
 
@@ -93,9 +94,9 @@ jobs:
             -DBoost_USE_STATIC_RUNTIME=ON \
             -DBoost_USE_STATIC_LIBS=ON \
             -DBOOST_ROOT=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0 \
-            -DBOOST_INCLUDE_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/include \
-            -DBOOST_LIBRARY_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
-            -DBOOST_LIBRARY_DIRS=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
+            -DBoost_INCLUDE_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/include \
+            -DBoost_LIBRARY_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
+            -DBoost_LIBRARY_DIRS=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
             -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=OFF \
             -DCMAKE_POLICY_DEFAULT_CMP0074=NEW \
             -DCMAKE_POLICY_DEFAULT_CMP0144=OLD \
