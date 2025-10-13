@@ -47,11 +47,6 @@ jobs:
           echo "NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
           echo "Using NDK at $NDK_PATH"
 
-      - name: Patch NDK toolchain
-        run: |
-          TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake"
-          sed -i 's/aarch64-none-linux-android/aarch64-linux-android/g' "$TOOLCHAIN_FILE"
-
       - name: Cache Boost and OpenSSL
         uses: actions/cache@v4
         with:
@@ -61,50 +56,54 @@ jobs:
           key: android-prebuilts-arm64-boost178-openssl111k
 
       - name: Fetch Boost 1.78 prebuilt
-        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 -b boost-1_78_0 https://github.com/PurpleI2P/Boost-for-Android-Prebuilt.git $HOME/opt/android/boost
-          echo "BOOST_ROOT=$HOME/opt/android/boost" >> $GITHUB_ENV
-          echo "BOOST_INCLUDEDIR=$HOME/opt/android/boost/include" >> $GITHUB_ENV
-          echo "BOOST_LIBRARYDIR=$HOME/opt/android/boost/$ANDROID_ABI/lib" >> $GITHUB_ENV
+          echo "BOOST_ROOT=$HOME/opt/android/boost/boost-1_78_0" >> $GITHUB_ENV
+          echo "BOOST_INCLUDEDIR=$HOME/opt/android/boost/boost-1_78_0/include/boost" >> $GITHUB_ENV
+          echo "BOOST_LIBRARYDIR=$HOME/opt/android/boost/boost-1_78_0/$ANDROID_ABI/lib" >> $GITHUB_ENV
 
       - name: Fetch OpenSSL prebuilt
-        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/PurpleI2P/OpenSSL-for-Android-Prebuilt.git ${HOME}/opt/android/openssl
           echo "OPENSSL_ROOT=${HOME}/opt/android/openssl/openssl-1.1.1k-clang" >> $GITHUB_ENV
 
-      - name: Normalize Boost layout
-        run: |
-          if [ -d "${HOME}/opt/android/boost/ndk_21_boost_1_78_0/include" ]; then
-            mv ${HOME}/opt/android/boost/ndk_21_boost_1_78_0/include ${HOME}/opt/android/boost/include
-            mv ${HOME}/opt/android/boost/ndk_21_boost_1_78_0/libs ${HOME}/opt/android/boost/
-          fi
-
       - name: Configure CMake
         run: |
-          mkdir -p $BUILD_DIR
+          set -x
+          rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR
           cd $BUILD_DIR
+
+          export CC=clang
+          export CXX=clang++
+          export CFLAGS='-stdlib=libc++'
+
           cmake ../.. \
             -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=$ANDROID_ABI \
-            -DANDROID_PLATFORM=android-${ANDROID_API} \
-            -DCMAKE_C_COMPILER_TARGET=aarch64-linux-android \
-            -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-android \
+            -DANDROID_PLATFORM=android-$ANDROID_API \
+            -DANDROID_NATIVE_API_LEVEL=$ANDROID_API \
+            -DANDROID_TOOLCHAIN=clang \
             -DSTATIC=ON \
             -DANDROID=true \
             -DOPENSSL_ROOT_DIR=$OPENSSL_ROOT \
             -DOPENSSL_SSL_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libssl.a \
             -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libcrypto.a \
             -DOPENSSL_INCLUDE_DIR=$OPENSSL_ROOT/include \
+            -DBoost_THREADAPI=pthread \
             -DBOOST_ROOT=$BOOST_ROOT \
             -DBOOST_INCLUDEDIR=$BOOST_INCLUDEDIR \
             -DBOOST_LIBRARYDIR=$BOOST_LIBRARYDIR \
-            -DCMAKE_CXX_FLAGS="-I${BOOST_INCLUDEDIR} -L${BOOST_LIBRARYDIR} -DBOOST_ALL_NO_LIB" \
-            -DCMAKE_EXE_LINKER_FLAGS="-L${BOOST_LIBRARYDIR}" \
-            -DDISABLE_FIND_BOOST=ON \
+            -DBoost_NO_SYSTEM_PATHS=ON \
+            -DBoost_USE_STATIC_LIBS=ON \
+            -DBoost_USE_STATIC_RUNTIME=ON \
+            -DBoost_DEBUG=ON \
+            -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=OFF \
+            -DCMAKE_POLICY_DEFAULT_CMP0074=NEW \
+            -DCMAKE_POLICY_DEFAULT_CMP0144=OLD \
+            -DCMAKE_POLICY_DEFAULT_CMP0167=OLD \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_VERBOSE_MAKEFILE=ON \
             -G Ninja
 
       - name: Build binaries
