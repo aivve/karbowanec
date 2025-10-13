@@ -75,6 +75,14 @@ jobs:
           export CC=clang
           export CXX=clang++
           export CFLAGS='-stdlib=libc++'
+          
+          # These disable suffix guessing
+          export BOOST_COMPILER=""
+          export BOOST_THREADAPI=pthread
+          export BOOST_USE_MULTITHREADED=OFF
+          export BOOST_USE_STATIC_LIBS=ON
+          export BOOST_USE_STATIC_RUNTIME=ON
+          export BOOST_NO_SYSTEM_PATHS=ON
 
           cmake ../.. \
             -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
@@ -89,10 +97,8 @@ jobs:
             -DOPENSSL_CRYPTO_LIBRARY=$OPENSSL_ROOT/$ANDROID_ABI/lib/libcrypto.a \
             -DOPENSSL_INCLUDE_DIR=$OPENSSL_ROOT/include \
             -DBoost_DEBUG=ON \
+            -DBoost_LIB_PREFIX="lib" \
             -DBOOST_IGNORE_SYSTEM_PATHS_DEFAULT=ON \
-            -DBoost_NO_SYSTEM_PATHS=ON \
-            -DBoost_USE_STATIC_RUNTIME=ON \
-            -DBoost_USE_STATIC_LIBS=ON \
             -DBOOST_ROOT=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0 \
             -DBoost_INCLUDE_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/include \
             -DBoost_LIBRARY_DIR=${HOME}/opt/android/boost/ndk_26b_boost_1.83.0/libs/arm64-v8a \
