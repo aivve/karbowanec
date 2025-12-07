@@ -208,30 +208,36 @@ namespace System {
     }
   }
 
-  static inline void arm_wake_timer_if_needed(boost::asio::steady_timer& timer,
-    bool& armed,
+  static inline void arm_wake_timer_if_needed(
+    boost::asio::steady_timer& timer,
+    std::atomic<bool>& armed,
     uint64_t& armedMs,
     const std::multimap<uint64_t, NativeContext*>& timers) {
+
+    bool wasArmed = armed.load(std::memory_order_acquire);
+
     if (timers.empty()) {
-      if (armed) {
+      if (wasArmed) {
         boost::system::error_code ignored;
         timer.cancel(ignored);
-        armed = false;
+        armed.store(false, std::memory_order_release);
         armedMs = 0;
       }
       return;
     }
 
     uint64_t earliest = timers.begin()->first;
-    if (!armed || earliest != armedMs) {
+    if (!wasArmed || earliest != armedMs) {
       using namespace std::chrono;
-      auto tp = steady_clock::time_point(milliseconds(earliest));
+
       boost::system::error_code ignored;
-      timer.expires_at(tp, ignored);
+      timer.expires_at(steady_clock::time_point(milliseconds(earliest)), ignored);
+
       timer.async_wait([](const boost::system::error_code&) {
-        // no-op; dispatch() loop will re-check timers after run_one() returns
+        // no-op
         });
-      armed = true;
+
+      armed.store(true, std::memory_order_release);
       armedMs = earliest;
     }
   }
@@ -277,28 +283,19 @@ namespace System {
 
       // 3) Nothing ready - ensure wakeTimer is armed
       if (timers.empty()) {
-        // If no real timers exist, arm a single long-lived dummy timer once.
-        // Do NOT re-arm it on every loop iteration. The handler will clear wakeArmed
-        // when it fires or is cancelled, allowing a later re-arm if needed.
-        if (!wakeArmed) {
+        // Arm single long-lived dummy timer only once while there are no real timers.
+        // Using atomic for wakeArmed avoids races if addTimer() is called from other threads.
+        if (!wakeArmed.load(std::memory_order_acquire)) {
           using namespace std::chrono;
-          auto nowForExpiry = steady_clock::now();
-          // set a long duration (effectively "never" under normal conditions)
           wakeTimer.expires_after(hours(1));
-
-          // capture 'this' pointer safely; handler will clear armed state on completion
           wakeTimer.async_wait([this](const boost::system::error_code& ec) {
-            // When the dummy timer completes (either fired or was cancelled),
-            // mark wakeArmed false so future loops may re-arm real timers as needed.
-            // We don't need to re-arm here - dispatch() will re-evaluate state.
-            this->wakeArmed = false;
+            // Clear armed flag on completion or cancel. This runs on the io_context thread.
+            (void)ec;
+            this->wakeArmed.store(false, std::memory_order_release);
             this->wakeExpiryMs = 0;
-            (void)ec; // silence unused param in builds without logging
             });
-
-          wakeArmed = true;
-          // approximate expiry ms for diagnostics; exact value not critical
-          wakeExpiryMs = now_ms() + static_cast<uint64_t>(60 * 60 * 1000); // +1 hour
+          wakeArmed.store(true, std::memory_order_release);
+          wakeExpiryMs = now_ms() + static_cast<uint64_t>(60 * 60 * 1000); // approx. expiry ms; exact value not critical
         }
       }
       else {
