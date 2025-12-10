@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -89,7 +88,7 @@ namespace System {
     std::multimap<uint64_t, NativeContext*> timers;
 
     boost::asio::steady_timer wakeTimer{ ioContext };
-    std::atomic<bool> wakeArmed{ false };
+    bool wakeArmed{ false };
     uint64_t wakeExpiryMs{ 0 };
   };
 
