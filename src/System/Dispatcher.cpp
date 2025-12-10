@@ -277,9 +277,7 @@ namespace System {
 
       // 3) Nothing ready - ensure wakeTimer is armed
       if (timers.empty()) {
-        // If no real timers exist, arm a single long-lived dummy timer once.
-        // Do NOT re-arm it on every loop iteration. The handler will clear wakeArmed
-        // when it fires or is cancelled, allowing a later re-arm if needed.
+        // Arm single long-lived dummy timer only once while there are no real timers.
         if (!wakeArmed) {
           using namespace std::chrono;
           auto nowForExpiry = steady_clock::now();
