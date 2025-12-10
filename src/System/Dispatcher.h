@@ -5,8 +5,11 @@
 
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <map>
 #include <queue>
+#include <type_traits>
+#include <utility>
 #include <boost/asio.hpp>
 #include <boost/coroutine/symmetric_coroutine.hpp>
 
@@ -69,6 +72,10 @@ namespace System {
     // Needed by TCP stack
     boost::asio::io_context& getIoContext() { return ioContext; }
 
+    // Thread-safe, synchronous execution helper
+    template<typename Func>
+    auto execute(Func func) -> decltype(func());
+
   private:
     void spawn(std::function<void()>&& procedure);
     void contextProcedure(coro_t::yield_type& yield);
@@ -93,3 +100,34 @@ namespace System {
   };
 
 } // namespace System
+
+template<typename Func>
+auto System::Dispatcher::execute(Func func) -> decltype(func()) {
+  using ResultType = decltype(func());
+
+  // Create a promise/future pair
+  auto promise = std::make_shared<std::promise<ResultType>>();
+  auto future = promise->get_future();
+
+  // The procedure to run on the Dispatcher thread
+  auto procedure = [promise, func = std::move(func)]() mutable {
+    try {
+      if constexpr (std::is_void_v<ResultType>) {
+        func();
+        promise->set_value();
+      }
+      else {
+        promise->set_value(func());
+      }
+    }
+    catch (...) {
+      promise->set_exception(std::current_exception());
+    }
+    };
+
+  // Post the work
+  this->remoteSpawn(std::move(procedure));
+
+  // Block the calling thread until the result is ready
+  return future.get();
+}
