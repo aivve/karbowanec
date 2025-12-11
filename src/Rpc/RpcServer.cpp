@@ -319,6 +319,9 @@ size_t RpcServer::getRpcConnectionsCount() {
 void RpcServer::processRequest(const httplib::Request& request, httplib::Response& response) {
   logger(Logging::TRACE) << "Incoming RPC request to endpoint " << request.path;
 
+  // Wrapper for execution on Dispatcher
+  auto rpc_processing_logic = [&]() -> bool {
+
   try {
     auto url = request.path;
     auto it = s_handlers.find(url);
@@ -341,7 +344,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
           if (!it->second.allowBusyCore && !isCoreReady()) {
             response.status = 500;
             response.set_content("Core is busy", "text/html");
-            return;
+            return false;
           }
           COMMAND_RPC_GET_BLOCK_DETAILS_BY_HEIGHT::request req;
           req.blockHeight = height;
@@ -355,7 +358,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.status = 500;
             response.set_content("Internal error", "text/html");
           }
-          return;
+          return true;
 
         }
         else if (Common::starts_with(url, block_hash_method)) {
@@ -365,7 +368,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
           if (!it->second.allowBusyCore && !isCoreReady()) {
             response.status = 500;
             response.set_content("Core is busy", "text/html");
-            return;
+            return false;
           }
           COMMAND_RPC_GET_BLOCK_DETAILS_BY_HASH::request req;
           req.hash = hash_str;
@@ -379,7 +382,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.status = 500;
             response.set_content("Internal error", "text/html");
           }
-          return;
+          return true;
 
         }
         else if (Common::starts_with(url, tx_hash_method)) {
@@ -388,7 +391,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
           if (!it->second.allowBusyCore && !isCoreReady()) {
             response.status = 500;
             response.set_content("Core is busy", "text/html");
-            return;
+            return false;
           }
           COMMAND_RPC_GET_TRANSACTION_DETAILS_BY_HASH::request req;
           req.hash = hash_str;
@@ -402,7 +405,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.status = 500;
             response.set_content("Internal error", "text/html");
           }
-          return;
+          return true;
 
         }
         else if (Common::starts_with(url, payment_id_method)) {
@@ -412,7 +415,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
           if (!it->second.allowBusyCore && !isCoreReady()) {
             response.status = 500;
             response.set_content("Core is busy", "text/html");
-            return;
+            return false;
           }
           COMMAND_RPC_GET_TRANSACTION_HASHES_BY_PAYMENT_ID::request req;
           req.paymentId = pid_str;
@@ -426,7 +429,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.status = 500;
             response.set_content("Internal error", "text/html");
           }
-          return;
+          return true;
 
         }
         else if (Common::starts_with(url, tx_mempool_method)) {
@@ -436,7 +439,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
           {
             response.status = 500;
             response.set_content("Core is busy", "text/html");
-            return;
+            return false;
           }
 
           COMMAND_RPC_GET_TRANSACTIONS_POOL::request req;
@@ -451,7 +454,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.set_content("Internal error", "text/html");
           }
 
-          return;
+          return true;
 
         }
       }
@@ -490,7 +493,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.set_content("Internal error", "text/html");
           }
 
-          return;
+          return true;
         }
 
         if (Common::starts_with(url, tx_method)) {
@@ -510,7 +513,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.set_content("Internal error", "text/html");
           }
 
-          return;
+          return true;
         }
 
         if (Common::starts_with(url, payment_id_method)) {
@@ -530,7 +533,7 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
             response.set_content("Not found", "text/html");
           }
 
-          return;
+          return true;
         }
 
         // default is explorer home
@@ -552,18 +555,18 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
           response.status = 500;
           response.set_content("Internal error", "text/html");
         }
-        return;
+        return true;
 
       }
 
       response.status = 404;
-      return;
+      return false;
     }
 
     if (!it->second.allowBusyCore && !isCoreReady()) {
       response.status = 500;
       response.set_content("Core is busy", "text/html");
-      return;
+      return false;
     }
 
     it->second.handler(this, request, response);
@@ -577,6 +580,17 @@ void RpcServer::processRequest(const httplib::Request& request, httplib::Respons
     response.status = 500;
     response.set_content(e.what(), "text/html");
   }
+
+  }; // Wrapper for execution on Dispatcher ends here
+  
+  try {
+    // Execute on Dispatcher
+    m_dispatcher.execute(rpc_processing_logic);
+  }
+  catch (const JsonRpc::JsonRpcError& err) {
+    response.status = 500;
+    response.set_content(storeToJsonValue(err).toString(), "application/json");
+  }
 }
 
 bool RpcServer::processJsonRpcRequest(const httplib::Request& request, httplib::Response& response) {
@@ -588,7 +602,7 @@ bool RpcServer::processJsonRpcRequest(const httplib::Request& request, httplib::
     response.set_header("Access-Control-Allow-Origin", m_cors_domain);
     response.set_header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     response.set_header("Access-Control-Allow-Methods", "POST, GET");
-  }  
+  }
 
   JsonRpcRequest jsonRequest;
   JsonRpcResponse jsonResponse;
