@@ -140,13 +140,16 @@ void JsonRpcServer::listen_ssl(const std::string address, const uint16_t port) {
 void JsonRpcServer::processRequest(const httplib::Request& req, httplib::Response& resp) {
   try {
 
+    // Wrapper for execution on Dispatcher
+    auto rpc_processing_logic = [&]() -> bool {
+
     if (!authenticate(req)) {
       logger(Logging::WARNING) << "Authorization required";
       resp.status = 401;
       resp.set_header("WWW-Authenticate", "Basic realm=\"RPC\"");
       resp.set_content("Authorization required", "text/plain; charset=UTF-8");
 
-      return;
+      return false;
     }
 
     if (req.path == "/json_rpc") {
@@ -164,7 +167,7 @@ void JsonRpcServer::processRequest(const httplib::Request& req, httplib::Respons
         resp.status = 200;
         resp.set_content(jsonRpcResponse.toString(), "application/json");
 
-        return;
+        return true;
       }
 
       processJsonRpcRequest(jsonRpcRequest, jsonRpcResponse);
@@ -178,8 +181,14 @@ void JsonRpcServer::processRequest(const httplib::Request& req, httplib::Respons
     } else {
       logger(Logging::WARNING) << "Requested url \"" << req.path << "\" is not found";
       resp.status = 404;
-      return;
+      return false;
     }
+
+    }; // Wrapper for execution on Dispatcher ends here
+
+    // Execute on Dispatcher
+    m_dispatcher->execute(rpc_processing_logic);
+
   } catch (std::exception& e) {
     logger(Logging::WARNING) << "Error while processing http request: " << e.what();
     resp.status = 500;
