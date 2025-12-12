@@ -31,6 +31,7 @@
 #include "Logging/LoggerRef.h"
 #include "WalletRpcServerCommandsDefinitions.h"
 #include "WalletLegacy/WalletLegacy.h"
+#include "System/Dispatcher.h"
 
 namespace Tools
 {
@@ -38,6 +39,7 @@ class wallet_rpc_server
 {
 public:
   wallet_rpc_server(
+    System::Dispatcher& dispatcher,
     Logging::ILogger& log,
     CryptoNote::IWalletLegacy &w, 
     CryptoNote::INode &n, 
@@ -94,6 +96,7 @@ private:
   void listen_ssl(const std::string address, const uint16_t port);
   bool authenticate(const httplib::Request& request) const;
 
+  System::Dispatcher& m_dispatcher;
   CryptoNote::Currency& m_currency;
   CryptoNote::IWalletLegacy& m_wallet;
   CryptoNote::INode& m_node;

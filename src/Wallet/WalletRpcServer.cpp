@@ -75,11 +75,13 @@ void wallet_rpc_server::init_options(boost::program_options::options_description
 //------------------------------------------------------------------------------------------------------------------------------
 
 wallet_rpc_server::wallet_rpc_server(
+  System::Dispatcher& dispatcher,
   Logging::ILogger& log,
   CryptoNote::IWalletLegacy& w,
   CryptoNote::INode& n,
   CryptoNote::Currency& currency,
   const std::string& walletFilename) :
+  m_dispatcher(dispatcher),
   logger(log, "WalletRpc"),
   m_wallet(w),
   m_node(n),
@@ -232,6 +234,7 @@ void wallet_rpc_server::processRequest(const httplib::Request& request, httplib:
 
   try
   {
+
     jsonRequest.parseRequest(request.body);
     jsonResponse.setId(jsonRequest.getId());
 
@@ -265,7 +268,16 @@ void wallet_rpc_server::processRequest(const httplib::Request& request, httplib:
     if (it == s_methods.end())
       throw JsonRpcError(errMethodNotFound);
 
+    // Wrapper for execution on Dispatcher
+    auto rpc_processing_logic = [&]() -> void {
+
     it->second(this, jsonRequest, jsonResponse);
+
+    }; // Wrapper for execution on Dispatcher ends here
+
+    // Execute on Dispatcher
+    m_dispatcher.execute(rpc_processing_logic);
+
   }
   catch (const JsonRpcError& err)
   {
