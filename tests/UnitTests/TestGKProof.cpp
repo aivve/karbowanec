@@ -7,7 +7,7 @@
 #include "crypto/gk_proof.h"
 #include "crypto/pedersen.h"
 #include "crypto/random.h"
-#include "CryptoNoteCore/Denominations.h"
+#include "Denominations.h"
 
 #include <cstring>
 

@@ -22,7 +22,7 @@
 #include <numeric>
 #include <vector>
 
-#include "CryptoNoteCore/Denominations.h"
+#include "Denominations.h"
 
 namespace {
 

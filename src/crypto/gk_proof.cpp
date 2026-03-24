@@ -26,7 +26,7 @@
 #include "pedersen.h"
 #include "hash.h"
 #include "random.h"
-#include "CryptoNoteCore/Denominations.h"
+#include "Denominations.h"
 
 #include <cstring>
 #include <cassert>
