@@ -142,9 +142,10 @@ public:
   const Block& genesisBlock() const { return m_genesisBlock; }
   const Crypto::Hash& genesisBlockHash() const { return m_genesisBlockHash; }
 
-  uint64_t calculateReward(uint64_t alreadyGeneratedCoins) const;
+  uint64_t effectiveMoneySupply(uint32_t height) const;
+  uint64_t calculateReward(uint64_t alreadyGeneratedCoins, uint32_t height) const;
   bool getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins, uint64_t fee,
-    uint64_t& reward, int64_t& emissionChange) const;
+    uint64_t& reward, int64_t& emissionChange, uint32_t height) const;
   size_t maxBlockCumulativeSize(uint64_t height) const;
 
   bool constructMinerTx(uint8_t blockMajorVersion, uint32_t height, size_t medianSize, uint64_t alreadyGeneratedCoins, size_t currentBlockSize,

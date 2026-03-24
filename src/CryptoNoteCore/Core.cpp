@@ -383,6 +383,13 @@ bool Core::check_tx_unmixable(const Transaction& tx, const Crypto::Hash& txHash,
       logger(ERROR) << "Invalid decomposed output amount " << out.amount << " for tx id= " << Common::podToHex(txHash);
       return false;
     }
+
+    // Post-redenomination: all outputs must be >= 1 new atomic unit (0.01 KRB).
+    // This structurally eliminates dust in the new denomination system.
+    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT && out.amount < 1) {
+      logger(ERROR) << "Output amount below minimum post-fork for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
   }
   return true;
 }
@@ -1059,8 +1066,8 @@ bool Core::getAlreadyGeneratedCoins(const Crypto::Hash& hash, uint64_t& generate
 }
 
 bool Core::getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins, uint64_t fee,
-                          uint64_t& reward, int64_t& emissionChange) {
-  return m_currency.getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, reward, emissionChange);
+                          uint64_t& reward, int64_t& emissionChange, uint32_t height) {
+  return m_currency.getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, reward, emissionChange, height);
 }
 
 bool Core::scanOutputkeysForIndices(const KeyInput& txInToKey, std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) {

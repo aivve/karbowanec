@@ -1199,7 +1199,7 @@ bool Blockchain::validate_miner_transaction(const Block& b, uint32_t height,
 
   auto blockMajorVersion = getBlockMajorVersionForHeight(height);
   if (!m_currency.getBlockReward(blockMajorVersion, blocksSizeMedian, cumulativeBlockSize,
-                                  alreadyGeneratedCoins, fee, reward, emissionChange)) {
+                                  alreadyGeneratedCoins, fee, reward, emissionChange, height)) {
     logger(INFO, BRIGHT_WHITE) << "block size " << cumulativeBlockSize
       << " is bigger than allowed for this blockchain";
     return false;
@@ -2294,6 +2294,13 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
     m_db.getBlockMeta(newHeight - 1, prevMeta);
     already_generated_coins   = prevMeta.alreadyGeneratedCoins;
     prevCumulativeDifficulty  = prevMeta.cumulativeDifficulty;
+  }
+
+  // One-time redenomination conversion at fork height (spec Section 4.2).
+  // Divide the accumulator so that calculateReward() operates on new-unit magnitudes
+  // from this block onward. The sub-factor remainder is the single bounded supply burn.
+  if (newHeight == CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
+    already_generated_coins /= CryptoNote::parameters::REDENOMINATION_FACTOR;
   }
 
   // Outputs that must survive past the write-txn block for the log below.

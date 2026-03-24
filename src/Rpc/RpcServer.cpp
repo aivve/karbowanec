@@ -1515,7 +1515,7 @@ bool RpcServer::on_get_explorer(const COMMAND_EXPLORER::request& req, COMMAND_EX
     " &bull; " + "Alt. blocks: <b>" + std::to_string(m_core.getAlternativeBlocksCount()) + "</b>" +
     " &bull; " + "Transactions: <b>" + std::to_string(m_core.getBlockchainTotalTransactions() - top_block_index + 1) + "</b>" +
     " &bull; " + "Emission: <b>" + m_core.currency().formatAmount(m_core.getTotalGeneratedAmount()) + "</b>" +
-    " &bull; " + "Next reward: <b>" + m_core.currency().formatAmount(m_core.currency().calculateReward(m_core.getTotalGeneratedAmount())) + "</b>" +
+    " &bull; " + "Next reward: <b>" + m_core.currency().formatAmount(m_core.currency().calculateReward(m_core.getTotalGeneratedAmount(), m_core.getCurrentBlockchainHeight())) + "</b>" +
     "</p>\n";
 
   const uint32_t print_blocks_count = 10;
@@ -2086,7 +2086,7 @@ bool RpcServer::on_get_info(const COMMAND_RPC_GET_INFO::request& req, COMMAND_RP
   // that large uint64_t number is unsafe in JavaScript environment and therefore as a JSON value so we display it as a formatted string
   res.already_generated_coins = m_core.currency().formatAmount(alreadyGeneratedCoins);
   res.block_major_version = m_core.getCurrentBlockMajorVersion();
-  uint64_t nextReward = m_core.currency().calculateReward(alreadyGeneratedCoins);
+  uint64_t nextReward = m_core.currency().calculateReward(alreadyGeneratedCoins, m_core.getCurrentBlockchainHeight());
   res.next_reward = nextReward;
   if (!m_core.getBlockCumulativeDifficulty(res.height - 1, res.cumulative_difficulty)) {
     throw JsonRpc::JsonRpcError{

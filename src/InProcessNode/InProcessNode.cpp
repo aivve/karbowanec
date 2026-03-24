@@ -454,7 +454,7 @@ uint64_t InProcessNode::getNextReward() const {
   uint64_t sizeMedian = Common::medianValue(blocksSizes);
   uint64_t nextReward = 0;
   int64_t emissionChange = 0;
-  if (!core.getBlockReward(core.getCurrentBlockMajorVersion(), sizeMedian, 0, core.getTotalGeneratedAmount(), 0, nextReward, emissionChange)) {
+  if (!core.getBlockReward(core.getCurrentBlockMajorVersion(), sizeMedian, 0, core.getTotalGeneratedAmount(), 0, nextReward, emissionChange, core.getCurrentBlockchainHeight())) {
     throw std::system_error(make_error_code(CryptoNote::error::INTERNAL_NODE_ERROR));
   }
   return nextReward;

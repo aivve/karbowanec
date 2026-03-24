@@ -153,22 +153,26 @@ namespace CryptoNote {
 		}
 	}
 
-	uint64_t Currency::calculateReward(uint64_t alreadyGeneratedCoins) const {
+	uint64_t Currency::effectiveMoneySupply(uint32_t height) const {
+		if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT)
+			return m_moneySupply / CryptoNote::parameters::REDENOMINATION_FACTOR;
+		return m_moneySupply;
+	}
+
+	uint64_t Currency::calculateReward(uint64_t alreadyGeneratedCoins, uint32_t height) const {
 		// assert(alreadyGeneratedCoins <= m_moneySupply);
 		assert(m_emissionSpeedFactor > 0 && m_emissionSpeedFactor <= 8 * sizeof(uint64_t));
 
 		uint64_t baseRewardInitial, baseRewardTail, baseReward;
 
-		baseRewardInitial = alreadyGeneratedCoins < m_moneySupply ? (m_moneySupply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : CryptoNote::parameters::TAIL_EMISSION_REWARD;
-		// Tail emission
-		// Flat rate tail emission reward, inflation slowly diminishing in relation to supply
-		// baseRewardTail = CryptoNote::parameters::TAIL_EMISSION_REWARD;
-		// changed to Friedman's k-percent rule, inflation 2% of total coins in circulation p.a.
-		const uint64_t blocksInOneYear = expectedNumberOfBlocksPerDay() * 365;
-		uint64_t twoPercentOfEmission = alreadyGeneratedCoins / 100 * 2; // sic! use integers
-		baseRewardTail = twoPercentOfEmission / blocksInOneYear;
+		uint64_t supply = effectiveMoneySupply(height);
 
-		baseReward = std::max<uint64_t>(baseRewardInitial, baseRewardTail);
+		baseRewardInitial = alreadyGeneratedCoins < supply ? (supply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : CryptoNote::parameters::TAIL_EMISSION_REWARD;
+		// Tail emission: Friedman's k-percent rule, 2% of circulating supply per year
+		const uint64_t blocksInOneYear = expectedNumberOfBlocksPerDay() * 365;
+		baseRewardTail = alreadyGeneratedCoins / (50 * blocksInOneYear);
+
+		baseReward = std::max(baseRewardInitial, baseRewardTail);
 
 		logger(DEBUGGING) << "Init. reward: " << formatAmount(baseRewardInitial);
 		logger(DEBUGGING) << "Tail  reward: " << formatAmount(baseRewardTail);
@@ -177,9 +181,9 @@ namespace CryptoNote {
 	}
 
   bool Currency::getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins,
-    uint64_t fee, uint64_t& reward, int64_t& emissionChange) const {
+    uint64_t fee, uint64_t& reward, int64_t& emissionChange, uint32_t height) const {
 
-    uint64_t baseReward = calculateReward(alreadyGeneratedCoins);
+    uint64_t baseReward = calculateReward(alreadyGeneratedCoins, height);
 
     size_t blockGrantedFullRewardZone = blockGrantedFullRewardZoneByBlockVersion(blockMajorVersion);
     medianSize = std::max(medianSize, blockGrantedFullRewardZone);
@@ -228,7 +232,7 @@ namespace CryptoNote {
 
 		uint64_t blockReward;
 		int64_t emissionChange;
-		if (!getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, blockReward, emissionChange)) {
+		if (!getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, blockReward, emissionChange, height)) {
 			logger(INFO) << "Block is too big";
 			return false;
 		}
