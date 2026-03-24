@@ -1,0 +1,184 @@
+// Standalone test for GK one-of-many proof.
+// Build: cl /EHsc /I../include /I../src test_gk_proof.cpp /link ../build/src/Release/Crypto.lib
+
+#include "crypto/gk_proof.h"
+#include "crypto/pedersen.h"
+#include "crypto/random.h"
+#include "CryptoNoteCore/Denominations.h"
+
+#include <cstdio>
+#include <cstring>
+
+extern "C" {
+#include "crypto/crypto-ops.h"
+}
+
+static void test_random_scalar(Crypto::EllipticCurveScalar& res) {
+  unsigned char tmp[64];
+  Random::randomBytes(64, tmp);
+  sc_reduce(tmp);
+  memcpy(&res, tmp, 32);
+}
+
+static void uint64_to_scalar(uint64_t val, Crypto::EllipticCurveScalar& s) {
+  memset(s.data, 0, 32);
+  for (int i = 0; i < 8; ++i)
+    s.data[i] = static_cast<uint8_t>(val >> (8 * i));
+}
+
+static int tests_run = 0;
+static int tests_passed = 0;
+
+#define TEST(name) \
+  do { \
+    tests_run++; \
+    printf("  %-50s", name); \
+  } while(0)
+
+#define PASS() do { tests_passed++; printf("PASS\n"); } while(0)
+#define FAIL(msg) do { printf("FAIL: %s\n", msg); } while(0)
+
+static void test_roundtrip(size_t idx) {
+  char name[80];
+  snprintf(name, sizeof(name), "Round-trip idx=%zu (v=%llu)", idx,
+           (unsigned long long)CryptoNote::DENOMINATIONS[idx]);
+  TEST(name);
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[idx];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, idx, tx_hash, proof)) { FAIL("prove"); return; }
+  if (!Crypto::gk_verify(C, proof, tx_hash)) { FAIL("verify"); return; }
+
+  PASS();
+}
+
+static void test_wrong_txhash() {
+  TEST("Wrong tx_hash fails verification");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[10];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash, wrong_hash;
+  Random::randomBytes(32, tx_hash.data);
+  Random::randomBytes(32, wrong_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 10, tx_hash, proof)) { FAIL("prove"); return; }
+  if (Crypto::gk_verify(C, proof, wrong_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
+static void test_tampered_f() {
+  TEST("Tampered f scalar fails");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[5];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 5, tx_hash, proof)) { FAIL("prove"); return; }
+
+  proof.f.data[0] ^= 0x01;
+  if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
+static void test_wrong_index() {
+  TEST("Wrong denomination index rejected");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[5];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (Crypto::gk_prove(C, v, r, 6, tx_hash, proof)) { FAIL("should have rejected"); return; }
+
+  PASS();
+}
+
+static void test_out_of_range() {
+  TEST("Out-of-range index rejected");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(1, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (Crypto::gk_prove(C, 1, r, 64, tx_hash, proof)) { FAIL("should have rejected"); return; }
+
+  PASS();
+}
+
+int main() {
+  printf("GK One-of-Many Proof Tests\n");
+  printf("==========================\n");
+
+  // Test a few specific indices
+  test_roundtrip(0);
+  test_roundtrip(1);
+  test_roundtrip(31);
+  test_roundtrip(32);
+  test_roundtrip(63);
+
+  // Negative tests
+  test_wrong_txhash();
+  test_tampered_f();
+  test_wrong_index();
+  test_out_of_range();
+
+  // Test all 64 denominations
+  printf("\nAll-denominations sweep:\n");
+  for (size_t i = 0; i < 64; ++i) {
+    test_roundtrip(i);
+  }
+
+  printf("\n%d/%d tests passed.\n", tests_passed, tests_run);
+  return (tests_passed == tests_run) ? 0 : 1;
+}
