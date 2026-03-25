@@ -145,7 +145,7 @@ uint32_t get_block_height(const Block& b) {
 
 bool check_inputs_types_supported(const TransactionPrefix& tx) {
   for (const auto& in : tx.inputs) {
-    if (tx.version == parameters::TRANSACTION_VERSION_CT) {
+    if (tx.version == TRANSACTION_VERSION_CT) {
       if (in.type() != typeid(ConfidentialInput)) {
         return false;
       }
@@ -160,7 +160,7 @@ bool check_inputs_types_supported(const TransactionPrefix& tx) {
 }
 
 bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
-  if (tx.version == parameters::TRANSACTION_VERSION_CT) {
+  if (tx.version == TRANSACTION_VERSION_CT) {
     // CT transaction: outputs must be ConfidentialOutput
     for (const TransactionOutput& out : tx.outputs) {
       if (out.target.type() != typeid(ConfidentialOutput)) {
@@ -219,13 +219,13 @@ bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
 
 bool check_money_overflow(const TransactionPrefix &tx) {
   // CT transactions don't use transparent amounts; balance is checked cryptographically
-  if (tx.version == parameters::TRANSACTION_VERSION_CT)
+  if (tx.version == TRANSACTION_VERSION_CT)
     return true;
   return check_inputs_overflow(tx) && check_outs_overflow(tx);
 }
 
 bool check_inputs_overflow(const TransactionPrefix &tx) {
-  if (tx.version == parameters::TRANSACTION_VERSION_CT)
+  if (tx.version == TRANSACTION_VERSION_CT)
     return true;
 
   uint64_t money = 0;
@@ -246,7 +246,7 @@ bool check_inputs_overflow(const TransactionPrefix &tx) {
 }
 
 bool check_outs_overflow(const TransactionPrefix& tx) {
-  if (tx.version == parameters::TRANSACTION_VERSION_CT)
+  if (tx.version == TRANSACTION_VERSION_CT)
     return true;
 
   uint64_t money = 0;

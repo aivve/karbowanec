@@ -286,7 +286,7 @@ bool Core::get_stat_info(core_stat_info& st_inf) {
 }
 
 bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uint32_t height) {
-  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+  if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
     // CT transaction: check ring size of ConfidentialInputs
     for (const auto& txin : tx.inputs) {
       if (txin.type() != typeid(ConfidentialInput)) continue;
@@ -327,7 +327,7 @@ bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uin
 }
 
 bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_t blobSize, tx_verification_context& tvc, uint32_t height) {
-  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+  if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
     // CT transaction: fee is an explicit field, checked against CT fee policy
     uint64_t fee = tx.fee;
     if (fee < CryptoNote::parameters::CT_MINIMUM_FEE) {
@@ -418,7 +418,7 @@ bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_
 
 bool Core::check_tx_unmixable(const Transaction& tx, const Crypto::Hash& txHash, uint32_t height) {
   // CT outputs have no transparent amounts; denomination validity is checked via GK proofs
-  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT)
+  if (tx.version == CryptoNote::TRANSACTION_VERSION_CT)
     return true;
 
   for (const auto& out : tx.outputs) {
@@ -443,7 +443,7 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
     return false;
   }
 
-  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+  if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
     // CT transaction semantic checks
     if (tx.inputs.size() > CryptoNote::parameters::CT_MAX_INPUTS) {
       logger(ERROR) << "CT tx has too many inputs (" << tx.inputs.size() << "), rejected for tx id= " << Common::podToHex(txHash);
@@ -522,7 +522,7 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
     return false;
   }
 
-  if (tx.version != CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+  if (tx.version != CryptoNote::TRANSACTION_VERSION_CT) {
     uint64_t amount_in = 0;
     get_inputs_money_amount(tx, amount_in);
     uint64_t amount_out = get_outs_money_amount(tx);

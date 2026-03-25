@@ -1975,7 +1975,7 @@ bool Blockchain::haveTransactionKeyImagesAsSpent(const Transaction& tx) {
 
 bool Blockchain::checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height) {
   // CT transactions use a dedicated validation pipeline
-  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+  if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
     if (pmax_used_block_height) *pmax_used_block_height = 0;
     Crypto::Hash transactionHash = getObjectHash(tx);
     if (isInCheckpointZone(getCurrentBlockchainHeight()))
