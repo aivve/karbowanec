@@ -371,6 +371,10 @@ namespace CryptoNote {
                                  uint32_t* pmax_used_block_height = nullptr);
     bool checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height = nullptr);
 
+    // Confidential transaction validation pipeline (spec Section 15).
+    // Executes all 10 checks in order; returns false on first failure.
+    bool checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash);
+
     // Returns by value (deserialized from tx_entries)
     TransactionEntry transactionByIndex(TransactionIndex index);
 

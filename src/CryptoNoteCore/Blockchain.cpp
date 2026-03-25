@@ -36,6 +36,12 @@
 #include "TransactionExtra.h"
 
 #include "../crypto/hash.h"
+#include "../crypto/pedersen.h"
+#include "../crypto/gk_proof.h"
+#include "../crypto/mlsag.h"
+#include "../crypto/transaction_balance.h"
+#include "../crypto/crypto-ops.h"
+#include "../CryptoNoteConfig.h"
 
 using namespace Logging;
 using namespace Common;
@@ -1958,12 +1964,25 @@ bool Blockchain::haveTransactionKeyImagesAsSpent(const Transaction& tx) {
       if (have_tx_keyimg_as_spent(boost::get<KeyInput>(in).keyImage)) {
         return true;
       }
+    } else if (in.type() == typeid(ConfidentialInput)) {
+      if (have_tx_keyimg_as_spent(boost::get<ConfidentialInput>(in).keyImage)) {
+        return true;
+      }
     }
   }
   return false;
 }
 
 bool Blockchain::checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height) {
+  // CT transactions use a dedicated validation pipeline
+  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+    if (pmax_used_block_height) *pmax_used_block_height = 0;
+    Crypto::Hash transactionHash = getObjectHash(tx);
+    if (isInCheckpointZone(getCurrentBlockchainHeight()))
+      return true;
+    return checkConfidentialTransaction(tx, transactionHash);
+  }
+
   Crypto::Hash tx_prefix_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
   return checkTransactionInputs(tx, tx_prefix_hash, pmax_used_block_height);
 }
@@ -2099,6 +2118,178 @@ bool Blockchain::check_tx_input(const KeyInput& txin, const Crypto::Hash& tx_pre
     logger(ERROR) << "Failed to check ring signature for keyImage: " << txin.keyImage;
   }
   return check_tx_ring_signature;
+}
+
+// ─── Confidential Transaction Validation Pipeline (spec Section 15) ──────────
+
+bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash) {
+  using namespace CryptoNote::parameters;
+
+  // Step 1: Verify transaction version == CT version (2)
+  if (tx.version != TRANSACTION_VERSION_CT) {
+    logger(ERROR) << "CT validation: wrong version " << (int)tx.version
+                  << " for tx " << txHash;
+    return false;
+  }
+
+  const Crypto::Hash tx_prefix_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
+
+  // Step 2: For each output: verify subgroup membership of commitment C
+  for (size_t i = 0; i < tx.outputs.size(); ++i) {
+    if (tx.outputs[i].target.type() != typeid(ConfidentialOutput)) {
+      logger(ERROR) << "CT validation: output " << i << " is not ConfidentialOutput in tx " << txHash;
+      return false;
+    }
+    const auto& cout = boost::get<ConfidentialOutput>(tx.outputs[i].target);
+    if (!Crypto::point_valid_for_pedersen(cout.commitment)) {
+      logger(ERROR) << "CT validation: output " << i << " commitment fails subgroup check in tx " << txHash;
+      return false;
+    }
+  }
+
+  // Step 3: For each output: verify GK denomination membership proof
+  for (size_t i = 0; i < tx.outputs.size(); ++i) {
+    const auto& cout = boost::get<ConfidentialOutput>(tx.outputs[i].target);
+    // Reconstruct GKProof from ConfidentialOutput fields
+    Crypto::GKProof proof;
+    for (size_t j = 0; j < 6; ++j) {
+      if (ge_frombytes_vartime(&proof.A[j],
+          reinterpret_cast<const unsigned char*>(&cout.gkA[j])) != 0) {
+        logger(ERROR) << "CT validation: output " << i << " GK proof A[" << j << "] invalid point in tx " << txHash;
+        return false;
+      }
+      if (ge_frombytes_vartime(&proof.B[j],
+          reinterpret_cast<const unsigned char*>(&cout.gkB[j])) != 0) {
+        logger(ERROR) << "CT validation: output " << i << " GK proof B[" << j << "] invalid point in tx " << txHash;
+        return false;
+      }
+      if (ge_frombytes_vartime(&proof.Q[j],
+          reinterpret_cast<const unsigned char*>(&cout.gkQ[j])) != 0) {
+        logger(ERROR) << "CT validation: output " << i << " GK proof Q[" << j << "] invalid point in tx " << txHash;
+        return false;
+      }
+      proof.z[j] = cout.gkZ[j];
+    }
+    proof.f = cout.gkF;
+
+    if (!Crypto::gk_verify(cout.commitment, proof, txHash)) {
+      logger(ERROR) << "CT validation: output " << i << " GK membership proof failed in tx " << txHash;
+      return false;
+    }
+  }
+
+  // Step 4: For each input: verify subgroup membership of pseudo-commit C',
+  //         key image I, and all ring public keys P_k
+  for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
+
+    if (!Crypto::point_valid_for_pedersen(cin.pseudoCommitment)) {
+      logger(ERROR) << "CT validation: input " << i << " pseudo-commitment fails subgroup check in tx " << txHash;
+      return false;
+    }
+
+    // Key image subgroup check: 8*I != identity && I != identity
+    // Use the same check as transparent: l*I == identity (I is in prime-order subgroup)
+    if (!(Crypto::scalarmultKey(cin.keyImage, Crypto::EllipticCurveScalar2KeyImage(Crypto::L))
+          == Crypto::EllipticCurveScalar2KeyImage(Crypto::I))) {
+      logger(ERROR) << "CT validation: input " << i << " key image not in valid domain in tx " << txHash;
+      return false;
+    }
+
+    for (size_t k = 0; k < cin.ringPubkeys.size(); ++k) {
+      if (!Crypto::check_key(cin.ringPubkeys[k])) {
+        logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k << " invalid in tx " << txHash;
+        return false;
+      }
+    }
+
+    for (size_t k = 0; k < cin.ringCommitments.size(); ++k) {
+      if (!Crypto::point_valid_for_pedersen(cin.ringCommitments[k])) {
+        logger(ERROR) << "CT validation: input " << i << " ring commitment " << k
+                      << " fails subgroup check in tx " << txHash;
+        return false;
+      }
+    }
+  }
+
+  // Step 5: For each input: verify MLSAG ring signature
+  for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
+
+    Crypto::MLSAGSignature mlsag;
+    mlsag.c0 = cin.mlsagC0;
+    mlsag.ss = cin.mlsagSS;
+
+    if (!Crypto::mlsag_verify(
+        tx_prefix_hash,
+        cin.ringPubkeys.data(),
+        cin.ringCommitments.data(),
+        cin.pseudoCommitment,
+        cin.ringPubkeys.size(),
+        cin.keyImage,
+        mlsag)) {
+      logger(ERROR) << "CT validation: input " << i << " MLSAG signature failed in tx " << txHash;
+      return false;
+    }
+  }
+
+  // Step 6: Verify all key images are unique and absent from global spent-key set
+  // (Intra-transaction uniqueness is already checked by check_tx_inputs_keyimages_diff
+  //  in Core::check_tx_semantic; here we check against the blockchain)
+  for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
+    if (have_tx_keyimg_as_spent(cin.keyImage)) {
+      logger(DEBUGGING) << "CT validation: input " << i << " key image already spent in tx " << txHash;
+      return false;
+    }
+  }
+
+  // Step 7: Verify subgroup membership of all GK proof elements A[j], B[j], Q[m]
+  // (Already done in Step 3 during ge_frombytes_vartime decode + gk_verify)
+
+  // Step 8: Verify balance equation: sum(C_in) - sum(C_out) - fee*H = excess_commitment
+  {
+    // Collect input commitments (pseudo-commitments C'_i from each input)
+    std::vector<Crypto::EllipticCurvePoint> input_commits;
+    input_commits.reserve(tx.inputs.size());
+    for (const auto& txin : tx.inputs) {
+      const auto& cin = boost::get<ConfidentialInput>(txin);
+      input_commits.push_back(cin.pseudoCommitment);
+    }
+
+    // Collect output commitments
+    std::vector<Crypto::EllipticCurvePoint> output_commits;
+    output_commits.reserve(tx.outputs.size());
+    for (const auto& txout : tx.outputs) {
+      const auto& cout = boost::get<ConfidentialOutput>(txout.target);
+      output_commits.push_back(cout.commitment);
+    }
+
+    // Map CryptoNote::TransactionKernel to Crypto::TransactionKernel
+    // CryptoNote kernel has: excessCommitment (Point), sigE (Scalar), sigS (Scalar)
+    // Crypto kernel has: excess (Point), signature (Signature = {c, r})
+    Crypto::TransactionKernel crypto_kernel;
+    crypto_kernel.excess = tx.kernel.excessCommitment;
+    // Signature is (e, s) pair stored as two 32-byte scalars
+    memcpy(&crypto_kernel.signature, &tx.kernel.sigE, 64);
+
+    if (!Crypto::verify_transaction_balance(
+        input_commits.data(), input_commits.size(),
+        output_commits.data(), output_commits.size(),
+        tx.fee,
+        txHash,
+        crypto_kernel)) {
+      logger(ERROR) << "CT validation: balance equation / kernel signature failed in tx " << txHash;
+      return false;
+    }
+  }
+
+  // Step 9: Verify kernel Schnorr signature (done as part of Step 8 in verify_transaction_balance)
+
+  // Step 10: Verify fee >= 0 and within network fee policy
+  // (Already checked in Core::check_tx_fee; fee field is uint64_t so >= 0 is implicit)
+
+  return true;
 }
 
 // ─── addNewBlock / pushBlock / popBlock ──────────────────────────────────────
@@ -2541,20 +2732,28 @@ bool Blockchain::pushTransaction(BlockEntry& block, const Crypto::Hash& transact
 
   // Record spent key images; detect double-spends within this write txn
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    Crypto::KeyImage ki;
     if (tx.inputs[i].type() == typeid(KeyInput)) {
-      const auto& ki = boost::get<KeyInput>(tx.inputs[i]).keyImage;
-      if (m_db.hasSpentKey(ki)) {
-        logger(ERROR, BRIGHT_RED) << "Double spending transaction was pushed to blockchain.";
-        // Roll back keys already written in this tx
-        for (size_t j = 0; j < i; ++j) {
-          if (tx.inputs[j].type() == typeid(KeyInput)) {
-            m_db.removeSpentKey(boost::get<KeyInput>(tx.inputs[j]).keyImage);
-          }
-        }
-        return false;
-      }
-      m_db.putSpentKey(ki, block.height);
+      ki = boost::get<KeyInput>(tx.inputs[i]).keyImage;
+    } else if (tx.inputs[i].type() == typeid(ConfidentialInput)) {
+      ki = boost::get<ConfidentialInput>(tx.inputs[i]).keyImage;
+    } else {
+      continue;
     }
+
+    if (m_db.hasSpentKey(ki)) {
+      logger(ERROR, BRIGHT_RED) << "Double spending transaction was pushed to blockchain.";
+      // Roll back keys already written in this tx
+      for (size_t j = 0; j < i; ++j) {
+        if (tx.inputs[j].type() == typeid(KeyInput)) {
+          m_db.removeSpentKey(boost::get<KeyInput>(tx.inputs[j]).keyImage);
+        } else if (tx.inputs[j].type() == typeid(ConfidentialInput)) {
+          m_db.removeSpentKey(boost::get<ConfidentialInput>(tx.inputs[j]).keyImage);
+        }
+      }
+      return false;
+    }
+    m_db.putSpentKey(ki, block.height);
   }
 
   // Record key outputs and fill global output indexes
@@ -2619,6 +2818,11 @@ void Blockchain::popTransaction(const Transaction& transaction,
       const auto& ki = boost::get<KeyInput>(input).keyImage;
       if (!m_db.removeSpentKey(ki)) {
         logger(ERROR, BRIGHT_RED) << "Blockchain consistency broken - removeSpentKey failed";
+      }
+    } else if (input.type() == typeid(ConfidentialInput)) {
+      const auto& ki = boost::get<ConfidentialInput>(input).keyImage;
+      if (!m_db.removeSpentKey(ki)) {
+        logger(ERROR, BRIGHT_RED) << "Blockchain consistency broken - removeSpentKey failed for CT input";
       }
     }
   }

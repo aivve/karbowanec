@@ -74,6 +74,14 @@ const uint64_t MIN_TX_MIXIN_SIZE                             = 2;
 const uint64_t MAX_TX_MIXIN_SIZE                             = 20;
 const uint64_t MAX_EXTRA_SIZE                                = 1024;
 
+// Confidential transaction parameters (post-fork)
+const size_t   CT_MIN_RING_SIZE                              = 4;     // min ring members per CT input
+const size_t   CT_MAX_RING_SIZE                              = 16;    // max ring members per CT input
+const uint64_t CT_MINIMUM_FEE                                = UINT64_C(1);     // 0.01 KRB in new atomic units
+const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(10000); // 100 KRB in new atomic units
+const size_t   CT_MAX_INPUTS                                 = 256;
+const size_t   CT_MAX_OUTPUTS                                = 256;
+
 const uint64_t MAX_TRANSACTION_SIZE_LIMIT                    = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_CURRENT / 4 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
 
 const size_t   DANDELION_EPOCH                               = 600;

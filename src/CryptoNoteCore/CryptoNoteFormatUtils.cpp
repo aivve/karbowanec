@@ -145,8 +145,14 @@ uint32_t get_block_height(const Block& b) {
 
 bool check_inputs_types_supported(const TransactionPrefix& tx) {
   for (const auto& in : tx.inputs) {
-    if (in.type() != typeid(KeyInput)) {
-      return false;
+    if (tx.version == parameters::TRANSACTION_VERSION_CT) {
+      if (in.type() != typeid(ConfidentialInput)) {
+        return false;
+      }
+    } else {
+      if (in.type() != typeid(KeyInput)) {
+        return false;
+      }
     }
   }
 
@@ -154,10 +160,31 @@ bool check_inputs_types_supported(const TransactionPrefix& tx) {
 }
 
 bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
+  if (tx.version == parameters::TRANSACTION_VERSION_CT) {
+    // CT transaction: outputs must be ConfidentialOutput
+    for (const TransactionOutput& out : tx.outputs) {
+      if (out.target.type() != typeid(ConfidentialOutput)) {
+        if (error) {
+          *error = "CT transaction output must be ConfidentialOutput";
+        }
+        return false;
+      }
+      // Amount field must be 0 for CT outputs (amounts are hidden in commitments)
+      if (out.amount != 0) {
+        if (error) {
+          *error = "CT output must have zero amount field";
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Transparent transaction: outputs must be KeyOutput
   std::unordered_set<PublicKey> keys_seen;
   for (const TransactionOutput& out : tx.outputs) {
     if (out.target.type() == typeid(KeyOutput)) {
- 
+
       if (out.amount == 0) {
         if (error) {
           *error = "Zero amount ouput";
@@ -191,10 +218,16 @@ bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
 }
 
 bool check_money_overflow(const TransactionPrefix &tx) {
+  // CT transactions don't use transparent amounts; balance is checked cryptographically
+  if (tx.version == parameters::TRANSACTION_VERSION_CT)
+    return true;
   return check_inputs_overflow(tx) && check_outs_overflow(tx);
 }
 
 bool check_inputs_overflow(const TransactionPrefix &tx) {
+  if (tx.version == parameters::TRANSACTION_VERSION_CT)
+    return true;
+
   uint64_t money = 0;
 
   for (const auto &in : tx.inputs) {
@@ -213,6 +246,9 @@ bool check_inputs_overflow(const TransactionPrefix &tx) {
 }
 
 bool check_outs_overflow(const TransactionPrefix& tx) {
+  if (tx.version == parameters::TRANSACTION_VERSION_CT)
+    return true;
+
   uint64_t money = 0;
   for (const auto& o : tx.outputs) {
     if (money > o.amount + money)

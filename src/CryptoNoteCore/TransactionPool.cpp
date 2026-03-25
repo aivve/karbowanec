@@ -59,6 +59,10 @@ namespace CryptoNote {
           auto r = m_keyImages.insert(boost::get<KeyInput>(in).keyImage);
           (void)r; //just to make compiler to shut up
           assert(r.second);
+        } else if (in.type() == typeid(ConfidentialInput)) {
+          auto r = m_keyImages.insert(boost::get<ConfidentialInput>(in).keyImage);
+          (void)r;
+          assert(r.second);
         }
       }
 
@@ -76,6 +80,10 @@ namespace CryptoNote {
       for (const auto& in : tx.inputs) {
         if (in.type() == typeid(KeyInput)) {
           if (m_keyImages.count(boost::get<KeyInput>(in).keyImage)) {
+            return false;
+          }
+        } else if (in.type() == typeid(ConfidentialInput)) {
+          if (m_keyImages.count(boost::get<ConfidentialInput>(in).keyImage)) {
             return false;
           }
         }
@@ -591,23 +599,29 @@ namespace CryptoNote {
 
   bool tx_memory_pool::removeTransactionInputs(const Crypto::Hash& tx_id, const Transaction& tx, bool keptByBlock) {
     for (const auto& in : tx.inputs) {
+      Crypto::KeyImage ki;
       if (in.type() == typeid(KeyInput)) {
-        const auto& txin = boost::get<KeyInput>(in);
-        auto it = m_spent_key_images.find(txin.keyImage);
-        if (!(it != m_spent_key_images.end())) { logger(ERROR, BRIGHT_RED) << "failed to find transaction input in key images. img=" << txin.keyImage << std::endl
-          << "transaction id = " << tx_id; return false; }
-        std::unordered_set<Crypto::Hash>& key_image_set = it->second;
-        if (!(!key_image_set.empty())) { logger(ERROR, BRIGHT_RED) << "empty key_image set, img=" << txin.keyImage << std::endl
-          << "transaction id = " << tx_id; return false; }
+        ki = boost::get<KeyInput>(in).keyImage;
+      } else if (in.type() == typeid(ConfidentialInput)) {
+        ki = boost::get<ConfidentialInput>(in).keyImage;
+      } else {
+        continue;
+      }
 
-        auto it_in_set = key_image_set.find(tx_id);
-        if (!(it_in_set != key_image_set.end())) { logger(ERROR, BRIGHT_RED) << "transaction id not found in key_image set, img=" << txin.keyImage << std::endl
-          << "transaction id = " << tx_id; return false; }
-        key_image_set.erase(it_in_set);
-        if (key_image_set.empty()) {
-          //it is now empty hash container for this key_image
-          m_spent_key_images.erase(it);
-        }
+      auto it = m_spent_key_images.find(ki);
+      if (!(it != m_spent_key_images.end())) { logger(ERROR, BRIGHT_RED) << "failed to find transaction input in key images. img=" << ki << std::endl
+        << "transaction id = " << tx_id; return false; }
+      std::unordered_set<Crypto::Hash>& key_image_set = it->second;
+      if (!(!key_image_set.empty())) { logger(ERROR, BRIGHT_RED) << "empty key_image set, img=" << ki << std::endl
+        << "transaction id = " << tx_id; return false; }
+
+      auto it_in_set = key_image_set.find(tx_id);
+      if (!(it_in_set != key_image_set.end())) { logger(ERROR, BRIGHT_RED) << "transaction id not found in key_image set, img=" << ki << std::endl
+        << "transaction id = " << tx_id; return false; }
+      key_image_set.erase(it_in_set);
+      if (key_image_set.empty()) {
+        //it is now empty hash container for this key_image
+        m_spent_key_images.erase(it);
       }
     }
 
@@ -618,21 +632,27 @@ namespace CryptoNote {
   bool tx_memory_pool::addTransactionInputs(const Crypto::Hash& id, const Transaction& tx, bool keptByBlock) {
     // should not fail
     for (const auto& in : tx.inputs) {
+      Crypto::KeyImage ki;
       if (in.type() == typeid(KeyInput)) {
-        const auto& txin = boost::get<KeyInput>(in);
-        std::unordered_set<Crypto::Hash>& kei_image_set = m_spent_key_images[txin.keyImage];
-        if (!(keptByBlock || kei_image_set.size() == 0)) {
-          logger(ERROR, BRIGHT_RED)
-              << "internal error: keptByBlock=" << keptByBlock
-              << ",  kei_image_set.size()=" << kei_image_set.size() << ENDL
-              << "txin.keyImage=" << txin.keyImage << ENDL << "tx_id=" << id;
-          return false;
-        }
-        auto ins_res = kei_image_set.insert(id);
-        if (!(ins_res.second)) {
-          logger(ERROR, BRIGHT_RED) << "internal error: try to insert duplicate iterator in key_image set";
-          return false;
-        }
+        ki = boost::get<KeyInput>(in).keyImage;
+      } else if (in.type() == typeid(ConfidentialInput)) {
+        ki = boost::get<ConfidentialInput>(in).keyImage;
+      } else {
+        continue;
+      }
+
+      std::unordered_set<Crypto::Hash>& kei_image_set = m_spent_key_images[ki];
+      if (!(keptByBlock || kei_image_set.size() == 0)) {
+        logger(ERROR, BRIGHT_RED)
+            << "internal error: keptByBlock=" << keptByBlock
+            << ",  kei_image_set.size()=" << kei_image_set.size() << ENDL
+            << "keyImage=" << ki << ENDL << "tx_id=" << id;
+        return false;
+      }
+      auto ins_res = kei_image_set.insert(id);
+      if (!(ins_res.second)) {
+        logger(ERROR, BRIGHT_RED) << "internal error: try to insert duplicate iterator in key_image set";
+        return false;
       }
     }
 
@@ -643,8 +663,11 @@ namespace CryptoNote {
   bool tx_memory_pool::haveSpentInputs(const Transaction& tx) const {
     for (const auto& in : tx.inputs) {
       if (in.type() == typeid(KeyInput)) {
-        const auto& tokey_in = boost::get<KeyInput>(in);
-        if (m_spent_key_images.count(tokey_in.keyImage)) {
+        if (m_spent_key_images.count(boost::get<KeyInput>(in).keyImage)) {
+          return true;
+        }
+      } else if (in.type() == typeid(ConfidentialInput)) {
+        if (m_spent_key_images.count(boost::get<ConfidentialInput>(in).keyImage)) {
           return true;
         }
       }

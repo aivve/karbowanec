@@ -286,6 +286,26 @@ bool Core::get_stat_info(core_stat_info& st_inf) {
 }
 
 bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uint32_t height) {
+  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+    // CT transaction: check ring size of ConfidentialInputs
+    for (const auto& txin : tx.inputs) {
+      if (txin.type() != typeid(ConfidentialInput)) continue;
+      const auto& ci = boost::get<ConfidentialInput>(txin);
+      size_t ringSize = ci.ringPubkeys.size();
+      if (ringSize < CryptoNote::parameters::CT_MIN_RING_SIZE) {
+        logger(ERROR) << "CT transaction " << Common::podToHex(txHash) << " has ring size " << ringSize
+                      << " below minimum " << CryptoNote::parameters::CT_MIN_RING_SIZE << ", rejected";
+        return false;
+      }
+      if (ringSize > CryptoNote::parameters::CT_MAX_RING_SIZE) {
+        logger(ERROR) << "CT transaction " << Common::podToHex(txHash) << " has ring size " << ringSize
+                      << " above maximum " << CryptoNote::parameters::CT_MAX_RING_SIZE << ", rejected";
+        return false;
+      }
+    }
+    return true;
+  }
+
   size_t inputIndex = 0;
   for (const auto& txin : tx.inputs) {
     assert(inputIndex < tx.signatures.size());
@@ -307,6 +327,25 @@ bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uin
 }
 
 bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_t blobSize, tx_verification_context& tvc, uint32_t height) {
+  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+    // CT transaction: fee is an explicit field, checked against CT fee policy
+    uint64_t fee = tx.fee;
+    if (fee < CryptoNote::parameters::CT_MINIMUM_FEE) {
+      tvc.m_verification_failed = true;
+      tvc.m_tx_fee_too_small = true;
+      logger(DEBUGGING) << "CT transaction " << Common::podToHex(txHash) << " fee " << fee
+                        << " below minimum " << CryptoNote::parameters::CT_MINIMUM_FEE;
+      return false;
+    }
+    if (fee > CryptoNote::parameters::CT_MAXIMUM_FEE) {
+      tvc.m_verification_failed = true;
+      logger(ERROR) << "CT transaction " << Common::podToHex(txHash) << " fee " << fee
+                    << " above maximum " << CryptoNote::parameters::CT_MAXIMUM_FEE;
+      return false;
+    }
+    return true;
+  }
+
   uint64_t inputs_amount = 0;
   if (!get_inputs_money_amount(tx, inputs_amount)) {
     tvc.m_verification_failed = true;
@@ -333,7 +372,7 @@ bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_
       enough = false;
     }
     else if (height > CryptoNote::parameters::UPGRADE_HEIGHT_V4 && height < CryptoNote::parameters::UPGRADE_HEIGHT_V4_3) {
-      if (fee < (min - (min * 20 / 100))) {      
+      if (fee < (min - (min * 20 / 100))) {
         enough = false;
       }
       else {
@@ -367,8 +406,8 @@ bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_
     if (!enough) {
       tvc.m_verification_failed = true;
       tvc.m_tx_fee_too_small = true;
-      logger(DEBUGGING) << "The fee for transaction " 
-                        << Common::podToHex(txHash) 
+      logger(DEBUGGING) << "The fee for transaction "
+                        << Common::podToHex(txHash)
                         << " is insufficient and it is not a fusion transaction";
       return false;
     }
@@ -378,6 +417,10 @@ bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_
 }
 
 bool Core::check_tx_unmixable(const Transaction& tx, const Crypto::Hash& txHash, uint32_t height) {
+  // CT outputs have no transparent amounts; denomination validity is checked via GK proofs
+  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT)
+    return true;
+
   for (const auto& out : tx.outputs) {
     if (height >= CryptoNote::parameters::UPGRADE_HEIGHT_V4_2 && !is_valid_decomposed_amount(out.amount)) {
       logger(ERROR) << "Invalid decomposed output amount " << out.amount << " for tx id= " << Common::podToHex(txHash);
@@ -400,17 +443,65 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
     return false;
   }
 
-  if (tx.inputs.size() != tx.signatures.size()) {
-    logger(ERROR) << "tx signatures size doesn't match inputs size, rejected for tx id= " << Common::podToHex(txHash);
-    return false;
-  }
+  if (tx.version == CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+    // CT transaction semantic checks
+    if (tx.inputs.size() > CryptoNote::parameters::CT_MAX_INPUTS) {
+      logger(ERROR) << "CT tx has too many inputs (" << tx.inputs.size() << "), rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+    if (tx.outputs.size() > CryptoNote::parameters::CT_MAX_OUTPUTS) {
+      logger(ERROR) << "CT tx has too many outputs (" << tx.outputs.size() << "), rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+    if (tx.outputs.empty()) {
+      logger(ERROR) << "CT tx with empty outputs, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+    // CT tx must have unlockTime == 0
+    if (tx.unlockTime != 0) {
+      logger(ERROR) << "CT tx with non-zero unlockTime, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+    // CT tx must not have legacy signatures
+    if (!tx.signatures.empty()) {
+      logger(ERROR) << "CT tx must not have legacy signatures, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
 
-  for (size_t i = 0; i < tx.inputs.size(); ++i) {
-    if (tx.inputs[i].type() == typeid(KeyInput)) {
-      if (boost::get<KeyInput>(tx.inputs[i]).outputIndexes.size() != tx.signatures[i].size()) {
-        logger(ERROR) << "tx signatures count doesn't match outputIndexes count for input " 
-          << i << ", rejected for tx id= " << Common::podToHex(txHash);
+    // Validate each CT input has consistent sizes
+    for (size_t i = 0; i < tx.inputs.size(); ++i) {
+      if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
+        logger(ERROR) << "CT tx input " << i << " is not ConfidentialInput, rejected for tx id= " << Common::podToHex(txHash);
         return false;
+      }
+      const auto& ci = boost::get<ConfidentialInput>(tx.inputs[i]);
+      if (ci.ringPubkeys.size() != ci.ringCommitments.size()) {
+        logger(ERROR) << "CT tx input " << i << " ring pubkeys/commitments size mismatch, rejected for tx id= " << Common::podToHex(txHash);
+        return false;
+      }
+      if (ci.ringPubkeys.empty()) {
+        logger(ERROR) << "CT tx input " << i << " has empty ring, rejected for tx id= " << Common::podToHex(txHash);
+        return false;
+      }
+      if (ci.mlsagSS.size() != ci.ringPubkeys.size()) {
+        logger(ERROR) << "CT tx input " << i << " MLSAG ss size mismatch with ring size, rejected for tx id= " << Common::podToHex(txHash);
+        return false;
+      }
+    }
+  } else {
+    // Legacy transparent transaction semantic checks
+    if (tx.inputs.size() != tx.signatures.size()) {
+      logger(ERROR) << "tx signatures size doesn't match inputs size, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+
+    for (size_t i = 0; i < tx.inputs.size(); ++i) {
+      if (tx.inputs[i].type() == typeid(KeyInput)) {
+        if (boost::get<KeyInput>(tx.inputs[i]).outputIndexes.size() != tx.signatures[i].size()) {
+          logger(ERROR) << "tx signatures count doesn't match outputIndexes count for input "
+            << i << ", rejected for tx id= " << Common::podToHex(txHash);
+          return false;
+        }
       }
     }
   }
@@ -431,13 +522,15 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
     return false;
   }
 
-  uint64_t amount_in = 0;
-  get_inputs_money_amount(tx, amount_in);
-  uint64_t amount_out = get_outs_money_amount(tx);
+  if (tx.version != CryptoNote::parameters::TRANSACTION_VERSION_CT) {
+    uint64_t amount_in = 0;
+    get_inputs_money_amount(tx, amount_in);
+    uint64_t amount_out = get_outs_money_amount(tx);
 
-  if (amount_in < amount_out) {
-    logger(ERROR) << "tx with wrong amounts: ins " << amount_in << ", outs " << amount_out << ", rejected for tx id= " << Common::podToHex(txHash);
-    return false;
+    if (amount_in < amount_out) {
+      logger(ERROR) << "tx with wrong amounts: ins " << amount_in << ", outs " << amount_out << ", rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
   }
 
   //check if tx use different key images
@@ -469,6 +562,12 @@ bool Core::check_tx_inputs_keyimages_diff(const Transaction& tx) {
       // so first can be zero, others can't
       if (std::find(++std::begin(in.outputIndexes), std::end(in.outputIndexes), 0) != std::end(in.outputIndexes)) {
         logger(ERROR) << "Transaction has identical output indexes";
+        return false;
+      }
+    } else if (input.type() == typeid(ConfidentialInput)) {
+      const ConfidentialInput& ci = boost::get<ConfidentialInput>(input);
+      if (!ki.insert(ci.keyImage).second) {
+        logger(ERROR) << "CT transaction has identical key images";
         return false;
       }
     }
