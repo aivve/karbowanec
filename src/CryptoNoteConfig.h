@@ -147,7 +147,7 @@ const char     GENESIS_COINBASE_TX_HEX[]                     =
 const char     DNS_CHECKPOINTS_HOST[]                        = "checkpoints.karbo.org";
 
 const uint8_t  CURRENT_TRANSACTION_VERSION                   =  1;
-const uint8_t  TRANSACTION_VERSION_CT                        =  4;
+const uint8_t  TRANSACTION_VERSION_CT                        =  2;
 const uint8_t  BLOCK_MAJOR_VERSION_1                         =  1;
 const uint8_t  BLOCK_MAJOR_VERSION_2                         =  2;
 const uint8_t  BLOCK_MAJOR_VERSION_3                         =  3;
