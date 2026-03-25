@@ -49,6 +49,7 @@ size_t getSignaturesCount(const TransactionInput& input) {
   struct txin_signature_size_visitor : public boost::static_visitor < size_t > {
     size_t operator()(const BaseInput& txin) const { return 0; }
     size_t operator()(const KeyInput& txin) const { return txin.outputIndexes.size(); }
+    size_t operator()(const ConfidentialInput& txin) const { return 0; } // MLSAG is inline
   };
 
   return boost::apply_visitor(txin_signature_size_visitor(), input);
@@ -57,7 +58,9 @@ size_t getSignaturesCount(const TransactionInput& input) {
 struct BinaryVariantTagGetter: boost::static_visitor<uint8_t> {
   uint8_t operator()(const CryptoNote::BaseInput) { return  0xff; }
   uint8_t operator()(const CryptoNote::KeyInput) { return  0x2; }
+  uint8_t operator()(const CryptoNote::ConfidentialInput) { return  0x4; }
   uint8_t operator()(const CryptoNote::KeyOutput) { return  0x2; }
+  uint8_t operator()(const CryptoNote::ConfidentialOutput) { return  0x4; }
   uint8_t operator()(const CryptoNote::Transaction) { return  0xcc; }
   uint8_t operator()(const CryptoNote::Block) { return  0xbb; }
 };
@@ -86,6 +89,12 @@ void getVariantValue(CryptoNote::ISerializer& serializer, uint8_t tag, CryptoNot
     in = v;
     break;
   }
+  case 0x4: {
+    CryptoNote::ConfidentialInput v;
+    serializer(v, "value");
+    in = v;
+    break;
+  }
   default:
     throw std::runtime_error("Unknown variant tag");
   }
@@ -95,6 +104,12 @@ void getVariantValue(CryptoNote::ISerializer& serializer, uint8_t tag, CryptoNot
   switch(tag) {
   case 0x2: {
     CryptoNote::KeyOutput v;
+    serializer(v, "data");
+    out = v;
+    break;
+  }
+  case 0x4: {
+    CryptoNote::ConfidentialOutput v;
     serializer(v, "data");
     out = v;
     break;
@@ -170,24 +185,38 @@ namespace CryptoNote {
 void serialize(TransactionPrefix& txP, ISerializer& serializer) {
   serializer(txP.version, "version");
 
-  if (CURRENT_TRANSACTION_VERSION < txP.version) {
+  if (txP.version != CURRENT_TRANSACTION_VERSION && txP.version != TRANSACTION_VERSION_CT) {
     throw std::runtime_error("Wrong transaction version");
   }
 
-  serializer(txP.unlockTime, "unlock_time");
-  serializer(txP.inputs, "vin");
-  serializer(txP.outputs, "vout");
-  serializeAsBinary(txP.extra, "extra", serializer);
+  if (txP.version == TRANSACTION_VERSION_CT) {
+    // Version 4 (CT): fee is plaintext, unlockTime must be 0
+    serializer(txP.fee, "fee");
+    serializer(txP.inputs, "vin");
+    serializer(txP.outputs, "vout");
+    serializeAsBinary(txP.extra, "extra", serializer);
+  } else {
+    // Version 1 (transparent)
+    serializer(txP.unlockTime, "unlock_time");
+    serializer(txP.inputs, "vin");
+    serializer(txP.outputs, "vout");
+    serializeAsBinary(txP.extra, "extra", serializer);
+  }
 }
 
 void serialize(Transaction& tx, ISerializer& serializer) {
   serialize(static_cast<TransactionPrefix&>(tx), serializer);
 
+  if (tx.version == TRANSACTION_VERSION_CT) {
+    // Version 4 (CT): MLSAG signatures are embedded in ConfidentialInput,
+    // so we only serialize the kernel here.
+    serialize(tx.kernel, serializer);
+    return;
+  }
+
+  // Version 1 (transparent): per-input ring signatures
   size_t sigSize = tx.inputs.size();
-  //TODO: make arrays without sizes
-//  serializer.beginArray(sigSize, "signatures");
-  
-  //if (serializer.type() == ISerializer::INPUT) {
+
   // ignore base transaction
   if (serializer.type() == ISerializer::INPUT && !(sigSize == 1 && tx.inputs[0].type() == typeid(BaseInput))) {
     tx.signatures.resize(sigSize);
@@ -226,7 +255,6 @@ void serialize(Transaction& tx, ISerializer& serializer) {
       tx.signatures[i] = std::move(signatures);
     }
   }
-//  serializer.endArray();
 }
 
 void serialize(TransactionInput& in, ISerializer& serializer) {
@@ -282,6 +310,80 @@ void serialize(TransactionOutputTarget& output, ISerializer& serializer) {
 
 void serialize(KeyOutput& key, ISerializer& serializer) {
   serializer(key.key, "key");
+}
+
+void serialize(ConfidentialInput& input, ISerializer& serializer) {
+  // Ring public keys (variable length)
+  size_t ringSize = input.ringPubkeys.size();
+  serializer.beginArray(ringSize, "ring_pubkeys");
+  if (serializer.type() == ISerializer::INPUT) {
+    input.ringPubkeys.resize(ringSize);
+  }
+  for (size_t i = 0; i < ringSize; ++i) {
+    serializer(input.ringPubkeys[i], "");
+  }
+  serializer.endArray();
+
+  // Ring commitments
+  if (serializer.type() == ISerializer::INPUT) {
+    input.ringCommitments.resize(ringSize);
+  }
+  serializer.beginArray(ringSize, "ring_commits");
+  for (size_t i = 0; i < ringSize; ++i) {
+    serializePod(input.ringCommitments[i], "", serializer);
+  }
+  serializer.endArray();
+
+  // Pseudo-output commitment
+  serializePod(input.pseudoCommitment, "pseudo_commit", serializer);
+
+  // Key image
+  serializer(input.keyImage, "k_image");
+
+  // MLSAG signature: c0 scalar
+  serializePod(input.mlsagC0, "mlsag_c0", serializer);
+
+  // MLSAG signature: ss array [ring_size][2]
+  if (serializer.type() == ISerializer::INPUT) {
+    input.mlsagSS.resize(ringSize);
+  }
+  serializer.beginArray(ringSize, "mlsag_ss");
+  for (size_t i = 0; i < ringSize; ++i) {
+    serializePod(input.mlsagSS[i][0], "", serializer);
+    serializePod(input.mlsagSS[i][1], "", serializer);
+  }
+  serializer.endArray();
+}
+
+void serialize(ConfidentialOutput& output, ISerializer& serializer) {
+  // Pedersen commitment (32 bytes)
+  serializePod(output.commitment, "commitment", serializer);
+
+  // Masked amount (8 bytes)
+  serializer.binary(output.maskedAmount.data(), 8, "masked_amount");
+
+  // GK proof: A[6], B[6], Q[6] points
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(output.gkA[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(output.gkB[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(output.gkQ[i], "", serializer);
+  }
+
+  // GK proof: z[6] scalars + f scalar
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(output.gkZ[i], "", serializer);
+  }
+  serializePod(output.gkF, "", serializer);
+}
+
+void serialize(TransactionKernel& kernel, ISerializer& serializer) {
+  serializePod(kernel.excessCommitment, "excess", serializer);
+  serializePod(kernel.sigE, "sig_e", serializer);
+  serializePod(kernel.sigS, "sig_s", serializer);
 }
 
 void serialize(ParentBlockSerializer& pbs, ISerializer& serializer) {

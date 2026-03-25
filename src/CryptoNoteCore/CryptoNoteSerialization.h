@@ -47,12 +47,16 @@ void serialize(TransactionOutput& in, ISerializer& serializer);
 
 void serialize(BaseInput& gen, ISerializer& serializer);
 void serialize(KeyInput& key, ISerializer& serializer);
+void serialize(ConfidentialInput& input, ISerializer& serializer);
 
 void serialize(TransactionInputs & inputs, ISerializer & serializer);
 
 void serialize(TransactionOutput& output, ISerializer& serializer);
 void serialize(TransactionOutputTarget& output, ISerializer& serializer);
 void serialize(KeyOutput& key, ISerializer& serializer);
+void serialize(ConfidentialOutput& output, ISerializer& serializer);
+
+void serialize(TransactionKernel& kernel, ISerializer& serializer);
 
 void serialize(BlockHeader& header, ISerializer& serializer);
 void serialize(Block& block, ISerializer& serializer);
