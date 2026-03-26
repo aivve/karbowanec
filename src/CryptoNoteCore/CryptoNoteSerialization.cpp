@@ -49,7 +49,7 @@ size_t getSignaturesCount(const TransactionInput& input) {
   struct txin_signature_size_visitor : public boost::static_visitor < size_t > {
     size_t operator()(const BaseInput& txin) const { return 0; }
     size_t operator()(const KeyInput& txin) const { return txin.outputIndexes.size(); }
-    size_t operator()(const ConfidentialInput& txin) const { return 0; } // MLSAG is inline
+    size_t operator()(const ConfidentialInput& txin) const { return 0; } // MLSAG is in tx body
   };
 
   return boost::apply_visitor(txin_signature_size_visitor(), input);
@@ -208,8 +208,32 @@ void serialize(Transaction& tx, ISerializer& serializer) {
   serialize(static_cast<TransactionPrefix&>(tx), serializer);
 
   if (tx.version == TRANSACTION_VERSION_CT) {
-    // Version 4 (CT): MLSAG signatures are embedded in ConfidentialInput,
-    // so we only serialize the kernel here.
+    // Version 4 (CT): proof body — MLSAG signatures, GK proofs, kernel.
+    // These are in Transaction body (not prefix) so getTransactionPrefixHash() excludes them.
+
+    // Per-input MLSAG signatures
+    size_t sigCount = tx.ctSignatures.size();
+    serializer.beginArray(sigCount, "ct_signatures");
+    if (serializer.type() == ISerializer::INPUT) {
+      tx.ctSignatures.resize(sigCount);
+    }
+    for (size_t i = 0; i < sigCount; ++i) {
+      serialize(tx.ctSignatures[i], serializer);
+    }
+    serializer.endArray();
+
+    // Per-output GK denomination proofs
+    size_t proofCount = tx.ctProofs.size();
+    serializer.beginArray(proofCount, "ct_proofs");
+    if (serializer.type() == ISerializer::INPUT) {
+      tx.ctProofs.resize(proofCount);
+    }
+    for (size_t i = 0; i < proofCount; ++i) {
+      serialize(tx.ctProofs[i], serializer);
+    }
+    serializer.endArray();
+
+    // Kernel (balance proof)
     serialize(tx.kernel, serializer);
     return;
   }
@@ -339,20 +363,6 @@ void serialize(ConfidentialInput& input, ISerializer& serializer) {
 
   // Key image
   serializer(input.keyImage, "k_image");
-
-  // MLSAG signature: c0 scalar
-  serializePod(input.mlsagC0, "mlsag_c0", serializer);
-
-  // MLSAG signature: ss array [ring_size][2]
-  if (serializer.type() == ISerializer::INPUT) {
-    input.mlsagSS.resize(ringSize);
-  }
-  serializer.beginArray(ringSize, "mlsag_ss");
-  for (size_t i = 0; i < ringSize; ++i) {
-    serializePod(input.mlsagSS[i][0], "", serializer);
-    serializePod(input.mlsagSS[i][1], "", serializer);
-  }
-  serializer.endArray();
 }
 
 void serialize(ConfidentialOutput& output, ISerializer& serializer) {
@@ -361,23 +371,36 @@ void serialize(ConfidentialOutput& output, ISerializer& serializer) {
 
   // Masked amount (8 bytes)
   serializer.binary(output.maskedAmount.data(), 8, "masked_amount");
+}
 
-  // GK proof: A[6], B[6], Q[6] points
-  for (size_t i = 0; i < 6; ++i) {
-    serializePod(output.gkA[i], "", serializer);
+void serialize(CTInputSignature& sig, ISerializer& serializer) {
+  serializePod(sig.c0, "c0", serializer);
+  size_t ringSize = sig.ss.size();
+  serializer.beginArray(ringSize, "ss");
+  if (serializer.type() == ISerializer::INPUT) {
+    sig.ss.resize(ringSize);
   }
-  for (size_t i = 0; i < 6; ++i) {
-    serializePod(output.gkB[i], "", serializer);
+  for (size_t i = 0; i < ringSize; ++i) {
+    serializePod(sig.ss[i][0], "", serializer);
+    serializePod(sig.ss[i][1], "", serializer);
   }
-  for (size_t i = 0; i < 6; ++i) {
-    serializePod(output.gkQ[i], "", serializer);
-  }
+  serializer.endArray();
+}
 
-  // GK proof: z[6] scalars + f scalar
+void serialize(CTOutputProof& proof, ISerializer& serializer) {
   for (size_t i = 0; i < 6; ++i) {
-    serializePod(output.gkZ[i], "", serializer);
+    serializePod(proof.A[i], "", serializer);
   }
-  serializePod(output.gkF, "", serializer);
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(proof.B[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(proof.Q[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(proof.z[i], "", serializer);
+  }
+  serializePod(proof.f, "", serializer);
 }
 
 void serialize(TransactionKernel& kernel, ISerializer& serializer) {

@@ -468,6 +468,16 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
       return false;
     }
 
+    // Validate proof body counts match input/output counts
+    if (tx.ctSignatures.size() != tx.inputs.size()) {
+      logger(ERROR) << "CT tx ctSignatures count mismatch, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+    if (tx.ctProofs.size() != tx.outputs.size()) {
+      logger(ERROR) << "CT tx ctProofs count mismatch, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
+
     // Validate each CT input has consistent sizes
     for (size_t i = 0; i < tx.inputs.size(); ++i) {
       if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
@@ -483,7 +493,7 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
         logger(ERROR) << "CT tx input " << i << " has empty ring, rejected for tx id= " << Common::podToHex(txHash);
         return false;
       }
-      if (ci.mlsagSS.size() != ci.ringPubkeys.size()) {
+      if (tx.ctSignatures[i].ss.size() != ci.ringPubkeys.size()) {
         logger(ERROR) << "CT tx input " << i << " MLSAG ss size mismatch with ring size, rejected for tx id= " << Common::podToHex(txHash);
         return false;
       }

@@ -39,18 +39,14 @@ struct KeyInput {
   Crypto::KeyImage keyImage;
 };
 
-// Confidential transaction input (version 4).
+// Confidential transaction input (version 4) — prefix portion only.
 // Contains the ring of public keys and commitments, a pseudo-output commitment,
-// key image, and a two-row MLSAG ring signature.
+// and key image. MLSAG signatures are stored separately in Transaction body.
 struct ConfidentialInput {
   std::vector<Crypto::PublicKey>           ringPubkeys;   // one-time public keys of ring members
   std::vector<Crypto::EllipticCurvePoint>  ringCommitments; // Pedersen commitments of ring members
   Crypto::EllipticCurvePoint               pseudoCommitment; // C' = v*H + r'*G
   Crypto::KeyImage                         keyImage;       // I = x * Hp(P)
-
-  // MLSAG signature
-  Crypto::EllipticCurveScalar              mlsagC0;        // initial challenge
-  std::vector<std::array<Crypto::EllipticCurveScalar, 2>> mlsagSS; // ss[ring_member][row]
 };
 
 typedef boost::variant<BaseInput, KeyInput, ConfidentialInput> TransactionInput;
@@ -63,26 +59,12 @@ struct KeyOutput {
   Crypto::PublicKey key;
 };
 
-// Confidential transaction output (version 4).
-// Contains a Pedersen commitment, masked amount, and GK membership proof
-// proving the committed value is one of the 64 canonical denominations.
-//
-// Wire size: 32 (commitment) + 8 (masked_amount) + 768 (GK proof) = 808 bytes.
+// Confidential transaction output (version 4) — prefix portion only.
+// Contains a Pedersen commitment and masked amount. GK denomination proofs
+// are stored separately in Transaction body.
 struct ConfidentialOutput {
   Crypto::EllipticCurvePoint commitment;      // C = v*H + r*G  (32 bytes)
   std::array<uint8_t, 8>    maskedAmount;     // ECDH-masked denomination (8 bytes)
-
-  // GK proof fields (768 bytes total):
-  //   6 points A + 6 points B + 6 points Q = 18 * 32 = 576 bytes
-  //   6 scalars z + 1 scalar f = 7 * 32 = 224 bytes
-  //   Total = 800 bytes
-  // Note: spec says 768 bytes with Q[5] (m=1..5), but our implementation uses
-  // Q[6] (m=0..5) for 800 bytes. This matches the actual gk_proof.h.
-  Crypto::EllipticCurvePoint  gkA[6];  // bit randomness commitments
-  Crypto::EllipticCurvePoint  gkB[6];  // bit value commitments
-  Crypto::EllipticCurvePoint  gkQ[6];  // polynomial coefficient commitments
-  Crypto::EllipticCurveScalar gkZ[6];  // per-bit response scalars
-  Crypto::EllipticCurveScalar gkF;     // final evaluation scalar
 };
 
 typedef boost::variant<KeyOutput, ConfidentialOutput> TransactionOutputTarget;
@@ -95,11 +77,28 @@ struct TransactionOutput {
 using TransactionInputs = std::vector<TransactionInput>;
 
 // ---------------------------------------------------------------------------
-// Transaction kernel (version 4 only)
+// CT proof body types (version 4 only — stored in Transaction, not prefix)
 // ---------------------------------------------------------------------------
 
+// Per-input MLSAG ring signature (two-row: spend key + commitment difference).
+struct CTInputSignature {
+  Crypto::EllipticCurveScalar              c0;   // initial challenge
+  std::vector<std::array<Crypto::EllipticCurveScalar, 2>> ss; // ss[ring_member][row]
+};
+
+// Per-output GK denomination membership proof.
+// Proves the committed value is one of the 64 canonical denominations.
+//   6 points A + 6 points B + 6 points Q = 576 bytes
+//   6 scalars z + 1 scalar f = 224 bytes   Total = 800 bytes.
+struct CTOutputProof {
+  Crypto::EllipticCurvePoint  A[6];  // bit randomness commitments
+  Crypto::EllipticCurvePoint  B[6];  // bit value commitments
+  Crypto::EllipticCurvePoint  Q[6];  // polynomial coefficient commitments
+  Crypto::EllipticCurveScalar z[6];  // per-bit response scalars
+  Crypto::EllipticCurveScalar f;     // final evaluation scalar
+};
+
 // Proves the balance equation: sum(C_in) - sum(C_out) - fee*H = excess*G
-// Stored in Transaction (not TransactionPrefix) alongside signatures.
 struct TransactionKernel {
   Crypto::EllipticCurvePoint excessCommitment; // excess * G
   Crypto::EllipticCurveScalar sigE;            // Schnorr signature e
@@ -122,8 +121,11 @@ struct TransactionPrefix {
 struct Transaction : public TransactionPrefix {
   // v1-v3: per-input ring signatures
   std::vector<std::vector<Crypto::Signature>> signatures;
-  // v4: transaction kernel (balance proof)
-  TransactionKernel kernel;
+
+  // v4 (CT): proof body — separate from prefix so getTransactionPrefixHash() excludes them
+  std::vector<CTInputSignature> ctSignatures;  // per-input MLSAG signatures
+  std::vector<CTOutputProof>    ctProofs;      // per-output GK denomination proofs
+  TransactionKernel             kernel;        // balance proof + Schnorr signature
 };
 
 struct AccountPublicAddress {

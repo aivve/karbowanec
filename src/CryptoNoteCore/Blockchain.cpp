@@ -2133,10 +2133,9 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     return false;
   }
 
-  // Compute the CT signing hash (excludes proof response fields: GK A/B/Q/z/f, MLSAG c0/ss).
-  // This breaks the circular dependency between proofs and the hash they sign.
-  // Used for GK proofs, MLSAG signatures, and kernel Schnorr signature.
-  const Crypto::Hash ct_signing_hash = computeCTSigningHash(static_cast<const TransactionPrefix&>(tx));
+  // Use the prefix hash for Fiat-Shamir binding. Proof response fields (MLSAG, GK, kernel)
+  // are in the Transaction body, not the prefix, so the prefix hash naturally excludes them.
+  const Crypto::Hash ct_signing_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
 
   // Step 2: For each output: verify subgroup membership of commitment C
   for (size_t i = 0; i < tx.outputs.size(); ++i) {
@@ -2151,30 +2150,43 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
   }
 
+  // Verify proof/signature count matches input/output count
+  if (tx.ctProofs.size() != tx.outputs.size()) {
+    logger(ERROR) << "CT validation: ctProofs count " << tx.ctProofs.size()
+                  << " != outputs count " << tx.outputs.size() << " in tx " << txHash;
+    return false;
+  }
+  if (tx.ctSignatures.size() != tx.inputs.size()) {
+    logger(ERROR) << "CT validation: ctSignatures count " << tx.ctSignatures.size()
+                  << " != inputs count " << tx.inputs.size() << " in tx " << txHash;
+    return false;
+  }
+
   // Step 3: For each output: verify GK denomination membership proof
   for (size_t i = 0; i < tx.outputs.size(); ++i) {
     const auto& cout = boost::get<ConfidentialOutput>(tx.outputs[i].target);
-    // Reconstruct GKProof from ConfidentialOutput fields
+    const auto& gkp = tx.ctProofs[i];
+    // Reconstruct GKProof from body proof fields
     Crypto::GKProof proof;
     for (size_t j = 0; j < 6; ++j) {
       if (ge_frombytes_vartime(&proof.A[j],
-          reinterpret_cast<const unsigned char*>(&cout.gkA[j])) != 0) {
+          reinterpret_cast<const unsigned char*>(&gkp.A[j])) != 0) {
         logger(ERROR) << "CT validation: output " << i << " GK proof A[" << j << "] invalid point in tx " << txHash;
         return false;
       }
       if (ge_frombytes_vartime(&proof.B[j],
-          reinterpret_cast<const unsigned char*>(&cout.gkB[j])) != 0) {
+          reinterpret_cast<const unsigned char*>(&gkp.B[j])) != 0) {
         logger(ERROR) << "CT validation: output " << i << " GK proof B[" << j << "] invalid point in tx " << txHash;
         return false;
       }
       if (ge_frombytes_vartime(&proof.Q[j],
-          reinterpret_cast<const unsigned char*>(&cout.gkQ[j])) != 0) {
+          reinterpret_cast<const unsigned char*>(&gkp.Q[j])) != 0) {
         logger(ERROR) << "CT validation: output " << i << " GK proof Q[" << j << "] invalid point in tx " << txHash;
         return false;
       }
-      proof.z[j] = cout.gkZ[j];
+      proof.z[j] = gkp.z[j];
     }
-    proof.f = cout.gkF;
+    proof.f = gkp.f;
 
     if (!Crypto::gk_verify(cout.commitment, proof, ct_signing_hash)) {
       logger(ERROR) << "CT validation: output " << i << " GK membership proof failed in tx " << txHash;
@@ -2219,10 +2231,11 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
   // Step 5: For each input: verify MLSAG ring signature
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
+    const auto& sig = tx.ctSignatures[i];
 
     Crypto::MLSAGSignature mlsag;
-    mlsag.c0 = cin.mlsagC0;
-    mlsag.ss = cin.mlsagSS;
+    mlsag.c0 = sig.c0;
+    mlsag.ss = sig.ss;
 
     if (!Crypto::mlsag_verify(
         ct_signing_hash,

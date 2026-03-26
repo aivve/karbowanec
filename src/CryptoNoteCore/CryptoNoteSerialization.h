@@ -56,6 +56,8 @@ void serialize(TransactionOutputTarget& output, ISerializer& serializer);
 void serialize(KeyOutput& key, ISerializer& serializer);
 void serialize(ConfidentialOutput& output, ISerializer& serializer);
 
+void serialize(CTInputSignature& sig, ISerializer& serializer);
+void serialize(CTOutputProof& proof, ISerializer& serializer);
 void serialize(TransactionKernel& kernel, ISerializer& serializer);
 
 void serialize(BlockHeader& header, ISerializer& serializer);

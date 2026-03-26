@@ -244,7 +244,7 @@ Transaction buildConfidentialTransaction(
     }
   }
 
-  // Build inputs (with placeholder MLSAG fields — will be filled in step 6)
+  // Build inputs (prefix only — MLSAG signatures go in tx.ctSignatures)
   tx.inputs.resize(inputs.size());
   for (size_t i = 0; i < inputs.size(); ++i) {
     ConfidentialInput cin;
@@ -252,27 +252,15 @@ Transaction buildConfidentialTransaction(
     cin.ringCommitments = inputs[i].ringCommitments;
     cin.pseudoCommitment = pseudoCommitments[i];
     cin.keyImage = keyImages[i];
-    // MLSAG placeholder: zeroed c0 and empty ss (will be set in step 6)
-    std::memset(&cin.mlsagC0, 0, sizeof(cin.mlsagC0));
-    cin.mlsagSS.resize(inputs[i].ringPubkeys.size());
-    for (auto& row : cin.mlsagSS) {
-      std::memset(row.data(), 0, sizeof(row));
-    }
     tx.inputs[i] = std::move(cin);
   }
 
-  // Build outputs (with placeholder GK proof fields — will be filled in step 5)
+  // Build outputs (prefix only — GK proofs go in tx.ctProofs)
   tx.outputs.resize(outputs.size());
   for (size_t i = 0; i < outputs.size(); ++i) {
     ConfidentialOutput cout;
     std::memcpy(&cout.commitment, &outputCommitments[i], 32);
     cout.maskedAmount = outputMaskedAmounts[i];
-    // GK proof placeholder: zeroed (will be filled in step 5)
-    std::memset(cout.gkA, 0, sizeof(cout.gkA));
-    std::memset(cout.gkB, 0, sizeof(cout.gkB));
-    std::memset(cout.gkQ, 0, sizeof(cout.gkQ));
-    std::memset(cout.gkZ, 0, sizeof(cout.gkZ));
-    std::memset(&cout.gkF, 0, sizeof(cout.gkF));
 
     TransactionOutput txout;
     txout.amount = 0;  // CT outputs: amount field is 0 (real amount is in commitment)
@@ -280,35 +268,37 @@ Transaction buildConfidentialTransaction(
     tx.outputs[i] = std::move(txout);
   }
 
-  // ── Step 4b: Compute CT signing hash ───────────────────────────────────────
-  // This hash excludes proof response fields (MLSAG c0/ss, GK A/B/Q/z/f) and kernel.
-  Crypto::Hash signingHash = computeCTSigningHash(static_cast<const TransactionPrefix&>(tx));
+  // ── Step 4b: Compute prefix hash for Fiat-Shamir binding ──────────────────
+  // Proof response fields are in Transaction body (not prefix), so the prefix
+  // hash naturally excludes them — no custom hash function needed.
+  Crypto::Hash signingHash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
 
   // ── Step 5: Generate GK denomination proofs for each output ────────────────
+  tx.ctProofs.resize(outputs.size());
   for (size_t i = 0; i < outputs.size(); ++i) {
     Crypto::GKProof proof;
     Crypto::EllipticCurvePoint commitPoint;
     std::memcpy(&commitPoint, &outputCommitments[i], 32);
 
-    // Convert blinding factor to the EllipticCurveScalar expected by gk_prove
     if (!Crypto::gk_prove(commitPoint, outputs[i].amount, outputBlindings[i],
                           static_cast<size_t>(outputDenomIndices[i]),
                           signingHash, proof)) {
       throw std::runtime_error("GK prove failed for output " + std::to_string(i));
     }
 
-    // Copy proof into the transaction output
-    auto& cout = boost::get<ConfidentialOutput>(tx.outputs[i].target);
+    // Copy proof into transaction body
+    auto& gkp = tx.ctProofs[i];
     for (size_t j = 0; j < 6; ++j) {
-      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&cout.gkA[j]), &proof.A[j]);
-      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&cout.gkB[j]), &proof.B[j]);
-      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&cout.gkQ[j]), &proof.Q[j]);
-      cout.gkZ[j] = proof.z[j];
+      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.A[j]), &proof.A[j]);
+      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.B[j]), &proof.B[j]);
+      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.Q[j]), &proof.Q[j]);
+      gkp.z[j] = proof.z[j];
     }
-    cout.gkF = proof.f;
+    gkp.f = proof.f;
   }
 
   // ── Step 6: Generate MLSAG ring signatures for each input ──────────────────
+  tx.ctSignatures.resize(inputs.size());
   for (size_t i = 0; i < inputs.size(); ++i) {
     Crypto::MLSAGSignature mlsag;
     Crypto::KeyImage ki;
@@ -328,11 +318,13 @@ Transaction buildConfidentialTransaction(
       throw std::runtime_error("MLSAG sign failed for input " + std::to_string(i));
     }
 
-    // Copy MLSAG signature into the transaction input
+    // Update key image in the prefix input
     auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
     cin.keyImage = ki;
-    cin.mlsagC0 = mlsag.c0;
-    cin.mlsagSS = std::move(mlsag.ss);
+
+    // Copy MLSAG signature into transaction body
+    tx.ctSignatures[i].c0 = mlsag.c0;
+    tx.ctSignatures[i].ss = std::move(mlsag.ss);
   }
 
   // ── Step 7: Compute excess and sign kernel ─────────────────────────────────
