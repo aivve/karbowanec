@@ -57,6 +57,9 @@
 #include "CryptoNoteCore/TransactionExtra.h"
 #include "crypto/crypto.h"
 #include "crypto/random.h"
+#include "crypto/transaction_balance.h"
+#include "Denominations.h"
+#include "CryptoNoteConfig.h"
 #include "Transfers/TransfersContainer.h"
 #include "WalletSerializationV1.h"
 #include "WalletSerializationV2.h"
@@ -1615,19 +1618,52 @@ void WalletGreen::prepareTransaction(std::vector<WalletOuts>&& wallets,
   uint64_t donationAmount = pushDonationTransferIfPossible(donation, foundMoney - preparedTransaction.neededMoney, m_currency.defaultDustThreshold(), preparedTransaction.destinations);
   preparedTransaction.changeAmount = foundMoney - preparedTransaction.neededMoney - donationAmount;
 
-  std::vector<ReceiverAmounts> decomposedOutputs = splitDestinations(preparedTransaction.destinations, 0, m_currency);
-  if (preparedTransaction.changeAmount != 0) {
-    WalletTransfer changeTransfer;
-    changeTransfer.type = WalletTransferType::CHANGE;
-    changeTransfer.address = m_currency.accountAddressAsString(changeDestination);
-    changeTransfer.amount = static_cast<int64_t>(preparedTransaction.changeAmount);
-    preparedTransaction.destinations.emplace_back(std::move(changeTransfer));
+  // Detect post-fork: use CT transaction path with canonical denomination decomposition.
+  bool isPostFork = static_cast<uint32_t>(m_blockchain.size()) >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
-    auto splittedChange = splitAmount(preparedTransaction.changeAmount, changeDestination, 0);
-    decomposedOutputs.emplace_back(std::move(splittedChange));
+  if (isPostFork) {
+    // CT path: decompose amounts into canonical denominations (Denominations.h)
+    std::vector<ReceiverAmounts> decomposedOutputs;
+    for (const auto& destination : preparedTransaction.destinations) {
+      AccountPublicAddress address = parseAccountAddressString(destination.address);
+      ReceiverAmounts ra;
+      ra.receiver = address;
+      ra.amounts = decomposeAmount(static_cast<uint64_t>(destination.amount));
+      decomposedOutputs.push_back(std::move(ra));
+    }
+
+    if (preparedTransaction.changeAmount != 0) {
+      WalletTransfer changeTransfer;
+      changeTransfer.type = WalletTransferType::CHANGE;
+      changeTransfer.address = m_currency.accountAddressAsString(changeDestination);
+      changeTransfer.amount = static_cast<int64_t>(preparedTransaction.changeAmount);
+      preparedTransaction.destinations.emplace_back(std::move(changeTransfer));
+
+      ReceiverAmounts changeRA;
+      changeRA.receiver = changeDestination;
+      changeRA.amounts = decomposeAmount(preparedTransaction.changeAmount);
+      decomposedOutputs.push_back(std::move(changeRA));
+    }
+
+    // Build CT transaction and wrap in ITransaction
+    Transaction rawTx = makeConfidentialTransaction(decomposedOutputs, keysInfo, fee, extra, txSecretKey);
+    preparedTransaction.transaction = createTransaction(rawTx);
+  } else {
+    // Pre-fork: transparent transaction path (original)
+    std::vector<ReceiverAmounts> decomposedOutputs = splitDestinations(preparedTransaction.destinations, 0, m_currency);
+    if (preparedTransaction.changeAmount != 0) {
+      WalletTransfer changeTransfer;
+      changeTransfer.type = WalletTransferType::CHANGE;
+      changeTransfer.address = m_currency.accountAddressAsString(changeDestination);
+      changeTransfer.amount = static_cast<int64_t>(preparedTransaction.changeAmount);
+      preparedTransaction.destinations.emplace_back(std::move(changeTransfer));
+
+      auto splittedChange = splitAmount(preparedTransaction.changeAmount, changeDestination, 0);
+      decomposedOutputs.emplace_back(std::move(splittedChange));
+    }
+
+    preparedTransaction.transaction = makeTransaction(decomposedOutputs, keysInfo, extra, unlockTimestamp, txSecretKey);
   }
-
-  preparedTransaction.transaction = makeTransaction(decomposedOutputs, keysInfo, extra, unlockTimestamp, txSecretKey);
 }
 
 void WalletGreen::validateSourceAddresses(const std::vector<std::string>& sourceAddresses) const {
@@ -2338,6 +2374,78 @@ std::unique_ptr<CryptoNote::ITransaction> WalletGreen::makeTransaction(const std
   return tx;
 }
 
+CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
+    const std::vector<ReceiverAmounts>& decomposedOutputs,
+    std::vector<InputInfo>& keysInfo,
+    uint64_t fee,
+    const std::string& extra,
+    Crypto::SecretKey& txSecretKey) {
+
+  // Convert InputInfo → CTBuildInput
+  std::vector<CTBuildInput> ctInputs;
+  for (auto& input : keysInfo) {
+    CTBuildInput cti;
+    const auto& ki = input.keyInfo;
+
+    // Ring pubkeys from the mixin outputs
+    for (const auto& gout : ki.outputs) {
+      cti.ringPubkeys.push_back(gout.targetKey);
+    }
+
+    // Ring commitments: for pre-fork transparent outputs, commitment = amount*H (zero blinding).
+    // The amount for all ring members in the same bucket is ki.amount (since transparent outputs
+    // are grouped by amount). After redenomination, the effective amount is scaled.
+    uint64_t scaledAmount = ki.amount / CryptoNote::parameters::REDENOMINATION_FACTOR;
+    for (size_t k = 0; k < ki.outputs.size(); ++k) {
+      Crypto::EllipticCurvePoint ringCommit;
+      Crypto::transparent_amount_to_commitment(scaledAmount, ringCommit);
+      cti.ringCommitments.push_back(ringCommit);
+    }
+
+    // Real index in the ring
+    cti.realIndex = ki.realOutput.transactionIndex;
+
+    // Ephemeral spend key: derive from wallet keys + tx pubkey + output index
+    AccountKeys accountKeys = makeAccountKeys(*input.walletRecord);
+    KeyPair ephKeys;
+    Crypto::KeyImage dummyKeyImage;
+    CryptoNote::generate_key_image_helper(accountKeys,
+        ki.realOutput.transactionPublicKey,
+        ki.realOutput.outputInTransaction,
+        ephKeys, dummyKeyImage);
+    cti.spendPrivkey = ephKeys.secretKey;
+
+    // Real input's blinding factor: zero for pre-fork transparent outputs
+    std::memset(&cti.realBlinding, 0, sizeof(cti.realBlinding));
+
+    // Amount in new atomic units
+    cti.amount = scaledAmount;
+
+    // Store ephKeys back for caller
+    input.ephKeys = ephKeys;
+
+    ctInputs.push_back(std::move(cti));
+  }
+
+  // Convert ReceiverAmounts → CTBuildOutput (already decomposed into canonical denominations)
+  std::vector<CTBuildOutput> ctOutputs;
+  for (const auto& receiver : decomposedOutputs) {
+    for (uint64_t amount : receiver.amounts) {
+      ctOutputs.push_back(CTBuildOutput{receiver.receiver, amount});
+    }
+  }
+
+  auto tx = buildConfidentialTransaction(ctInputs, ctOutputs, m_viewSecretKey, fee, extra, txSecretKey);
+
+  m_logger(DEBUGGING) << "CT transaction created, hash " << getObjectHash(tx)
+    << ", inputs " << ctInputs.size()
+    << ", outputs " << ctOutputs.size()
+    << ", fee " << m_currency.formatAmount(fee)
+    << ", key " << Common::podToHex(txSecretKey);
+
+  return tx;
+}
+
 void WalletGreen::sendTransaction(const CryptoNote::Transaction& cryptoNoteTransaction) {
   std::error_code ec;
 
@@ -2480,11 +2588,20 @@ uint64_t WalletGreen::selectTransfers(
 
   uint64_t foundMoney = 0;
 
+  // Post-fork: exclude pre-fork transparent outputs whose scaled value floors to zero.
+  // These are dust that became worthless after redenomination.
+  bool isPostFork = static_cast<uint32_t>(m_blockchain.size()) >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+
   typedef std::pair<WalletRecord*, TransactionOutputInformation> OutputData;
   std::vector<OutputData> dustOutputs;
   std::vector<OutputData> walletOuts;
   for (auto walletIt = wallets.begin(); walletIt != wallets.end(); ++walletIt) {
     for (auto outIt = walletIt->outs.begin(); outIt != walletIt->outs.end(); ++outIt) {
+      // Post-fork: skip pre-fork outputs whose redenominated value is zero
+      if (isPostFork && outIt->amount / CryptoNote::parameters::REDENOMINATION_FACTOR == 0) {
+        continue;
+      }
+
       if (outIt->amount > dustThreshold) {
         walletOuts.emplace_back(std::piecewise_construct, std::forward_as_tuple(walletIt->wallet), std::forward_as_tuple(*outIt));
       } else if (dust) {

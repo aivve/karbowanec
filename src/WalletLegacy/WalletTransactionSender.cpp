@@ -29,6 +29,10 @@
 
 #include "CryptoNoteCore/CryptoNoteBasicImpl.h"
 #include "CryptoNoteCore/CryptoNoteFormatUtils.h"
+#include "CryptoNoteCore/CryptoNoteTools.h"
+#include "CryptoNoteConfig.h"
+#include "Denominations.h"
+#include "crypto/transaction_balance.h"
 
 #include <Logging/LoggerGroup.h>
 
@@ -285,19 +289,83 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
     std::vector<TxBuildInput> inputs;
     prepareInputs(context->selectedTransfers, context->outs, inputs, context->mixIn);
 
-    TxBuildOutput changeDts;
-    changeDts.amount = 0;
     uint64_t totalAmount = -transaction.totalAmount;
-    createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
+    uint64_t changeAmount = context->foundMoney > totalAmount ? context->foundMoney - totalAmount : 0;
 
-    std::vector<TxBuildOutput> splittedDests;
-    splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
+    bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
-    auto itx = buildTransaction(inputs, splittedDests, m_keys.viewSecretKey,
-        transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, context->tx_key);
     Transaction tx;
-    if (!fromBinaryArray(tx, itx->getTransactionData()))
-      throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
+    if (isPostFork) {
+      // CT path: canonical denomination decomposition + confidential transaction
+      uint64_t fee = transaction.fee;
+
+      // Decompose each destination into canonical denominations
+      std::vector<CTBuildOutput> ctOutputs;
+      for (TransferId idx = transaction.firstTransferId;
+           idx < transaction.firstTransferId + transaction.transferCount; ++idx) {
+        WalletLegacyTransfer& de = m_transactionsCache.getTransfer(idx);
+        AccountPublicAddress addr;
+        if (!m_currency.parseAccountAddressString(de.address, addr))
+          throw std::system_error(make_error_code(error::BAD_ADDRESS));
+        auto denoms = decomposeAmount(static_cast<uint64_t>(de.amount));
+        for (uint64_t d : denoms) {
+          ctOutputs.push_back(CTBuildOutput{addr, d});
+        }
+      }
+
+      // Change output
+      if (changeAmount > 0) {
+        auto changeDenoms = decomposeAmount(changeAmount);
+        for (uint64_t d : changeDenoms) {
+          ctOutputs.push_back(CTBuildOutput{m_keys.address, d});
+        }
+      }
+
+      // Convert TxBuildInput → CTBuildInput
+      std::vector<CTBuildInput> ctInputs;
+      for (auto& inp : inputs) {
+        CTBuildInput cti;
+        const auto& ki = inp.keyInfo;
+        for (const auto& gout : ki.outputs) {
+          cti.ringPubkeys.push_back(gout.targetKey);
+        }
+        // Transparent ring commitments: amount*H
+        uint64_t scaledAmount = ki.amount / CryptoNote::parameters::REDENOMINATION_FACTOR;
+        for (size_t k = 0; k < ki.outputs.size(); ++k) {
+          Crypto::EllipticCurvePoint ringCommit;
+          Crypto::transparent_amount_to_commitment(scaledAmount, ringCommit);
+          cti.ringCommitments.push_back(ringCommit);
+        }
+        cti.realIndex = ki.realOutput.transactionIndex;
+        // Derive ephemeral spend key
+        KeyPair ephKeys;
+        Crypto::KeyImage dummy_ki;
+        CryptoNote::generate_key_image_helper(inp.senderKeys,
+            ki.realOutput.transactionPublicKey,
+            ki.realOutput.outputInTransaction,
+            ephKeys, dummy_ki);
+        cti.spendPrivkey = ephKeys.secretKey;
+        std::memset(&cti.realBlinding, 0, sizeof(cti.realBlinding)); // transparent: zero blinding
+        cti.amount = scaledAmount;
+        ctInputs.push_back(std::move(cti));
+      }
+
+      tx = buildConfidentialTransaction(ctInputs, ctOutputs, m_keys.viewSecretKey,
+                                         fee, transaction.extra, context->tx_key);
+    } else {
+      // Pre-fork: transparent transaction path (original)
+      TxBuildOutput changeDts;
+      changeDts.amount = 0;
+      createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
+
+      std::vector<TxBuildOutput> splittedDests;
+      splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
+
+      auto itx = buildTransaction(inputs, splittedDests, m_keys.viewSecretKey,
+          transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, context->tx_key);
+      if (!fromBinaryArray(tx, itx->getTransactionData()))
+        throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
+    }
 
     getObjectHash(tx, transaction.hash);
     transaction.secretKey = context->tx_key;
@@ -305,7 +373,7 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
     m_transactionsCache.updateTransaction(context->transactionId, tx, totalAmount, context->selectedTransfers, context->tx_key);
 
     notifyBalanceChanged(events);
-   
+
     return std::make_shared<WalletRelayTransactionRequest>(tx, std::bind(&WalletTransactionSender::relayTransactionCallback, this, context,
         std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
   }

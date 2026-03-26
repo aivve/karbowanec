@@ -33,6 +33,7 @@
 #include "Rpc/CoreRpcServerCommandsDefinitions.h"
 #include "Serialization/BinarySerializationTools.h"
 #include "CryptoNoteTools.h"
+#include "CryptoNoteFormatUtils.h"
 #include "TransactionExtra.h"
 
 #include "../crypto/hash.h"
@@ -2132,7 +2133,10 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     return false;
   }
 
-  const Crypto::Hash tx_prefix_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
+  // Compute the CT signing hash (excludes proof response fields: GK A/B/Q/z/f, MLSAG c0/ss).
+  // This breaks the circular dependency between proofs and the hash they sign.
+  // Used for GK proofs, MLSAG signatures, and kernel Schnorr signature.
+  const Crypto::Hash ct_signing_hash = computeCTSigningHash(static_cast<const TransactionPrefix&>(tx));
 
   // Step 2: For each output: verify subgroup membership of commitment C
   for (size_t i = 0; i < tx.outputs.size(); ++i) {
@@ -2172,7 +2176,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
     proof.f = cout.gkF;
 
-    if (!Crypto::gk_verify(cout.commitment, proof, txHash)) {
+    if (!Crypto::gk_verify(cout.commitment, proof, ct_signing_hash)) {
       logger(ERROR) << "CT validation: output " << i << " GK membership proof failed in tx " << txHash;
       return false;
     }
@@ -2221,7 +2225,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     mlsag.ss = cin.mlsagSS;
 
     if (!Crypto::mlsag_verify(
-        tx_prefix_hash,
+        ct_signing_hash,
         cin.ringPubkeys.data(),
         cin.ringCommitments.data(),
         cin.pseudoCommitment,
@@ -2277,7 +2281,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         input_commits.data(), input_commits.size(),
         output_commits.data(), output_commits.size(),
         tx.fee,
-        txHash,
+        ct_signing_hash,
         crypto_kernel)) {
       logger(ERROR) << "CT validation: balance equation / kernel signature failed in tx " << txHash;
       return false;

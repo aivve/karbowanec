@@ -300,6 +300,12 @@ protected:
   std::unique_ptr<CryptoNote::ITransaction> makeTransaction(const std::vector<ReceiverAmounts>& decomposedOutputs,
     std::vector<InputInfo>& keysInfo, const std::string& extra, uint64_t unlockTimestamp, Crypto::SecretKey& txSecretKey);
 
+  // Build a confidential (CT v2) transaction from decomposed outputs and prepared inputs.
+  // For the transition period (spending pre-fork transparent inputs), ring member commitments
+  // are computed as amount*H (implicit transparent commitment, blinding factor = 0).
+  CryptoNote::Transaction makeConfidentialTransaction(const std::vector<ReceiverAmounts>& decomposedOutputs,
+    std::vector<InputInfo>& keysInfo, uint64_t fee, const std::string& extra, Crypto::SecretKey& txSecretKey);
+
   void sendTransaction(const CryptoNote::Transaction& cryptoNoteTransaction);
   size_t validateSaveAndSendTransaction(const ITransactionReader& transaction, const std::vector<WalletTransfer>& destinations, bool send);
 

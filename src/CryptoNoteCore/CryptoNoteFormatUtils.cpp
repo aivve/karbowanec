@@ -448,6 +448,64 @@ Hash get_tx_tree_hash(const Block& b) {
   return get_tx_tree_hash(txs_ids);
 }
 
+Crypto::Hash computeCTSigningHash(const TransactionPrefix& tx) {
+  // Hash the "core" prefix fields that are fixed before any proofs are generated.
+  // This breaks the circular dependency: proofs need the hash, but the hash
+  // must not depend on the proofs.
+  //
+  // Included: version, fee, extra,
+  //   per-input:  ringPubkeys, ringCommitments, pseudoCommitment, keyImage
+  //   per-output: commitment, maskedAmount
+  //
+  // Excluded: MLSAG (mlsagC0, mlsagSS), GK proof (gkA/B/Q/z/f), kernel
+  Crypto::Hash hash;
+
+  BinaryArray ba;
+  Common::VectorOutputStream stream(ba);
+  BinaryOutputStreamSerializer s(stream);
+
+  s(const_cast<uint8_t&>(tx.version), "version");
+  s(const_cast<uint64_t&>(tx.fee), "fee");
+
+  // Inputs: only core fields
+  uint64_t inputCount = tx.inputs.size();
+  s(inputCount, "input_count");
+  for (const auto& txin : tx.inputs) {
+    const auto& cin = boost::get<ConfidentialInput>(txin);
+    // Ring pubkeys
+    uint64_t ringSize = cin.ringPubkeys.size();
+    s(ringSize, "ring_size");
+    for (const auto& pk : cin.ringPubkeys) {
+      s(const_cast<Crypto::PublicKey&>(pk), "pk");
+    }
+    // Ring commitments
+    for (const auto& rc : cin.ringCommitments) {
+      s(const_cast<Crypto::EllipticCurvePoint&>(rc), "rc");
+    }
+    // Pseudo-commitment and key image
+    s(const_cast<Crypto::EllipticCurvePoint&>(cin.pseudoCommitment), "pseudo");
+    s(const_cast<Crypto::KeyImage&>(cin.keyImage), "ki");
+  }
+
+  // Outputs: only commitment and masked amount
+  uint64_t outputCount = tx.outputs.size();
+  s(outputCount, "output_count");
+  for (const auto& txout : tx.outputs) {
+    const auto& cout = boost::get<ConfidentialOutput>(txout.target);
+    s(const_cast<Crypto::EllipticCurvePoint&>(cout.commitment), "C");
+    // maskedAmount is std::array<uint8_t,8> — serialize raw bytes
+    for (size_t i = 0; i < 8; ++i) {
+      s(const_cast<uint8_t&>(cout.maskedAmount[i]), "ma");
+    }
+  }
+
+  // Extra
+  serializeAsBinary(const_cast<std::vector<uint8_t>&>(tx.extra), "extra", s);
+
+  cn_fast_hash(ba.data(), ba.size(), hash);
+  return hash;
+}
+
 uint64_t resolveOutputAmount(const TransactionOutput& out, uint64_t blockHeight, bool isCoinbase) {
   // Confidential outputs: amount is hidden in a Pedersen commitment, not in the amount field.
   // When CT output types are added, check for OUTPUT_CONFIDENTIAL here and return 0.

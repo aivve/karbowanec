@@ -107,6 +107,13 @@ Crypto::Hash get_tx_tree_hash(const Block& b);
 uint64_t resolveOutputAmount(const TransactionOutput& out, uint64_t blockHeight, bool isCoinbase);
 bool is_valid_decomposed_amount(uint64_t amount);
 
+// Compute the CT signing hash for Fiat-Shamir binding in confidential transactions.
+// Hashes the "core" prefix fields: version, fee, per-input (ringPubkeys, ringCommitments,
+// pseudoCommitment, keyImage), per-output (commitment, maskedAmount), extra.
+// Excludes all proof response fields (GK: A/B/Q/z/f, MLSAG: c0/ss) and kernel,
+// breaking the circular dependency between proofs and the hash they sign.
+Crypto::Hash computeCTSigningHash(const TransactionPrefix& tx);
+
 // Deterministic transaction key generation: r = Hs(viewSecretKey || inputsHash), R = r*G.
 // Same formula used by sender and detector — single authoritative implementation.
 bool generateDeterministicTransactionKeys(const Crypto::Hash& inputsHash,
