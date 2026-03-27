@@ -1981,7 +1981,7 @@ bool Blockchain::checkTransactionInputs(const Transaction& tx, uint32_t* pmax_us
     Crypto::Hash transactionHash = getObjectHash(tx);
     if (isInCheckpointZone(getCurrentBlockchainHeight()))
       return true;
-    return checkConfidentialTransaction(tx, transactionHash);
+    return checkConfidentialTransaction(tx, transactionHash, pmax_used_block_height);
   }
 
   Crypto::Hash tx_prefix_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
@@ -2123,8 +2123,10 @@ bool Blockchain::check_tx_input(const KeyInput& txin, const Crypto::Hash& tx_pre
 
 // ─── Confidential Transaction Validation Pipeline (spec Section 15) ──────────
 
-bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash) {
+bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash,
+                                              uint32_t* pmax_used_block_height) {
   using namespace CryptoNote::parameters;
+  std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
 
   // Step 1: Verify transaction version == CT version (2)
   if (tx.version != TRANSACTION_VERSION_CT) {
@@ -2194,10 +2196,29 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
   }
 
-  // Step 4: For each input: verify subgroup membership of pseudo-commit C',
-  //         key image I, and all ring public keys P_k
+  // Step 4: For each input, validate on-chain ring member binding and subgroup checks.
+  std::vector<std::vector<Crypto::PublicKey>> verifiedRingPubkeys(tx.inputs.size());
+  std::vector<std::vector<Crypto::EllipticCurvePoint>> verifiedRingCommitments(tx.inputs.size());
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
+      logger(ERROR) << "CT validation: input " << i << " is not ConfidentialInput in tx " << txHash;
+      return false;
+    }
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
+    const size_t ringSize = cin.ringPubkeys.size();
+
+    if (cin.ringAmount == 0) {
+      logger(ERROR) << "CT validation: input " << i << " has zero ring amount bucket in tx " << txHash;
+      return false;
+    }
+    if (ringSize == 0) {
+      logger(ERROR) << "CT validation: input " << i << " has empty ring in tx " << txHash;
+      return false;
+    }
+    if (ringSize != cin.ringCommitments.size() || ringSize != cin.ringOutputIndexes.size()) {
+      logger(ERROR) << "CT validation: input " << i << " ring field size mismatch in tx " << txHash;
+      return false;
+    }
 
     if (!Crypto::point_valid_for_pedersen(cin.pseudoCommitment)) {
       logger(ERROR) << "CT validation: input " << i << " pseudo-commitment fails subgroup check in tx " << txHash;
@@ -2212,24 +2233,109 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       return false;
     }
 
-    for (size_t k = 0; k < cin.ringPubkeys.size(); ++k) {
-      if (!Crypto::check_key(cin.ringPubkeys[k])) {
-        logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k << " invalid in tx " << txHash;
+    // Convert ring offsets to absolute indexes and ensure canonical strictly increasing order.
+    const std::vector<uint32_t> absoluteOffsets = relative_output_offsets_to_absolute(cin.ringOutputIndexes);
+    if (absoluteOffsets.empty()) {
+      logger(ERROR) << "CT validation: input " << i << " has empty absolute ring offsets in tx " << txHash;
+      return false;
+    }
+    for (size_t k = 1; k < absoluteOffsets.size(); ++k) {
+      if (absoluteOffsets[k] <= absoluteOffsets[k - 1]) {
+        logger(ERROR) << "CT validation: input " << i << " has non-canonical ring offsets at member " << k
+                      << " in tx " << txHash;
         return false;
       }
     }
 
-    for (size_t k = 0; k < cin.ringCommitments.size(); ++k) {
-      if (!Crypto::point_valid_for_pedersen(cin.ringCommitments[k])) {
-        logger(ERROR) << "CT validation: input " << i << " ring commitment " << k
+    const uint32_t outputCount = m_db.getKeyOutputCount(cin.ringAmount);
+    if (outputCount == 0) {
+      logger(ERROR) << "CT validation: input " << i << " ring amount bucket has no outputs in tx " << txHash;
+      return false;
+    }
+    if (absoluteOffsets.back() >= outputCount) {
+      logger(ERROR) << "CT validation: input " << i << " ring offset out of range in tx " << txHash;
+      return false;
+    }
+
+    auto& boundPubkeys = verifiedRingPubkeys[i];
+    auto& boundCommitments = verifiedRingCommitments[i];
+    boundPubkeys.reserve(ringSize);
+    boundCommitments.reserve(ringSize);
+
+    for (size_t k = 0; k < ringSize; ++k) {
+      uint32_t block = 0;
+      uint16_t txSlot = 0;
+      uint16_t outIdx = 0;
+      if (!m_db.getKeyOutput(cin.ringAmount, absoluteOffsets[k], block, txSlot, outIdx)) {
+        logger(ERROR) << "CT validation: input " << i << " failed to resolve ring member " << k
+                      << " (amount=" << cin.ringAmount << ", index=" << absoluteOffsets[k] << ") in tx " << txHash;
+        return false;
+      }
+
+      TransactionEntry te = transactionByIndex({block, txSlot});
+      if (outIdx >= te.tx.outputs.size()) {
+        logger(ERROR) << "CT validation: input " << i << " resolved ring member " << k
+                      << " with invalid output index in tx " << txHash;
+        return false;
+      }
+
+      if (!is_tx_spendtime_unlocked(te.tx.unlockTime)) {
+        logger(ERROR) << "CT validation: input " << i << " references locked output at ring member " << k
+                      << " in tx " << txHash;
+        return false;
+      }
+
+      const auto& referencedOutput = te.tx.outputs[outIdx];
+      if (referencedOutput.target.type() != typeid(KeyOutput)) {
+        logger(ERROR) << "CT validation: input " << i << " ring member " << k
+                      << " does not reference transparent output in tx " << txHash;
+        return false;
+      }
+
+      const auto& referencedPubkey = boost::get<KeyOutput>(referencedOutput.target).key;
+      if (!Crypto::check_key(referencedPubkey)) {
+        logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k << " invalid on-chain in tx " << txHash;
+        return false;
+      }
+      if (!(referencedPubkey == cin.ringPubkeys[k])) {
+        logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k
+                      << " does not match referenced output in tx " << txHash;
+        return false;
+      }
+
+      uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, txSlot == 0);
+      Crypto::EllipticCurvePoint expectedCommitment;
+      if (!Crypto::transparent_amount_to_commitment(resolvedAmount, expectedCommitment)) {
+        logger(ERROR) << "CT validation: input " << i << " failed to build expected commitment for ring member " << k
+                      << " in tx " << txHash;
+        return false;
+      }
+      if (!Crypto::point_valid_for_pedersen(expectedCommitment)) {
+        logger(ERROR) << "CT validation: input " << i << " expected ring commitment " << k
                       << " fails subgroup check in tx " << txHash;
         return false;
+      }
+      if (!(expectedCommitment == cin.ringCommitments[k])) {
+        logger(ERROR) << "CT validation: input " << i << " ring commitment " << k
+                      << " does not match referenced output in tx " << txHash;
+        return false;
+      }
+
+      boundPubkeys.push_back(referencedPubkey);
+      boundCommitments.push_back(expectedCommitment);
+
+      if (pmax_used_block_height && *pmax_used_block_height < block) {
+        *pmax_used_block_height = block;
       }
     }
   }
 
   // Step 5: For each input: verify MLSAG ring signature
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
+      logger(ERROR) << "CT validation: input " << i << " is not ConfidentialInput in tx " << txHash;
+      return false;
+    }
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
     const auto& sig = tx.ctSignatures[i];
 
@@ -2239,10 +2345,10 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
 
     if (!Crypto::mlsag_verify(
         ct_signing_hash,
-        cin.ringPubkeys.data(),
-        cin.ringCommitments.data(),
+        verifiedRingPubkeys[i].data(),
+        verifiedRingCommitments[i].data(),
         cin.pseudoCommitment,
-        cin.ringPubkeys.size(),
+        verifiedRingPubkeys[i].size(),
         cin.keyImage,
         mlsag)) {
       logger(ERROR) << "CT validation: input " << i << " MLSAG signature failed in tx " << txHash;

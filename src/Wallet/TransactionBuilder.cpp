@@ -155,6 +155,22 @@ Transaction buildConfidentialTransaction(
     }
   }
 
+  // Validate CT ring metadata consistency.
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    if (inputs[i].ringPubkeys.empty()) {
+      throw std::invalid_argument("CT input has empty ring at index " + std::to_string(i));
+    }
+    if (inputs[i].ringPubkeys.size() != inputs[i].ringCommitments.size()) {
+      throw std::invalid_argument("CT input ring pubkeys/commitments size mismatch at index " + std::to_string(i));
+    }
+    if (inputs[i].ringPubkeys.size() != inputs[i].ringOutputIndexes.size()) {
+      throw std::invalid_argument("CT input ring pubkeys/indexes size mismatch at index " + std::to_string(i));
+    }
+    if (inputs[i].realIndex >= inputs[i].ringPubkeys.size()) {
+      throw std::invalid_argument("CT input real index out of range at index " + std::to_string(i));
+    }
+  }
+
   // ── Step 1: Deterministic tx key from view secret key + inputs hash ────────
   Crypto::Hash inputsHash = computeCTInputsHash(inputs);
   KeyPair txKeyPair;
@@ -248,6 +264,8 @@ Transaction buildConfidentialTransaction(
   tx.inputs.resize(inputs.size());
   for (size_t i = 0; i < inputs.size(); ++i) {
     ConfidentialInput cin;
+    cin.ringAmount = inputs[i].ringAmount;
+    cin.ringOutputIndexes = absolute_output_offsets_to_relative(inputs[i].ringOutputIndexes);
     cin.ringPubkeys = inputs[i].ringPubkeys;
     cin.ringCommitments = inputs[i].ringCommitments;
     cin.pseudoCommitment = pseudoCommitments[i];

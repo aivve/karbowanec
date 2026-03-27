@@ -373,7 +373,8 @@ namespace CryptoNote {
 
     // Confidential transaction validation pipeline (spec Section 15).
     // Executes all 10 checks in order; returns false on first failure.
-    bool checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash);
+    bool checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash,
+                                      uint32_t* pmax_used_block_height);
 
     // Returns by value (deserialized from tx_entries)
     TransactionEntry transactionByIndex(TransactionIndex index);

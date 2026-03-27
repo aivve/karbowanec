@@ -489,8 +489,16 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
         logger(ERROR) << "CT tx input " << i << " ring pubkeys/commitments size mismatch, rejected for tx id= " << Common::podToHex(txHash);
         return false;
       }
+      if (ci.ringPubkeys.size() != ci.ringOutputIndexes.size()) {
+        logger(ERROR) << "CT tx input " << i << " ring pubkeys/indexes size mismatch, rejected for tx id= " << Common::podToHex(txHash);
+        return false;
+      }
       if (ci.ringPubkeys.empty()) {
         logger(ERROR) << "CT tx input " << i << " has empty ring, rejected for tx id= " << Common::podToHex(txHash);
+        return false;
+      }
+      if (ci.ringAmount == 0) {
+        logger(ERROR) << "CT tx input " << i << " has zero ring amount bucket, rejected for tx id= " << Common::podToHex(txHash);
         return false;
       }
       if (tx.ctSignatures[i].ss.size() != ci.ringPubkeys.size()) {

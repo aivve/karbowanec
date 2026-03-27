@@ -61,6 +61,8 @@ std::unique_ptr<ITransaction> buildTransaction(
 // For pre-fork transparent inputs spent into CT, realBlinding is zero scalar
 // and realAmount is the scaled (redenominated) amount.
 struct CTBuildInput {
+  uint64_t                                  ringAmount;       // transparent amount bucket of ring members
+  std::vector<uint32_t>                     ringOutputIndexes; // absolute indexes in ringAmount bucket
   std::vector<Crypto::PublicKey>          ringPubkeys;      // one-time keys of ring members
   std::vector<Crypto::EllipticCurvePoint> ringCommitments;  // Pedersen commitments of ring members
   size_t  realIndex;          // index of the real input in the ring

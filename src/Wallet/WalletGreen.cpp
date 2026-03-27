@@ -2386,10 +2386,12 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
   for (auto& input : keysInfo) {
     CTBuildInput cti;
     const auto& ki = input.keyInfo;
+    cti.ringAmount = ki.amount;
 
     // Ring pubkeys from the mixin outputs
     for (const auto& gout : ki.outputs) {
       cti.ringPubkeys.push_back(gout.targetKey);
+      cti.ringOutputIndexes.push_back(gout.outputIndex);
     }
 
     // Ring commitments: for pre-fork transparent outputs, commitment = amount*H (zero blinding).

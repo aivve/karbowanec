@@ -326,8 +326,10 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
       for (auto& inp : inputs) {
         CTBuildInput cti;
         const auto& ki = inp.keyInfo;
+        cti.ringAmount = ki.amount;
         for (const auto& gout : ki.outputs) {
           cti.ringPubkeys.push_back(gout.targetKey);
+          cti.ringOutputIndexes.push_back(gout.outputIndex);
         }
         // Transparent ring commitments: amount*H
         uint64_t scaledAmount = ki.amount / CryptoNote::parameters::REDENOMINATION_FACTOR;

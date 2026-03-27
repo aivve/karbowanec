@@ -337,6 +337,9 @@ void serialize(KeyOutput& key, ISerializer& serializer) {
 }
 
 void serialize(ConfidentialInput& input, ISerializer& serializer) {
+  serializer(input.ringAmount, "ring_amount");
+  serializeVarintVector(input.ringOutputIndexes, serializer, "ring_offsets");
+
   // Ring public keys (variable length)
   size_t ringSize = input.ringPubkeys.size();
   serializer.beginArray(ringSize, "ring_pubkeys");

@@ -43,6 +43,8 @@ struct KeyInput {
 // Contains the ring of public keys and commitments, a pseudo-output commitment,
 // and key image. MLSAG signatures are stored separately in Transaction body.
 struct ConfidentialInput {
+  uint64_t                                  ringAmount;      // transparent amount bucket of referenced ring members
+  std::vector<uint32_t>                     ringOutputIndexes; // relative offsets in the ringAmount bucket
   std::vector<Crypto::PublicKey>           ringPubkeys;   // one-time public keys of ring members
   std::vector<Crypto::EllipticCurvePoint>  ringCommitments; // Pedersen commitments of ring members
   Crypto::EllipticCurvePoint               pseudoCommitment; // C' = v*H + r'*G
