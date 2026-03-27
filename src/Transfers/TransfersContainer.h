@@ -74,7 +74,7 @@ struct SpentOutputDescriptorHasher {
 };
 
 struct TransactionOutputInformationIn : public TransactionOutputInformation {
-  Crypto::KeyImage keyImage;  //!< \attention Used only for TransactionTypes::OutputType::Key
+  Crypto::KeyImage keyImage;  //!< Used for TransactionTypes::OutputType::Key and Confidential
 };
 
 struct TransactionOutputInformationEx : public TransactionOutputInformationIn {
@@ -101,6 +101,9 @@ struct TransactionOutputInformationEx : public TransactionOutputInformationIn {
 
     if (type == TransactionTypes::OutputType::Key) {
       s(outputKey, "");
+    } else if (type == TransactionTypes::OutputType::Confidential) {
+      s(commitment, "");
+      s(blindingFactor, "");
     }
   }
 

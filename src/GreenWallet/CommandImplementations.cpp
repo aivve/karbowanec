@@ -28,6 +28,8 @@
 #include <GreenWallet/Open.h>
 #include <GreenWallet/Sync.h>
 #include <GreenWallet/Tools.h>
+#include "CryptoNoteConfig.h"
+#include "CryptoNoteCore/Currency.h"
 #include <GreenWallet/Transfer.h>
 #include <GreenWallet/Types.h>
 #include <GreenWallet/WalletConfig.h>
@@ -186,6 +188,36 @@ void balance(CryptoNote::INode &node, CryptoNote::WalletGreen &wallet,
                   << std::endl
                   << "Balances might be incorrect whilst this is ongoing."
                   << std::endl;
+    }
+
+    // Dust sweep warning: check for pre-fork outputs below REDENOMINATION_FACTOR
+    try {
+        auto outputs = wallet.getTransfers(0, CryptoNote::ITransfersContainer::IncludeKeyUnlocked);
+        uint64_t dustTotal = 0;
+        size_t dustCount = 0;
+        for (const auto& out : outputs) {
+            if (out.type == CryptoNote::TransactionTypes::OutputType::Key &&
+                CryptoNote::Currency::isDustOutput(out.amount)) {
+                dustTotal += out.amount;
+                ++dustCount;
+            }
+        }
+        if (dustCount > 0) {
+            std::cout << std::endl
+                      << WarningMsg("WARNING: You have " + std::to_string(dustCount)
+                         + " dust output(s) totaling "
+                         + Common::Format::formatAmount(dustTotal) + " KRB.")
+                      << std::endl
+                      << WarningMsg("These outputs are below 0.01 KRB and will become "
+                         "ZERO after the redenomination fork.")
+                      << std::endl
+                      << InformationMsg("Consider consolidating them before block "
+                         + std::to_string(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT)
+                         + ".")
+                      << std::endl;
+        }
+    } catch (...) {
+        // Don't let dust check failure interfere with balance display
     }
 }
 

@@ -1964,6 +1964,30 @@ void simple_wallet::synchronizationCompleted(std::error_code result) {
   std::unique_lock<std::mutex> lock(m_walletSynchronizedMutex);
   m_walletSynchronized = true;
   m_walletSynchronizedCV.notify_one();
+
+  // One-time dust warning after initial sync
+  if (!result) {
+    try {
+      auto outputs = m_wallet->getOutputs();
+      size_t dustCount = 0;
+      uint64_t dustTotal = 0;
+      for (const auto& out : outputs) {
+        if (out.type == TransactionTypes::OutputType::Key && CryptoNote::Currency::isDustOutput(out.amount)) {
+          dustTotal += out.amount;
+          ++dustCount;
+        }
+      }
+      if (dustCount > 0) {
+        logger(WARNING, BRIGHT_YELLOW)
+          << "\nDust alert: " << dustCount << " output(s) totaling "
+          << m_currency.formatAmount(dustTotal) << " KRB will be lost after the redenomination fork.\n"
+          << "Use 'sweep_dust' to consolidate them before block "
+          << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT << ".";
+      }
+    } catch (...) {
+      // Don't let dust check failure interfere with sync completion
+    }
+  }
 }
 
 void simple_wallet::synchronizationProgressUpdated(uint32_t current, uint32_t total) {
@@ -2048,6 +2072,25 @@ bool simple_wallet::show_balance(const std::vector<std::string>& args/* = std::v
   success_msg_writer() << "pending: " << m_currency.formatAmount(m_wallet->pendingBalance());
   success_msg_writer() << "unmixable: " << m_currency.formatAmount(m_wallet->unmixableBalance());
   success_msg_writer() << "total balance: " << m_currency.formatAmount(m_wallet->actualBalance() + m_wallet->pendingBalance());
+
+  // Dust sweep warning: check for pre-fork outputs below REDENOMINATION_FACTOR
+  auto outputs = m_wallet->getOutputs();
+  uint64_t dustTotal = 0;
+  size_t dustCount = 0;
+  for (const auto& out : outputs) {
+    if (out.type == TransactionTypes::OutputType::Key && CryptoNote::Currency::isDustOutput(out.amount)) {
+      dustTotal += out.amount;
+      ++dustCount;
+    }
+  }
+  if (dustCount > 0) {
+    logger(WARNING, BRIGHT_YELLOW)
+      << "WARNING: You have " << dustCount << " dust output(s) totaling "
+      << m_currency.formatAmount(dustTotal) << " KRB.\n"
+      << "These outputs are below 0.01 KRB and will become ZERO after the redenomination fork.\n"
+      << "Consider consolidating them with 'sweep_dust' before the fork height ("
+      << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT << ").";
+  }
 
   return true;
 }

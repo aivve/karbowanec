@@ -62,6 +62,9 @@ TransactionTypes::InputType getTransactionInputType(const TransactionInput& in) 
   if (in.type() == typeid(BaseInput)) {
     return TransactionTypes::InputType::Generating;
   }
+  if (in.type() == typeid(ConfidentialInput)) {
+    return TransactionTypes::InputType::Confidential;
+  }
   return TransactionTypes::InputType::Invalid;
 }
 
@@ -85,6 +88,9 @@ const TransactionInput& getInputChecked(const CryptoNote::TransactionPrefix& tra
 TransactionTypes::OutputType getTransactionOutputType(const TransactionOutputTarget& out) {
   if (out.type() == typeid(KeyOutput)) {
     return TransactionTypes::OutputType::Key;
+  }
+  if (out.type() == typeid(ConfidentialOutput)) {
+    return TransactionTypes::OutputType::Confidential;
   }
   return TransactionTypes::OutputType::Invalid;
 }

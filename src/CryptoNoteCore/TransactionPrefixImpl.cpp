@@ -59,7 +59,8 @@ public:
   virtual uint64_t getOutputTotalAmount() const override;
   virtual TransactionTypes::OutputType getOutputType(size_t index) const override;
   virtual void getOutput(size_t index, KeyOutput& output, uint64_t& amount) const override;
-  
+  virtual void getOutput(size_t index, ConfidentialOutput& output) const override;
+
   // signatures
   virtual size_t getRequiredSignaturesCount(size_t inputIndex) const override;
   virtual bool findOutputsToAccount(const AccountPublicAddress& addr, const SecretKey& viewSecretKey, std::vector<uint32_t>& outs, uint64_t& outputAmount) const override;
@@ -181,6 +182,11 @@ void TransactionPrefixImpl::getOutput(size_t index, KeyOutput& output, uint64_t&
   const auto& out = getOutputChecked(m_txPrefix, index, TransactionTypes::OutputType::Key);
   output = boost::get<KeyOutput>(out.target);
   amount = out.amount;
+}
+
+void TransactionPrefixImpl::getOutput(size_t index, ConfidentialOutput& output) const {
+  const auto& out = getOutputChecked(m_txPrefix, index, TransactionTypes::OutputType::Confidential);
+  output = boost::get<ConfidentialOutput>(out.target);
 }
 
 size_t TransactionPrefixImpl::getRequiredSignaturesCount(size_t inputIndex) const {

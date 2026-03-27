@@ -402,8 +402,23 @@ namespace CryptoNote {
     return Common::Format::formatAmount(amount);
 	}
 
+	std::string Currency::formatAmount(uint64_t amount, uint32_t height) const {
+		if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
+			return Common::Format::formatAmountPostFork(amount);
+		}
+		return Common::Format::formatAmount(amount);
+	}
+
 	bool Currency::parseAmount(const std::string& str, uint64_t& amount) const {
 		return Common::Format::parseAmount(str, amount);
+	}
+
+	uint64_t Currency::resolveOutputAmount(uint64_t preForkAmount) {
+		return preForkAmount / CryptoNote::parameters::REDENOMINATION_FACTOR;
+	}
+
+	bool Currency::isDustOutput(uint64_t preForkAmount) {
+		return preForkAmount < CryptoNote::parameters::REDENOMINATION_FACTOR;
 	}
 
   uint64_t Currency::getMinimalFee(const uint32_t height) const {

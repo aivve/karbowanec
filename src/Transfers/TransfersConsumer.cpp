@@ -28,6 +28,7 @@
 #include "CryptoNoteCore/CryptoNoteBasicImpl.h"
 #include "CryptoNoteCore/CryptoNoteFormatUtils.h"
 #include "CryptoNoteCore/TransactionApi.h"
+#include "crypto/ct_ecdh.h"
 
 #include "IWallet.h"
 #include "INode.h"
@@ -103,6 +104,33 @@ void findMyOutputs(
       checkOutputKey(derivation, out.key, keyIndex, idx, spendKeys, outputs);
       ++keyIndex;
 
+    } else if (outType == TransactionTypes::OutputType::Confidential) {
+      // CT output: try ECDH recovery to check if it belongs to us.
+      // Attempt decryption with each spend key's corresponding view key
+      // (all subscriptions share the same view key, so we just try once).
+      ConfidentialOutput ctOut;
+      tx.getOutput(idx, ctOut);
+
+      Crypto::MaskedAmount masked;
+      static_assert(sizeof(masked.data) == sizeof(ctOut.maskedAmount), "MaskedAmount size mismatch");
+      memcpy(masked.data, ctOut.maskedAmount.data(), sizeof(masked.data));
+
+      // Reinterpret EllipticCurvePoint commitment as PublicKey for the crypto API
+      const Crypto::PublicKey& commitmentPK = reinterpret_cast<const Crypto::PublicKey&>(ctOut.commitment);
+
+      uint64_t recoveredAmount = 0;
+      Crypto::EllipticCurveScalar blindingFactor;
+
+      if (Crypto::decrypt_and_verify_output(viewSecretKey, txPublicKey, idx,
+                                             masked, commitmentPK,
+                                             recoveredAmount, blindingFactor)) {
+        // This CT output belongs to us. Add to all spend key subscriptions
+        // (same behavior as transparent outputs — the view key is shared).
+        for (const auto& spendKey : spendKeys) {
+          outputs[spendKey].push_back(static_cast<uint32_t>(idx));
+        }
+      }
+      // If verification fails, silently skip — output is not ours.
     }
   }
 }
@@ -462,8 +490,8 @@ std::error_code createTransfers(
 
     auto outType = tx.getOutputType(size_t(idx));
 
-    if (
-      outType != TransactionTypes::OutputType::Key) {
+    if (outType != TransactionTypes::OutputType::Key &&
+        outType != TransactionTypes::OutputType::Confidential) {
       continue;
     }
 
@@ -506,6 +534,38 @@ std::error_code createTransfers(
       info.amount = amount;
       info.outputKey = out.key;
 
+    } else if (outType == TransactionTypes::OutputType::Confidential) {
+      // CT output: recover amount and blinding factor via ECDH
+      ConfidentialOutput ctOut;
+      tx.getOutput(idx, ctOut);
+
+      Crypto::MaskedAmount masked;
+      memcpy(masked.data, ctOut.maskedAmount.data(), sizeof(masked.data));
+
+      const Crypto::PublicKey& commitmentPK = reinterpret_cast<const Crypto::PublicKey&>(ctOut.commitment);
+
+      uint64_t recoveredAmount = 0;
+      Crypto::EllipticCurveScalar blindingFactor;
+
+      if (!Crypto::decrypt_and_verify_output(account.viewSecretKey, txPubKey, idx,
+                                              masked, commitmentPK,
+                                              recoveredAmount, blindingFactor)) {
+        // Should not happen — findMyOutputs already verified this output is ours
+        continue;
+      }
+
+      info.amount = recoveredAmount;
+      info.commitment = ctOut.commitment;
+      info.blindingFactor = blindingFactor;
+
+      // Generate key image for CT output using the same derivation scheme
+      CryptoNote::KeyPair in_ephemeral;
+      CryptoNote::generate_key_image_helper(
+        account,
+        txPubKey,
+        idx,
+        in_ephemeral,
+        info.keyImage);
     }
     transfers.push_back(info);
   }

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <limits>
 #include <vector>
+#include "CryptoTypes.h"
 #include "crypto/hash.h"
 #include "ITransaction.h"
 #include "IObservable.h"
@@ -56,9 +57,13 @@ struct TransactionOutputInformation {
   Crypto::PublicKey transactionPublicKey;
 
   union {
-    Crypto::PublicKey outputKey; // Type: Key 
+    Crypto::PublicKey outputKey; // Type: Key
     uint32_t requiredSignatures; // Type: Multisignature
   };
+
+  // CT fields (valid when type == Confidential)
+  Crypto::EllipticCurvePoint commitment;       // Pedersen commitment C = v*H + r*G
+  Crypto::EllipticCurveScalar blindingFactor;   // blinding factor r
 };
 
 struct TransactionSpentOutputInformation: public TransactionOutputInformation {
@@ -80,18 +85,21 @@ public:
     // output type
     IncludeTypeKey = 0x100,
     IncludeTypeMultisignature = 0x200,
+    IncludeTypeConfidential = 0x400,
     // combinations
     IncludeStateAll = 0xff,
     IncludeTypeAll = 0xff00,
 
     IncludeKeyUnlocked = IncludeTypeKey | IncludeStateUnlocked,
     IncludeKeyNotUnlocked = IncludeTypeKey | IncludeStateLocked | IncludeStateSoftLocked,
+    IncludeConfidentialUnlocked = IncludeTypeConfidential | IncludeStateUnlocked,
+    IncludeConfidentialNotUnlocked = IncludeTypeConfidential | IncludeStateLocked | IncludeStateSoftLocked,
 
     IncludeAllLocked = IncludeTypeAll | IncludeStateLocked | IncludeStateSoftLocked,
     IncludeAllUnlocked = IncludeTypeAll | IncludeStateUnlocked,
     IncludeAll = IncludeTypeAll | IncludeStateAll,
 
-    IncludeDefault = IncludeKeyUnlocked
+    IncludeDefault = IncludeKeyUnlocked | IncludeConfidentialUnlocked
   };
 
   virtual size_t transfersCount() const = 0;

@@ -80,6 +80,7 @@ namespace CryptoNote {
     virtual uint64_t getOutputTotalAmount() const override;
     virtual TransactionTypes::OutputType getOutputType(size_t index) const override;
     virtual void getOutput(size_t index, KeyOutput& output, uint64_t& amount) const override;
+    virtual void getOutput(size_t index, ConfidentialOutput& output) const override;
 
     virtual size_t getRequiredSignaturesCount(size_t index) const override;
     virtual bool findOutputsToAccount(const AccountPublicAddress& addr, const SecretKey& viewSecretKey, std::vector<uint32_t>& outs, uint64_t& outputAmount) const override;
@@ -443,6 +444,11 @@ namespace CryptoNote {
     const auto& out = getOutputChecked(transaction, index, TransactionTypes::OutputType::Key);
     output = boost::get<KeyOutput>(out.target);
     amount = out.amount;
+  }
+
+  void TransactionImpl::getOutput(size_t index, ConfidentialOutput& output) const {
+    const auto& out = getOutputChecked(transaction, index, TransactionTypes::OutputType::Confidential);
+    output = boost::get<ConfidentialOutput>(out.target);
   }
 
   bool TransactionImpl::findOutputsToAccount(const AccountPublicAddress& addr, const SecretKey& viewSecretKey, std::vector<uint32_t>& out, uint64_t& amount) const {

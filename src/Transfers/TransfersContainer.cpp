@@ -44,7 +44,7 @@ void serialize(TransactionInformation& ti, CryptoNote::ISerializer& s) {
   s(ti.paymentId, "");
 }
 
-const uint32_t TRANSFERS_CONTAINER_STORAGE_VERSION = 0;
+const uint32_t TRANSFERS_CONTAINER_STORAGE_VERSION = 1;
 
 namespace {
   template<typename TIterator>
@@ -110,7 +110,7 @@ SpentOutputDescriptor::SpentOutputDescriptor(const TransactionOutputInformationI
     m_type(transactionInfo.type),
     m_amount(0),
     m_globalOutputIndex(0) {
-  if (m_type == TransactionTypes::OutputType::Key) {
+  if (m_type == TransactionTypes::OutputType::Key || m_type == TransactionTypes::OutputType::Confidential) {
     m_keyImage = &transactionInfo.keyImage;
   } else {
     assert(false);
@@ -131,8 +131,9 @@ bool SpentOutputDescriptor::isValid() const {
 }
 
 bool SpentOutputDescriptor::operator==(const SpentOutputDescriptor& other) const {
-  if (m_type == TransactionTypes::OutputType::Key) {
-    return other.m_type == m_type && *other.m_keyImage == *m_keyImage;
+  if (m_type == TransactionTypes::OutputType::Key || m_type == TransactionTypes::OutputType::Confidential) {
+    return (other.m_type == TransactionTypes::OutputType::Key || other.m_type == TransactionTypes::OutputType::Confidential)
+           && *other.m_keyImage == *m_keyImage;
   } else {
     assert(false);
     return false;
@@ -140,7 +141,7 @@ bool SpentOutputDescriptor::operator==(const SpentOutputDescriptor& other) const
 }
 
 size_t SpentOutputDescriptor::hash() const {
-  if (m_type == TransactionTypes::OutputType::Key) {
+  if (m_type == TransactionTypes::OutputType::Key || m_type == TransactionTypes::OutputType::Confidential) {
     static_assert(sizeof(size_t) < sizeof(*m_keyImage), "sizeof(size_t) < sizeof(*m_keyImage)");
     return *reinterpret_cast<const size_t*>(m_keyImage->data);
   } else {
@@ -261,7 +262,7 @@ bool TransfersContainer::addTransactionOutputs(const TransactionBlockInfo& block
       (void)result; // Disable unused warning
       assert(result.second);
     } else {
-      if (info.type == TransactionTypes::OutputType::Key) {
+      if (info.type == TransactionTypes::OutputType::Key || info.type == TransactionTypes::OutputType::Confidential) {
         bool duplicate = false;
         SpentOutputDescriptor descriptor(transfer);
 
@@ -280,7 +281,7 @@ bool TransfersContainer::addTransactionOutputs(const TransactionBlockInfo& block
         }
 
         if (duplicate) {
-          auto message = "Failed to add transaction output: key output already exists";
+          auto message = "Failed to add transaction output: output already exists";
           m_logger(ERROR, BRIGHT_RED) << message << ", transaction hash " << info.transactionHash << ", output index " << info.outputInTransaction <<
             ", key image " << info.keyImage;
           throw std::runtime_error(message);
@@ -292,7 +293,7 @@ bool TransfersContainer::addTransactionOutputs(const TransactionBlockInfo& block
       assert(result.second);
     }
 
-    if (info.type == TransactionTypes::OutputType::Key) {
+    if (info.type == TransactionTypes::OutputType::Key || info.type == TransactionTypes::OutputType::Confidential) {
       updateTransfersVisibility(info.keyImage);
     }
 
@@ -417,6 +418,36 @@ bool TransfersContainer::addTransactionInputs(const TransactionBlockInfo& block,
       updateTransfersVisibility(input.keyImage);
 
       inputsAdded = true;
+    } else if (inputType == TransactionTypes::InputType::Confidential) {
+      // CT input: extract key image from the raw transaction inputs
+      auto inputs = tx.getInputs();
+      if (i >= inputs.size()) continue;
+      const auto& ctInput = boost::get<ConfidentialInput>(inputs[i]);
+
+      SpentOutputDescriptor descriptor(&ctInput.keyImage);
+      auto spentRange = m_spentTransfers.get<SpentOutputDescriptorIndex>().equal_range(descriptor);
+      if (std::distance(spentRange.first, spentRange.second) > 0) {
+        auto message = "Failed add CT input: key image already spent";
+        m_logger(ERROR, BRIGHT_RED) << message << ", key image " << ctInput.keyImage;
+        throw std::runtime_error(message);
+      }
+
+      auto& outputDescriptorIndex = m_availableTransfers.get<SpentOutputDescriptorIndex>();
+      auto availableOutputsRange = outputDescriptorIndex.equal_range(SpentOutputDescriptor(&ctInput.keyImage));
+      size_t availableCount = std::distance(availableOutputsRange.first, availableOutputsRange.second);
+
+      if (availableCount == 0) {
+        // Not our output or view-only wallet
+        continue;
+      }
+
+      auto spendingTransferIt = availableOutputsRange.first;
+      assert(spendingTransferIt->keyImage == ctInput.keyImage);
+      copyToSpent(block, tx, i, *spendingTransferIt);
+      outputDescriptorIndex.erase(spendingTransferIt);
+      updateTransfersVisibility(ctInput.keyImage);
+
+      inputsAdded = true;
     } else {
       assert(inputType == TransactionTypes::InputType::Generating);
     }
@@ -486,7 +517,7 @@ bool TransfersContainer::markTransactionConfirmed(const TransactionBlockInfo& bl
 
       transferIt = m_unconfirmedTransfers.get<ContainingTransactionIndex>().erase(transferIt);
 
-      if (transfer.type == TransactionTypes::OutputType::Key) {
+      if (transfer.type == TransactionTypes::OutputType::Key || transfer.type == TransactionTypes::OutputType::Confidential) {
         updateTransfersVisibility(transfer.keyImage);
       }
     }
@@ -524,7 +555,7 @@ bool TransfersContainer::markTransactionConfirmed(const TransactionBlockInfo& bl
 
       transferIt = m_availableTransfers.get<ContainingTransactionIndex>().erase(transferIt);
 
-      if (unconfirmedTransfer.type == TransactionTypes::OutputType::Key) {
+      if (unconfirmedTransfer.type == TransactionTypes::OutputType::Key || unconfirmedTransfer.type == TransactionTypes::OutputType::Confidential) {
         updateTransfersVisibility(unconfirmedTransfer.keyImage);
       }
     }
@@ -560,14 +591,14 @@ void TransfersContainer::deleteTransactionTransfers(const Hash& transactionHash)
     assert(result.second);
     it = spendingTransactionIndex.erase(it);
 
-    if (result.first->type == TransactionTypes::OutputType::Key) {
+    if (result.first->type == TransactionTypes::OutputType::Key || result.first->type == TransactionTypes::OutputType::Confidential) {
       updateTransfersVisibility(result.first->keyImage);
     }
   }
 
   auto unconfirmedTransfersRange = m_unconfirmedTransfers.get<ContainingTransactionIndex>().equal_range(transactionHash);
   for (auto it = unconfirmedTransfersRange.first; it != unconfirmedTransfersRange.second;) {
-    if (it->type == TransactionTypes::OutputType::Key) {
+    if (it->type == TransactionTypes::OutputType::Key || it->type == TransactionTypes::OutputType::Confidential) {
       KeyImage keyImage = it->keyImage;
       it = m_unconfirmedTransfers.get<ContainingTransactionIndex>().erase(it);
       updateTransfersVisibility(keyImage);
@@ -579,7 +610,7 @@ void TransfersContainer::deleteTransactionTransfers(const Hash& transactionHash)
   auto& transactionTransfersIndex = m_availableTransfers.get<ContainingTransactionIndex>();
   auto transactionTransfersRange = transactionTransfersIndex.equal_range(transactionHash);
   for (auto it = transactionTransfersRange.first; it != transactionTransfersRange.second;) {
-    if (it->type == TransactionTypes::OutputType::Key) {
+    if (it->type == TransactionTypes::OutputType::Key || it->type == TransactionTypes::OutputType::Confidential) {
       KeyImage keyImage = it->keyImage;
       it = transactionTransfersIndex.erase(it);
       updateTransfersVisibility(keyImage);
@@ -1058,7 +1089,8 @@ bool TransfersContainer::isIncluded(TransactionTypes::OutputType type, uint32_t 
   return
     // filter by type
     (
-    ((flags & IncludeTypeKey) != 0            && type == TransactionTypes::OutputType::Key)
+    ((flags & IncludeTypeKey) != 0            && type == TransactionTypes::OutputType::Key) ||
+    ((flags & IncludeTypeConfidential) != 0   && type == TransactionTypes::OutputType::Confidential)
     )
     &&
     // filter by state

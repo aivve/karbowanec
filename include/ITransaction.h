@@ -29,8 +29,8 @@ namespace CryptoNote {
 
 namespace TransactionTypes {
   
-  enum class InputType : uint8_t { Invalid, Key, Generating };
-  enum class OutputType : uint8_t { Invalid, Key };
+  enum class InputType : uint8_t { Invalid, Key, Generating, Confidential };
+  enum class OutputType : uint8_t { Invalid, Key, Confidential };
 
   struct GlobalOutput {
     Crypto::PublicKey targetKey;
@@ -83,6 +83,7 @@ public:
   virtual uint64_t getOutputTotalAmount() const = 0;
   virtual TransactionTypes::OutputType getOutputType(size_t index) const = 0;
   virtual void getOutput(size_t index, KeyOutput& output, uint64_t& amount) const = 0;
+  virtual void getOutput(size_t index, ConfidentialOutput& output) const = 0;
 
   // signatures
   virtual size_t getRequiredSignaturesCount(size_t inputIndex) const = 0;
