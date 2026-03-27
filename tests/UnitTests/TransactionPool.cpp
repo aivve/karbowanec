@@ -192,6 +192,7 @@ namespace
     tx.inputs.push_back(std::move(in));
 
     ConfidentialOutput out;
+    std::memset(&out.targetKey, 0, sizeof(out.targetKey));
     std::memset(out.commitment.data, 0, sizeof(out.commitment.data));
     out.maskedAmount.fill(0);
 

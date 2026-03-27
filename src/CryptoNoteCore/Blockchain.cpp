@@ -2148,6 +2148,15 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       return false;
     }
     const auto& cout = boost::get<ConfidentialOutput>(tx.outputs[i].target);
+
+    // Verify targetKey is a valid curve point (stealth address)
+    ge_p3 targetKeyPoint;
+    if (ge_frombytes_vartime(&targetKeyPoint,
+        reinterpret_cast<const unsigned char*>(&cout.targetKey)) != 0) {
+      logger(ERROR) << "CT validation: output " << i << " targetKey is not a valid point in tx " << txHash;
+      return false;
+    }
+
     if (!Crypto::point_valid_for_pedersen(cout.commitment)) {
       logger(ERROR) << "CT validation: output " << i << " commitment fails subgroup check in tx " << txHash;
       return false;

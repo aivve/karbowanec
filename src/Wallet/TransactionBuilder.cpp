@@ -230,9 +230,10 @@ Transaction buildConfidentialTransaction(
     return a.amount < b.amount;
   });
 
-  // Per-output state: blinding factors, commitments, denomination indices
+  // Per-output state: blinding factors, commitments, stealth keys, denomination indices
   std::vector<Crypto::EllipticCurveScalar> outputBlindings(outputs.size());
   std::vector<Crypto::PublicKey> outputCommitments(outputs.size());
+  std::vector<Crypto::PublicKey> outputTargetKeys(outputs.size());
   std::vector<std::array<uint8_t, 8>> outputMaskedAmounts(outputs.size());
   std::vector<int> outputDenomIndices(outputs.size());
 
@@ -252,6 +253,12 @@ Transaction buildConfidentialTransaction(
       throw std::runtime_error("Failed to compute Pedersen commitment for output " + std::to_string(i));
     }
 
+    // Derive one-time stealth address: P = Hs(shared_secret || idx)*G + B_spend
+    if (!Crypto::derive_public_key(sharedSecret, i, outputs[i].destination.spendPublicKey,
+                                    outputTargetKeys[i])) {
+      throw std::runtime_error("Failed to derive one-time output key for output " + std::to_string(i));
+    }
+
     // ECDH-mask the amount
     Crypto::MaskedAmount masked;
     Crypto::mask_amount(sharedSecret, outputs[i].amount, masked);
@@ -264,6 +271,7 @@ Transaction buildConfidentialTransaction(
   tx.outputs.resize(outputs.size());
   for (size_t i = 0; i < outputs.size(); ++i) {
     ConfidentialOutput cout;
+    cout.targetKey = outputTargetKeys[i];
     std::memcpy(&cout.commitment, &outputCommitments[i], 32);
     cout.maskedAmount = outputMaskedAmounts[i];
 

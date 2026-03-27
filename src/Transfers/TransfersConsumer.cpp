@@ -106,8 +106,8 @@ void findMyOutputs(
 
     } else if (outType == TransactionTypes::OutputType::Confidential) {
       // CT output: try ECDH recovery to check if it belongs to us.
-      // Attempt decryption with each spend key's corresponding view key
-      // (all subscriptions share the same view key, so we just try once).
+      // Step 1: Verify commitment matches (proves output is for this view key).
+      // Step 2: Underive the stealth targetKey to find which spend key owns it.
       ConfidentialOutput ctOut;
       tx.getOutput(idx, ctOut);
 
@@ -124,10 +124,14 @@ void findMyOutputs(
       if (Crypto::decrypt_and_verify_output(viewSecretKey, txPublicKey, idx,
                                              masked, commitmentPK,
                                              recoveredAmount, blindingFactor)) {
-        // This CT output belongs to us. Add to all spend key subscriptions
-        // (same behavior as transparent outputs — the view key is shared).
-        for (const auto& spendKey : spendKeys) {
-          outputs[spendKey].push_back(static_cast<uint32_t>(idx));
+        // Commitment verified — output belongs to this view key.
+        // Now check targetKey to determine which spend key subscription owns it.
+        // P = Hs(derivation || idx)*G + B_spend  =>  B_spend = P - Hs(derivation || idx)*G
+        PublicKey recoveredSpendKey;
+        underive_public_key(derivation, idx, ctOut.targetKey, recoveredSpendKey);
+
+        if (spendKeys.find(recoveredSpendKey) != spendKeys.end()) {
+          outputs[recoveredSpendKey].push_back(static_cast<uint32_t>(idx));
         }
       }
       // If verification fails, silently skip — output is not ours.
@@ -555,10 +559,12 @@ std::error_code createTransfers(
       }
 
       info.amount = recoveredAmount;
+      info.outputKey = ctOut.targetKey;
       info.commitment = ctOut.commitment;
       info.blindingFactor = blindingFactor;
 
       // Generate key image for CT output using the same derivation scheme
+      // The one-time keypair is derived from targetKey: x = Hs(derivation||idx) + b
       CryptoNote::KeyPair in_ephemeral;
       CryptoNote::generate_key_image_helper(
         account,

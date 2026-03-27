@@ -369,6 +369,9 @@ void serialize(ConfidentialInput& input, ISerializer& serializer) {
 }
 
 void serialize(ConfidentialOutput& output, ISerializer& serializer) {
+  // One-time stealth address (32 bytes)
+  serializer(output.targetKey, "target_key");
+
   // Pedersen commitment (32 bytes)
   serializePod(output.commitment, "commitment", serializer);
 

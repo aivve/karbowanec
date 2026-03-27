@@ -65,8 +65,9 @@ struct KeyOutput {
 // Contains a Pedersen commitment and masked amount. GK denomination proofs
 // are stored separately in Transaction body.
 struct ConfidentialOutput {
-  Crypto::EllipticCurvePoint commitment;      // C = v*H + r*G  (32 bytes)
-  std::array<uint8_t, 8>    maskedAmount;     // ECDH-masked denomination (8 bytes)
+  Crypto::PublicKey          targetKey;        // One-time stealth address P = Hs(8aR||idx)*G + B  (32 bytes)
+  Crypto::EllipticCurvePoint commitment;       // Pedersen commitment C = v*H + r*G  (32 bytes)
+  std::array<uint8_t, 8>    maskedAmount;      // ECDH-masked denomination (8 bytes)
 };
 
 typedef boost::variant<KeyOutput, ConfidentialOutput> TransactionOutputTarget;
