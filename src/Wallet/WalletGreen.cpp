@@ -2394,13 +2394,18 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
       cti.ringOutputIndexes.push_back(gout.outputIndex);
     }
 
-    // Ring commitments: for pre-fork transparent outputs, commitment = amount*H (zero blinding).
-    // The amount for all ring members in the same bucket is ki.amount (since transparent outputs
-    // are grouped by amount). After redenomination, the effective amount is scaled.
-    uint64_t scaledAmount = ki.amount / CryptoNote::parameters::REDENOMINATION_FACTOR;
+    // Ring commitments must be computed exactly as core validation does:
+    // resolve each ring member amount from (raw amount bucket + member block/coinbase metadata).
+    TransactionOutput ringMemberOutput;
+    ringMemberOutput.amount = ki.amount;
+    ringMemberOutput.target = KeyOutput();
     for (size_t k = 0; k < ki.outputs.size(); ++k) {
+      const uint64_t resolvedAmount = resolveOutputAmount(
+        ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
       Crypto::EllipticCurvePoint ringCommit;
-      Crypto::transparent_amount_to_commitment(scaledAmount, ringCommit);
+      if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
+        throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
+      }
       cti.ringCommitments.push_back(ringCommit);
     }
 
@@ -2420,8 +2425,14 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
     // Real input's blinding factor: zero for pre-fork transparent outputs
     std::memset(&cti.realBlinding, 0, sizeof(cti.realBlinding));
 
-    // Amount in new atomic units
-    cti.amount = scaledAmount;
+    if (cti.realIndex >= ki.outputs.size()) {
+      throw std::runtime_error("Invalid real input index in CT input");
+    }
+
+    // Real input amount must use the same per-output resolver as the ring commitments.
+    cti.amount = resolveOutputAmount(ringMemberOutput,
+      ki.outputs[cti.realIndex].blockHeight,
+      ki.outputs[cti.realIndex].isCoinbase);
 
     // Store ephKeys back for caller
     input.ephKeys = ephKeys;
@@ -2590,24 +2601,49 @@ uint64_t WalletGreen::selectTransfers(
 
   uint64_t foundMoney = 0;
 
-  // Post-fork: exclude pre-fork transparent outputs whose scaled value floors to zero.
-  // These are dust that became worthless after redenomination.
+  // Post-fork: skip transparent outputs whose resolved spendable value is zero.
+  // This covers pre-fork dust that became worthless after redenomination.
   bool isPostFork = static_cast<uint32_t>(m_blockchain.size()) >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
-  typedef std::pair<WalletRecord*, TransactionOutputInformation> OutputData;
+  struct OutputData {
+    WalletRecord* wallet = nullptr;
+    TransactionOutputInformation output;
+    uint64_t spendAmount = 0;
+  };
+
   std::vector<OutputData> dustOutputs;
   std::vector<OutputData> walletOuts;
   for (auto walletIt = wallets.begin(); walletIt != wallets.end(); ++walletIt) {
     for (auto outIt = walletIt->outs.begin(); outIt != walletIt->outs.end(); ++outIt) {
-      // Post-fork: skip pre-fork outputs whose redenominated value is zero
-      if (isPostFork && outIt->amount / CryptoNote::parameters::REDENOMINATION_FACTOR == 0) {
-        continue;
+      uint64_t spendAmount = outIt->amount;
+
+      if (isPostFork) {
+        TransactionInformation txInfo;
+        const bool haveTxInfo = walletIt->wallet != nullptr &&
+          walletIt->wallet->container != nullptr &&
+          walletIt->wallet->container->getTransactionInformation(outIt->transactionHash, txInfo);
+        const bool isCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
+        const uint32_t blockHeight = haveTxInfo ? txInfo.blockHeight : 0;
+
+        TransactionOutput transparentOutput;
+        transparentOutput.amount = outIt->amount;
+        transparentOutput.target = KeyOutput();
+        spendAmount = resolveOutputAmount(transparentOutput, blockHeight, isCoinbase);
+
+        if (spendAmount == 0) {
+          continue;
+        }
       }
 
-      if (outIt->amount > dustThreshold) {
-        walletOuts.emplace_back(std::piecewise_construct, std::forward_as_tuple(walletIt->wallet), std::forward_as_tuple(*outIt));
+      OutputData data;
+      data.wallet = walletIt->wallet;
+      data.output = *outIt;
+      data.spendAmount = spendAmount;
+
+      if (spendAmount > dustThreshold) {
+        walletOuts.emplace_back(std::move(data));
       } else if (dust) {
-        dustOutputs.emplace_back(std::piecewise_construct, std::forward_as_tuple(walletIt->wallet), std::forward_as_tuple(*outIt));
+        dustOutputs.emplace_back(std::move(data));
       }
     }
   }
@@ -2615,16 +2651,16 @@ uint64_t WalletGreen::selectTransfers(
   ShuffleGenerator<size_t> indexGenerator(walletOuts.size());
   while (foundMoney < neededMoney && !indexGenerator.empty()) {
     auto& out = walletOuts[indexGenerator()];
-    foundMoney += out.second.amount;
-    selectedTransfers.emplace_back(OutputToTransfer{ std::move(out.second), std::move(out.first) });
+    foundMoney += out.spendAmount;
+    selectedTransfers.emplace_back(OutputToTransfer{ std::move(out.output), out.wallet });
   }
 
   if (dust && !dustOutputs.empty()) {
     ShuffleGenerator<size_t> dustIndexGenerator(dustOutputs.size());
     do {
       auto& out = dustOutputs[dustIndexGenerator()];
-      foundMoney += out.second.amount;
-      selectedTransfers.emplace_back(OutputToTransfer{ std::move(out.second), std::move(out.first) });
+      foundMoney += out.spendAmount;
+      selectedTransfers.emplace_back(OutputToTransfer{ std::move(out.output), out.wallet });
     } while (foundMoney < neededMoney && !dustIndexGenerator.empty());
   }
 
@@ -2715,6 +2751,13 @@ void WalletGreen::prepareInputs(
     TransactionTypes::InputKeyInfo keyInfo;
     keyInfo.amount = input.out.amount;
 
+    TransactionInformation txInfo;
+    bool haveTxInfo = input.wallet != nullptr &&
+      input.wallet->container != nullptr &&
+      input.wallet->container->getTransactionInformation(input.out.transactionHash, txInfo);
+    const bool realIsCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
+    const uint32_t realBlockHeight = haveTxInfo ? txInfo.blockHeight : 0;
+
     if(mixinResult.size()) {
       std::sort(mixinResult[i].outs.begin(), mixinResult[i].outs.end(),
         [] (const out_entry& a, const out_entry& b) { return a.global_amount_index < b.global_amount_index; });
@@ -2727,6 +2770,8 @@ void WalletGreen::prepareInputs(
         TransactionTypes::GlobalOutput globalOutput;
         globalOutput.outputIndex = static_cast<uint32_t>(fakeOut.global_amount_index);
         globalOutput.targetKey = reinterpret_cast<PublicKey&>(fakeOut.out_key);
+        globalOutput.blockHeight = fakeOut.block_height;
+        globalOutput.isCoinbase = fakeOut.is_coinbase != 0;
         keyInfo.outputs.push_back(std::move(globalOutput));
         if(keyInfo.outputs.size() >= mixIn)
           break;
@@ -2741,6 +2786,8 @@ void WalletGreen::prepareInputs(
     TransactionTypes::GlobalOutput realOutput;
     realOutput.outputIndex = input.out.globalOutputIndex;
     realOutput.targetKey = reinterpret_cast<const PublicKey&>(input.out.outputKey);
+    realOutput.blockHeight = realBlockHeight;
+    realOutput.isCoinbase = realIsCoinbase;
 
     auto insertedIn = keyInfo.outputs.insert(insertIn, realOutput);
 

@@ -113,6 +113,58 @@ static void test_tampered_f() {
   PASS();
 }
 
+static void test_tampered_q_point() {
+  TEST("Tampered Q point fails");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[7];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 7, tx_hash, proof)) { FAIL("prove"); return; }
+
+  unsigned char identity[32] = {0};
+  identity[0] = 1;
+  if (ge_frombytes_vartime(&proof.Q[0], identity) != 0) { FAIL("identity decode"); return; }
+  if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
+static void test_noncanonical_scalar_rejected() {
+  TEST("Non-canonical z scalar rejected");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[12];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 12, tx_hash, proof)) { FAIL("prove"); return; }
+
+  memset(proof.z[0].data, 0xFF, 32);
+  if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
 static void test_wrong_index() {
   TEST("Wrong denomination index rejected");
 
@@ -170,6 +222,8 @@ int main() {
   // Negative tests
   test_wrong_txhash();
   test_tampered_f();
+  test_tampered_q_point();
+  test_noncanonical_scalar_rejected();
   test_wrong_index();
   test_out_of_range();
 

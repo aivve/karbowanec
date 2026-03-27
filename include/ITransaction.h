@@ -35,6 +35,8 @@ namespace TransactionTypes {
   struct GlobalOutput {
     Crypto::PublicKey targetKey;
     uint32_t outputIndex;
+    uint32_t blockHeight = 0;
+    bool isCoinbase = false;
   };
 
   typedef std::vector<GlobalOutput> GlobalOutputsContainer;

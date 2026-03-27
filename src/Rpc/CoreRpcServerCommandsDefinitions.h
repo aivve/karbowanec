@@ -193,6 +193,8 @@ struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_request {
 struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry {
   uint64_t global_amount_index;
   Crypto::PublicKey out_key;
+  uint32_t block_height;
+  uint8_t is_coinbase;
 };
 #pragma pack(pop)
 
@@ -200,6 +202,8 @@ struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry_json : public COMMAN
   void serialize(ISerializer & s) {
     s(global_amount_index, "global_index");
     s(out_key, "public_key");
+    s(block_height, "block_height");
+    s(is_coinbase, "is_coinbase");
   }
 };
 

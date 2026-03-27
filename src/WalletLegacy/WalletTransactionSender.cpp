@@ -98,6 +98,23 @@ void WalletTransactionSender::validateTransfersAddresses(const std::vector<Walle
   }
 }
 
+uint64_t WalletTransactionSender::resolveSpendableAmount(const TransactionOutputInformation& output, bool isPostFork) const {
+  if (!isPostFork) {
+    return output.amount;
+  }
+
+  TransactionInformation txInfo;
+  const bool haveTxInfo = m_transferDetails.getTransactionInformation(output.transactionHash, txInfo);
+  const bool isCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
+  const uint32_t blockHeight = haveTxInfo ? txInfo.blockHeight : 0;
+
+  TransactionOutput transparentOutput;
+  transparentOutput.amount = output.amount;
+  transparentOutput.target = KeyOutput();
+
+  return resolveOutputAmount(transparentOutput, blockHeight, isCoinbase);
+}
+
 std::shared_ptr<WalletRequest> WalletTransactionSender::makeSendRequest(TransactionId& transactionId, std::deque<std::shared_ptr<WalletLegacyEvent>>& events,
     const std::vector<WalletLegacyTransfer>& transfers, const std::list<TransactionOutputInformation>& selectedOuts, uint64_t fee, const std::string& extra, uint64_t mixIn, uint64_t unlockTimestamp) {
 
@@ -106,12 +123,13 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::makeSendRequest(Transact
   throwIf(transfers.empty(), error::ZERO_DESTINATION);
   validateTransfersAddresses(transfers);
   uint64_t neededMoney = countNeededMoney(fee, transfers);
+  const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
 
   if (selectedOuts.size() > 0) {
     for (auto& out : selectedOuts) {
-      context->foundMoney += out.amount;
+      context->foundMoney += resolveSpendableAmount(out, isPostFork);
     }
     context->selectedTransfers = selectedOuts;
   }
@@ -145,12 +163,13 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
   throwIf(transfers.empty(), error::ZERO_DESTINATION);
   validateTransfersAddresses(transfers);
   uint64_t neededMoney = countNeededMoney(fee, transfers);
+  const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
 
   if (selectedOuts.size() > 0) {
     for (auto& out : selectedOuts) {
-      context->foundMoney += out.amount;
+      context->foundMoney += resolveSpendableAmount(out, isPostFork);
     }
     context->selectedTransfers = selectedOuts;
   }
@@ -331,14 +350,23 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
           cti.ringPubkeys.push_back(gout.targetKey);
           cti.ringOutputIndexes.push_back(gout.outputIndex);
         }
-        // Transparent ring commitments: amount*H
-        uint64_t scaledAmount = ki.amount / CryptoNote::parameters::REDENOMINATION_FACTOR;
+        // Ring commitments must be computed exactly as core validation does.
+        TransactionOutput ringMemberOutput;
+        ringMemberOutput.amount = ki.amount;
+        ringMemberOutput.target = KeyOutput();
         for (size_t k = 0; k < ki.outputs.size(); ++k) {
+          const uint64_t resolvedAmount = resolveOutputAmount(
+            ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
           Crypto::EllipticCurvePoint ringCommit;
-          Crypto::transparent_amount_to_commitment(scaledAmount, ringCommit);
+          if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
+            throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
+          }
           cti.ringCommitments.push_back(ringCommit);
         }
         cti.realIndex = ki.realOutput.transactionIndex;
+        if (cti.realIndex >= ki.outputs.size()) {
+          throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
+        }
         // Derive ephemeral spend key
         KeyPair ephKeys;
         Crypto::KeyImage dummy_ki;
@@ -348,7 +376,9 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
             ephKeys, dummy_ki);
         cti.spendPrivkey = ephKeys.secretKey;
         std::memset(&cti.realBlinding, 0, sizeof(cti.realBlinding)); // transparent: zero blinding
-        cti.amount = scaledAmount;
+        cti.amount = resolveOutputAmount(ringMemberOutput,
+          ki.outputs[cti.realIndex].blockHeight,
+          ki.outputs[cti.realIndex].isCoinbase);
         ctInputs.push_back(std::move(cti));
       }
 
@@ -451,6 +481,11 @@ void WalletTransactionSender::prepareInputs(
     inp.keyInfo.amount = td.amount;
     inp.senderKeys = m_keys;
 
+    TransactionInformation txInfo;
+    bool haveTxInfo = m_transferDetails.getTransactionInformation(td.transactionHash, txInfo);
+    const bool realIsCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
+    const uint32_t realBlockHeight = haveTxInfo ? txInfo.blockHeight : 0;
+
     //paste mixin transaction
     if (outs.size()) {
       std::sort(outs[i].outs.begin(), outs[i].outs.end(),
@@ -461,6 +496,8 @@ void WalletTransactionSender::prepareInputs(
         TransactionTypes::GlobalOutput go;
         go.outputIndex = static_cast<uint32_t>(daemon_oe.global_amount_index);
         go.targetKey = daemon_oe.out_key;
+        go.blockHeight = daemon_oe.block_height;
+        go.isCoinbase = daemon_oe.is_coinbase != 0;
         inp.keyInfo.outputs.push_back(go);
         if (inp.keyInfo.outputs.size() >= mixIn)
           break;
@@ -474,6 +511,8 @@ void WalletTransactionSender::prepareInputs(
     TransactionTypes::GlobalOutput real_go;
     real_go.outputIndex = td.globalOutputIndex;
     real_go.targetKey = td.outputKey;
+    real_go.blockHeight = realBlockHeight;
+    real_go.isCoinbase = realIsCoinbase;
 
     auto inserted_it = inp.keyInfo.outputs.insert(it_to_insert, real_go);
 
@@ -528,12 +567,20 @@ uint64_t WalletTransactionSender::selectTransfersToSend(uint64_t neededMoney, bo
   
   std::vector<TransactionOutputInformation> outputs;
   m_transferDetails.getOutputs(outputs, ITransfersContainer::IncludeKeyUnlocked);
+  const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  std::vector<uint64_t> spendableAmounts(outputs.size(), 0);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     const auto& out = outputs[i];
     if (!m_transactionsCache.isUsed(out)) {
+      const uint64_t spendableAmount = resolveSpendableAmount(out, isPostFork);
+      if (isPostFork && spendableAmount == 0) {
+        continue;
+      }
+      spendableAmounts[i] = spendableAmount;
+
       if (is_valid_decomposed_amount(out.amount)) {
-        if (dust < out.amount) {
+        if (dust < spendableAmount) {
           unusedTransfers.push_back(i);
         } else {
           unusedDust.push_back(i);
@@ -555,7 +602,7 @@ uint64_t WalletTransactionSender::selectTransfersToSend(uint64_t neededMoney, bo
       idx = !unusedTransfers.empty() ? popRandomValue(urng, unusedTransfers) : popRandomValue(urng, unusedDust);
     }
     selectedTransfers.push_back(outputs[idx]);
-    foundMoney += outputs[idx].amount;
+    foundMoney += spendableAmounts[idx];
   }
 
   return foundMoney;

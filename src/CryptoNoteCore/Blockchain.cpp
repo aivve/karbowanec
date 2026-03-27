@@ -1731,6 +1731,8 @@ bool Blockchain::add_out_to_get_random_outs(uint64_t amount, size_t globalIdx,
                               COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry());
   oen.global_amount_index = static_cast<uint32_t>(globalIdx);
   oen.out_key = boost::get<KeyOutput>(te.tx.outputs[outIdx].target).key;
+  oen.block_height = block;
+  oen.is_coinbase = (txSlot == 0) ? 1 : 0;
   return true;
 }
 

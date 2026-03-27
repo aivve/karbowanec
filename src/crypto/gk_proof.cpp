@@ -30,6 +30,7 @@
 
 #include <cstring>
 #include <cassert>
+#include <vector>
 
 extern "C" {
 #include "crypto-ops.h"
@@ -56,6 +57,12 @@ static void uint64_to_scalar(uint64_t val, EllipticCurveScalar& s) {
 
 static void p3_to_bytes(unsigned char out[32], const ge_p3* p) {
   ge_p3_tobytes(out, p);
+}
+
+static bool subgroup_check_p3(const ge_p3& p) {
+  EllipticCurvePoint point;
+  ge_p3_tobytes(reinterpret_cast<unsigned char*>(&point), &p);
+  return point_valid_for_pedersen(point);
 }
 
 static bool p2_to_p3(ge_p3* out, const ge_p2* in) {
@@ -129,7 +136,7 @@ static bool compute_derived_ring(const EllipticCurvePoint& C,
 
 // ── Fiat-Shamir challenge ───────────────────────────────────────────────
 //
-// x = Keccak(domain || tx_hash || D[0..63] || A[0..5] || B[0..5] || Q[0..5])
+// x = Keccak(domain || D[0..63] || A[0..5] || B[0..5] || Q[0..5] || tx_hash)
 
 static void compute_challenge(const Hash& tx_hash,
                               const ge_p3 D[GK_N],
@@ -144,14 +151,11 @@ static void compute_challenge(const Hash& tx_hash,
   const size_t n_points = GK_N + GK_n + GK_n + GK_n;
   const size_t buf_size = domain_len + 32 + n_points * 32;
 
-  unsigned char* buf = new unsigned char[buf_size];
-  unsigned char* ptr = buf;
+  std::vector<unsigned char> buf(buf_size);
+  unsigned char* ptr = buf.data();
 
   memcpy(ptr, domain, domain_len);
   ptr += domain_len;
-
-  memcpy(ptr, tx_hash.data, 32);
-  ptr += 32;
 
   for (size_t k = 0; k < GK_N; ++k) {
     p3_to_bytes(ptr, &D[k]);
@@ -173,12 +177,13 @@ static void compute_challenge(const Hash& tx_hash,
     ptr += 32;
   }
 
-  assert(ptr == buf + buf_size);
+  memcpy(ptr, tx_hash.data, 32);
+  ptr += 32;
 
-  cn_fast_hash(buf, buf_size, reinterpret_cast<Hash&>(x));
+  assert(ptr == buf.data() + buf_size);
+
+  cn_fast_hash(buf.data(), buf_size, reinterpret_cast<Hash&>(x));
   sc_reduce32(x.data);
-
-  delete[] buf;
 }
 
 // ── Polynomial computation ──────────────────────────────────────────────
@@ -372,10 +377,33 @@ bool gk_prove(const EllipticCurvePoint& C,
 bool gk_verify(const EllipticCurvePoint& C,
                const GKProof& proof,
                const Hash& tx_hash) {
+  if (sc_check(proof.f.data) != 0) {
+    return false;
+  }
+  for (size_t j = 0; j < GK_n; ++j) {
+    if (sc_check(proof.z[j].data) != 0) {
+      return false;
+    }
+    if (!subgroup_check_p3(proof.A[j])) {
+      return false;
+    }
+    if (!subgroup_check_p3(proof.B[j])) {
+      return false;
+    }
+    if (!subgroup_check_p3(proof.Q[j])) {
+      return false;
+    }
+  }
+
   // Step 0: Compute derived ring
   ge_p3 D[GK_N];
   ge_p3 C_p3;
   if (!compute_derived_ring(C, D, C_p3)) return false;
+  for (size_t k = 0; k < GK_N; ++k) {
+    if (!subgroup_check_p3(D[k])) {
+      return false;
+    }
+  }
 
   // Step 1: Recompute challenge
   EllipticCurveScalar x;

@@ -65,6 +65,8 @@ private:
   void validateTransfersAddresses(const std::vector<WalletLegacyTransfer>& transfers);
   bool validateDestinationAddress(const std::string& address);
 
+  uint64_t resolveSpendableAmount(const TransactionOutputInformation& output, bool isPostFork) const;
+
   uint64_t selectTransfersToSend(uint64_t neededMoney, bool addUnmixable, uint64_t dust, std::list<TransactionOutputInformation>& selectedTransfers);
 
   const Currency& m_currency;
