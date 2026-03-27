@@ -18,6 +18,7 @@
 #include "gtest/gtest.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include <boost/filesystem/operations.hpp>
 
@@ -174,6 +175,34 @@ namespace
 {
   static const size_t textMaxCumulativeSize = std::numeric_limits<size_t>::max();
 
+  Transaction createMinimalCtTransaction(uint64_t fee, uint8_t keyImageTag) {
+    Transaction tx;
+    tx.version = TRANSACTION_VERSION_CT;
+    tx.unlockTime = 0;
+    tx.fee = fee;
+
+    ConfidentialInput in;
+    in.ringAmount = 1;
+    in.ringOutputIndexes.push_back(0);
+    in.ringPubkeys.emplace_back();
+    in.ringCommitments.emplace_back();
+    std::memset(in.pseudoCommitment.data, 0, sizeof(in.pseudoCommitment.data));
+    std::memset(in.keyImage.data, 0, sizeof(in.keyImage.data));
+    in.keyImage.data[0] = keyImageTag;
+    tx.inputs.push_back(std::move(in));
+
+    ConfidentialOutput out;
+    std::memset(out.commitment.data, 0, sizeof(out.commitment.data));
+    out.maskedAmount.fill(0);
+
+    TransactionOutput txOut;
+    txOut.amount = 0;
+    txOut.target = out;
+    tx.outputs.push_back(std::move(txOut));
+
+    return tx;
+  }
+
   void GenerateTransaction(const CryptoNote::Currency& currency, Transaction& tx, uint64_t fee, size_t outputs) {
     TestTransactionGenerator txGenerator(currency, 1);
     txGenerator.createSources();
@@ -260,6 +289,65 @@ TEST_F(tx_pool, take_tx)
   ASSERT_EQ(fee, test.m_currency.minimumFee());
   ASSERT_EQ(tx, txOut);
 };
+
+TEST_F(tx_pool, ct_tx_zero_fee_is_relayed) {
+  TestPool<TransactionValidator, RealTimeProvider> pool(currency, logger);
+  Transaction tx = createMinimalCtTransaction(0, 0x11);
+
+  tx_verification_context tvc = boost::value_initialized<tx_verification_context>();
+  ASSERT_TRUE(pool.add_tx(tx, tvc, false));
+  ASSERT_TRUE(tvc.m_added_to_pool);
+  ASSERT_TRUE(tvc.m_should_be_relayed);
+  ASSERT_FALSE(tvc.m_verification_failed);
+}
+
+TEST_F(tx_pool, ct_tx_uses_explicit_fee_in_take_tx) {
+  TestPool<TransactionValidator, RealTimeProvider> pool(currency, logger);
+  const uint64_t explicitFee = currency.minimumFee() * 2;
+  Transaction tx = createMinimalCtTransaction(explicitFee, 0x12);
+  const Crypto::Hash txHash = getObjectHash(tx);
+
+  tx_verification_context tvc = boost::value_initialized<tx_verification_context>();
+  ASSERT_TRUE(pool.add_tx(tx, tvc, false));
+  ASSERT_TRUE(tvc.m_added_to_pool);
+  ASSERT_TRUE(tvc.m_should_be_relayed);
+
+  Transaction txOut;
+  size_t blobSize = 0;
+  uint64_t fee = 0;
+  ASSERT_TRUE(pool.take_tx(txHash, txOut, blobSize, fee));
+  ASSERT_EQ(fee, explicitFee);
+}
+
+TEST_F(tx_pool, block_template_prioritizes_ct_by_explicit_fee) {
+  TestPool<TransactionValidator, RealTimeProvider> pool(currency, logger);
+  pool.coreStub.set_blockchain_top(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT, NULL_HASH);
+
+  const uint64_t lowFee = currency.minimumFee();
+  const uint64_t highFee = lowFee * 2;
+
+  Transaction txLow = createMinimalCtTransaction(lowFee, 0x21);
+  Transaction txHigh = createMinimalCtTransaction(highFee, 0x22);
+  const Crypto::Hash lowHash = getObjectHash(txLow);
+  const Crypto::Hash highHash = getObjectHash(txHigh);
+
+  tx_verification_context tvc = boost::value_initialized<tx_verification_context>();
+  ASSERT_TRUE(pool.add_tx(txLow, tvc, false));
+  ASSERT_TRUE(tvc.m_added_to_pool);
+  ASSERT_TRUE(pool.add_tx(txHigh, tvc, false));
+  ASSERT_TRUE(tvc.m_added_to_pool);
+
+  Block bl;
+  InitBlock(bl);
+  size_t totalSize = 0;
+  uint64_t totalFee = 0;
+  ASSERT_TRUE(pool.fill_block_template(bl, 5000, textMaxCumulativeSize, 0, totalSize, totalFee));
+
+  ASSERT_EQ(bl.transactionHashes.size(), 2);
+  ASSERT_EQ(bl.transactionHashes[0], highHash);
+  ASSERT_EQ(bl.transactionHashes[1], lowHash);
+  ASSERT_EQ(totalFee, highFee + lowFee);
+}
 
 
 TEST_F(tx_pool, double_spend_tx)
