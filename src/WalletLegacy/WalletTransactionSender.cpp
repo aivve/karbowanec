@@ -475,6 +475,10 @@ void WalletTransactionSender::prepareInputs(
   size_t i = 0;
 
   for (const auto& td: selectedTransfers) {
+    if (td.type != TransactionTypes::OutputType::Key) {
+      throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
+    }
+
     inputs.resize(inputs.size() + 1);
     TxBuildInput& inp = inputs.back();
 

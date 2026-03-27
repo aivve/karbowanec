@@ -2600,6 +2600,7 @@ uint64_t WalletGreen::selectTransfers(
   std::vector<OutputToTransfer>& selectedTransfers) {
 
   uint64_t foundMoney = 0;
+  size_t skippedConfidentialOutputs = 0;
 
   // Post-fork: skip transparent outputs whose resolved spendable value is zero.
   // This covers pre-fork dust that became worthless after redenomination.
@@ -2615,6 +2616,13 @@ uint64_t WalletGreen::selectTransfers(
   std::vector<OutputData> walletOuts;
   for (auto walletIt = wallets.begin(); walletIt != wallets.end(); ++walletIt) {
     for (auto outIt = walletIt->outs.begin(); outIt != walletIt->outs.end(); ++outIt) {
+      // Spending confidential outputs is not implemented yet in CT input construction.
+      // Keep them out of automatic selection to avoid constructing invalid spends.
+      if (outIt->type == TransactionTypes::OutputType::Confidential) {
+        ++skippedConfidentialOutputs;
+        continue;
+      }
+
       uint64_t spendAmount = outIt->amount;
 
       if (isPostFork) {
@@ -2662,6 +2670,12 @@ uint64_t WalletGreen::selectTransfers(
       foundMoney += out.spendAmount;
       selectedTransfers.emplace_back(OutputToTransfer{ std::move(out.output), out.wallet });
     } while (foundMoney < neededMoney && !dustIndexGenerator.empty());
+  }
+
+  if (skippedConfidentialOutputs != 0 && foundMoney < neededMoney) {
+    m_logger(WARNING, BRIGHT_YELLOW)
+      << "Skipped " << skippedConfidentialOutputs
+      << " confidential output(s) during selection because confidential-input spending is not implemented yet";
   }
 
   return foundMoney;
@@ -2748,6 +2762,10 @@ void WalletGreen::prepareInputs(
 
   size_t i = 0;
   for (const auto& input: selectedTransfers) {
+    if (input.out.type != TransactionTypes::OutputType::Key) {
+      throw std::runtime_error("Cannot spend confidential output: confidential-input spending is not implemented yet");
+    }
+
     TransactionTypes::InputKeyInfo keyInfo;
     keyInfo.amount = input.out.amount;
 
