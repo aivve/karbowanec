@@ -124,23 +124,32 @@ namespace CryptoNote {
       return false;
     }
 
-    uint64_t inputs_amount = 0;
-    if (!get_inputs_money_amount(tx, inputs_amount)) {
-      tvc.m_verification_failed = true;
-      return false;
+    const bool isCT = tx.version == TRANSACTION_VERSION_CT;
+    uint64_t fee = 0;
+    bool isFusionTransaction = false;
+
+    if (isCT) {
+      // CT transactions carry explicit plaintext fee.
+      fee = tx.fee;
+    } else {
+      uint64_t inputs_amount = 0;
+      if (!get_inputs_money_amount(tx, inputs_amount)) {
+        tvc.m_verification_failed = true;
+        return false;
+      }
+
+      uint64_t outputs_amount = get_outs_money_amount(tx);
+
+      if (outputs_amount > inputs_amount) {
+        logger(INFO) << "transaction use more money then it has: use " << m_currency.formatAmount(outputs_amount) <<
+          ", have " << m_currency.formatAmount(inputs_amount);
+        tvc.m_verification_failed = true;
+        return false;
+      }
+
+      fee = inputs_amount - outputs_amount;
+      isFusionTransaction = fee == 0 && m_currency.isFusionTransaction(tx, blobSize, m_core.getCurrentBlockchainHeight());
     }
-
-    uint64_t outputs_amount = get_outs_money_amount(tx);
-
-    if (outputs_amount > inputs_amount) {
-      logger(INFO) << "transaction use more money then it has: use " << m_currency.formatAmount(outputs_amount) <<
-        ", have " << m_currency.formatAmount(inputs_amount);
-      tvc.m_verification_failed = true;
-      return false;
-    }
-
-    const uint64_t fee = inputs_amount - outputs_amount;
-    bool isFusionTransaction = fee == 0 && m_currency.isFusionTransaction(tx, blobSize, m_core.getCurrentBlockchainHeight());
 
     //check key images for transaction if it is not kept by block
     if (!keptByBlock) {
@@ -211,7 +220,7 @@ namespace CryptoNote {
     }
 
     tvc.m_added_to_pool = true;
-    tvc.m_should_be_relayed = inputsValid && (fee > 0 || isFusionTransaction);
+    tvc.m_should_be_relayed = inputsValid && (isCT || fee > 0 || isFusionTransaction);
     tvc.m_verification_failed = true;
 
     if (!addTransactionInputs(id, tx, keptByBlock))

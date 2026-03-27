@@ -89,6 +89,11 @@ uint64_t power_integral(uint64_t a, uint64_t b) {
 }
 
 bool get_tx_fee(const Transaction& tx, uint64_t & fee) {
+  if (tx.version == TRANSACTION_VERSION_CT) {
+    fee = tx.fee;
+    return true;
+  }
+
   uint64_t amount_in = 0;
   uint64_t amount_out = 0;
 

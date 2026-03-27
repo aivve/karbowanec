@@ -22,11 +22,8 @@
 
 namespace Crypto {
 
-// Pedersen commitment second generator H = hash_to_point("karbo_pedersen_H")
-// Pre-computed at startup via ct_ecdh_init().
-extern PublicKey H;
-
-// Must be called once at startup before any CT operations.
+// Kept for backwards compatibility with older tests/callers.
+// CT Pedersen commitments now use the shared pedersen.cpp generator path.
 void ct_ecdh_init();
 
 #pragma pack(push, 1)

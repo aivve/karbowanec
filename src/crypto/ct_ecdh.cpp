@@ -23,16 +23,13 @@
 #include "crypto.h"
 #include "crypto-ops.h"
 #include "hash.h"
+#include "pedersen.h"
 
 namespace Crypto {
 
-  PublicKey H;
-
   void ct_ecdh_init() {
-    // H = hash_to_point("karbo_pedersen_H")
-    // Uses the same hash-to-curve method as key images (cofactor-cleared).
-    static const char domain[] = "karbo_pedersen_H";
-    hash_data_to_ec(reinterpret_cast<const uint8_t*>(domain), sizeof(domain) - 1, H);
+    // No-op: kept for API compatibility. The active CT Pedersen generator is
+    // provided by pedersen_get_H() in pedersen.cpp.
   }
 
   // Internal helper: derive scalar from shared secret concatenated with a varint index.
@@ -58,43 +55,19 @@ namespace Crypto {
 
   bool pedersen_commit(uint64_t amount, const EllipticCurveScalar& blinding_factor,
                        PublicKey& commitment) {
-    // C = amount * H + blinding_factor * G
-
-    // Encode amount as a scalar (little-endian uint64 zero-padded to 32 bytes)
-    unsigned char amount_scalar[32] = {0};
-    for (int i = 0; i < 8; i++) {
-      amount_scalar[i] = static_cast<unsigned char>((amount >> (8 * i)) & 0xFF);
+    EllipticCurveScalar amount_scalar;
+    memset(amount_scalar.data, 0, sizeof(amount_scalar.data));
+    for (int i = 0; i < 8; ++i) {
+      amount_scalar.data[i] = static_cast<unsigned char>((amount >> (8 * i)) & 0xFF);
     }
 
-    // Compute amount * H
-    ge_p3 H_point;
-    if (ge_frombytes_vartime(&H_point, reinterpret_cast<const unsigned char*>(&H)) != 0) {
-      return false;
-    }
-    ge_p2 vH_p2;
-    ge_scalarmult(&vH_p2, amount_scalar, &H_point);
-
-    // Compute blinding_factor * G
-    ge_p3 rG;
-    ge_scalarmult_base(&rG, reinterpret_cast<const unsigned char*>(&blinding_factor));
-
-    // Add: C = vH + rG
-    // Convert vH from p2 to p3 via bytes round-trip
-    unsigned char vH_bytes[32];
-    ge_tobytes(vH_bytes, &vH_p2);
-    ge_p3 vH_p3;
-    if (ge_frombytes_vartime(&vH_p3, vH_bytes) != 0) {
+    EllipticCurvePoint commitment_point;
+    if (!Crypto::pedersen_commit(amount_scalar, blinding_factor, commitment_point)) {
       return false;
     }
 
-    ge_cached rG_cached;
-    ge_p3_to_cached(&rG_cached, &rG);
-    ge_p1p1 sum_p1p1;
-    ge_add(&sum_p1p1, &vH_p3, &rG_cached);
-    ge_p2 sum_p2;
-    ge_p1p1_to_p2(&sum_p2, &sum_p1p1);
-    ge_tobytes(reinterpret_cast<unsigned char*>(&commitment), &sum_p2);
-
+    static_assert(sizeof(commitment) == sizeof(commitment_point), "Point/PublicKey size mismatch");
+    memcpy(&commitment, &commitment_point, sizeof(commitment));
     return true;
   }
 

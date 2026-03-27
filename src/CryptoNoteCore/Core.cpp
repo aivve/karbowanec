@@ -908,6 +908,28 @@ bool Core::parse_tx_from_blob(Transaction& tx, Crypto::Hash& tx_hash, Crypto::Ha
 }
 
 bool Core::check_tx_syntax(const Transaction& tx, const Crypto::Hash& tx_hash) {
+  if (tx.version != CURRENT_TRANSACTION_VERSION && tx.version != TRANSACTION_VERSION_CT) {
+    logger(ERROR) << "Transaction " << Common::podToHex(tx_hash)
+                  << " has unsupported version " << static_cast<int>(tx.version);
+    return false;
+  }
+
+  const uint32_t chainHeight = getCurrentBlockchainHeight();
+  const bool ctActivated = chainHeight >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  if (tx.version == TRANSACTION_VERSION_CT && !ctActivated) {
+    logger(ERROR) << "CT transaction " << Common::podToHex(tx_hash)
+                  << " arrived before CT activation height "
+                  << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT
+                  << " (current height " << chainHeight << ")";
+    return false;
+  }
+
+  if (tx.version == CURRENT_TRANSACTION_VERSION && getCurrentBlockMajorVersion() >= BLOCK_MAJOR_VERSION_6) {
+    logger(ERROR) << "Legacy transaction " << Common::podToHex(tx_hash)
+                  << " rejected in block-major-version >= 6 (CT-only era)";
+    return false;
+  }
+
   return true;
 }
 
