@@ -208,6 +208,31 @@ static void test_out_of_range() {
   PASS();
 }
 
+static void test_proof_layout_constants() {
+  TEST("Proof layout constants (18 points + 7 scalars = 800 bytes)");
+
+  const size_t pointSize = sizeof(Crypto::EllipticCurvePoint);
+  const size_t scalarSize = sizeof(Crypto::EllipticCurveScalar);
+
+  if (pointSize != 32 || scalarSize != 32) {
+    FAIL("unexpected point/scalar size");
+    return;
+  }
+
+  const size_t expectedWireBytes = (18 * pointSize) + (7 * scalarSize);
+  if (expectedWireBytes != 800) {
+    FAIL("unexpected GK wire proof size");
+    return;
+  }
+
+  if (Crypto::GK_n != 6 || Crypto::GK_N != 64) {
+    FAIL("unexpected GK dimensions");
+    return;
+  }
+
+  PASS();
+}
+
 int main() {
   printf("GK One-of-Many Proof Tests\n");
   printf("==========================\n");
@@ -226,6 +251,7 @@ int main() {
   test_noncanonical_scalar_rejected();
   test_wrong_index();
   test_out_of_range();
+  test_proof_layout_constants();
 
   // Test all 64 denominations
   printf("\nAll-denominations sweep:\n");

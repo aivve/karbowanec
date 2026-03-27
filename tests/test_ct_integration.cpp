@@ -745,6 +745,45 @@ static void test_ecdh_multiple_outputs() {
   PASS();
 }
 
+static void test_ecdh_pedersen_generator_consistency() {
+  TEST("ECDH: pedersen wrapper uses shared generator (init-order safe)");
+
+  const uint64_t amount = CryptoNote::DENOMINATIONS[17];
+  Crypto::EllipticCurveScalar blinding;
+  test_random_scalar(blinding);
+
+  // Commitment via CT ECDH wrapper.
+  Crypto::PublicKey commitment_from_wrapper;
+  if (!Crypto::pedersen_commit(amount, blinding, commitment_from_wrapper)) {
+    FAIL("wrapper pedersen_commit failed");
+  }
+
+  // Commitment via scalar API in pedersen.cpp (source of truth).
+  Crypto::EllipticCurveScalar amount_scalar;
+  uint64_to_scalar(amount, amount_scalar);
+  Crypto::EllipticCurvePoint commitment_from_scalar_api;
+  if (!Crypto::pedersen_commit(amount_scalar, blinding, commitment_from_scalar_api)) {
+    FAIL("scalar pedersen_commit failed");
+  }
+
+  if (memcmp(commitment_from_wrapper.data, commitment_from_scalar_api.data, 32) != 0) {
+    FAIL("wrapper/scalar commitment mismatch");
+  }
+
+  // ct_ecdh_init() is intentionally a no-op; calling it must not alter behavior.
+  Crypto::ct_ecdh_init();
+  Crypto::PublicKey commitment_after_init;
+  if (!Crypto::pedersen_commit(amount, blinding, commitment_after_init)) {
+    FAIL("wrapper pedersen_commit after init failed");
+  }
+
+  if (memcmp(commitment_from_wrapper.data, commitment_after_init.data, 32) != 0) {
+    FAIL("ct_ecdh_init altered commitment behavior");
+  }
+
+  PASS();
+}
+
 // =====================================================================
 // SECTION 8: COMBINED / EDGE CASES
 // =====================================================================
@@ -1083,6 +1122,7 @@ int main() {
   test_ecdh_recipient_identifies_output();
   test_ecdh_non_owner_skips();
   test_ecdh_multiple_outputs();
+  test_ecdh_pedersen_generator_consistency();
 
   printf("\n[Combined / edge cases]\n");
   test_tx_version_requirements();
