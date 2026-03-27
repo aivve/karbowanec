@@ -2547,9 +2547,25 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
       block.transactions.resize(block.transactions.size() + 1);
       block.transactions.back().tx = transactions[i];
 
+      // Block v6: only confidential transactions (version 2) are allowed.
+      // This prevents old-style transparent outputs with large pre-fork amounts.
+      if (blockData.majorVersion >= BLOCK_MAJOR_VERSION_6 &&
+          transactions[i].version != TRANSACTION_VERSION_CT) {
+        logger(ERROR, BRIGHT_RED) << "Block " << blockHash
+          << " (v6+) contains non-CT transaction " << tx_id
+          << " with version " << (int)transactions[i].version << ", rejected";
+        bvc.m_verification_failed = true;
+        m_db.abortTxn();
+        m_batchCount = 0;
+        return false;
+      }
+
       size_t blob_size = toBinaryArray(block.transactions.back().tx).size();
-      uint64_t fee = getInputAmount(block.transactions.back().tx) -
-                     getOutputAmount(block.transactions.back().tx);
+      // CT transactions carry an explicit fee field; transparent txs derive fee from I/O difference.
+      uint64_t fee = (transactions[i].version == TRANSACTION_VERSION_CT)
+                     ? transactions[i].fee
+                     : getInputAmount(block.transactions.back().tx) -
+                       getOutputAmount(block.transactions.back().tx);
 
       // Under a confirmed checkpoint the block hash has already been verified by
       // the network. Skip the expensive per-input validation (key-image domain
