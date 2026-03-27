@@ -44,6 +44,26 @@ using namespace Logging;
 
 namespace CryptoNote {
 
+  namespace {
+    bool isTxVersionAllowedForHeight(const Transaction& tx, uint32_t height, uint8_t blockMajorVersion) {
+      if (tx.version != CURRENT_TRANSACTION_VERSION && tx.version != TRANSACTION_VERSION_CT) {
+        return false;
+      }
+
+      if (tx.version == TRANSACTION_VERSION_CT &&
+          height < CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
+        return false;
+      }
+
+      if (tx.version == CURRENT_TRANSACTION_VERSION &&
+          blockMajorVersion >= BLOCK_MAJOR_VERSION_6) {
+        return false;
+      }
+
+      return true;
+    }
+  } // namespace
+
   //---------------------------------------------------------------------------------
   // BlockTemplate
   //---------------------------------------------------------------------------------
@@ -339,6 +359,23 @@ namespace CryptoNote {
       logger(DEBUGGING) << "MemPool - Block height incremented, cleared " << m_validated_transactions.size() << " cached transaction hashes. New height: " << new_block_height << " Top block: " << top_block_id;
       m_validated_transactions.clear();
 	}
+
+    const uint32_t validationHeight = static_cast<uint32_t>(new_block_height);
+    const uint8_t blockMajorVersion = m_core.getBlockMajorVersionForHeight(validationHeight);
+    size_t removedByVersion = 0;
+    for (auto it = m_transactions.begin(); it != m_transactions.end();) {
+      if (!isTxVersionAllowedForHeight(it->tx, validationHeight, blockMajorVersion)) {
+        it = removeTransaction(it);
+        ++removedByVersion;
+      } else {
+        ++it;
+      }
+    }
+    if (removedByVersion != 0) {
+      logger(DEBUGGING) << "MemPool - Pruned " << removedByVersion
+                        << " tx(s) incompatible with height " << validationHeight
+                        << " (block major version " << static_cast<unsigned>(blockMajorVersion) << ")";
+    }
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -417,6 +454,8 @@ namespace CryptoNote {
 
     total_size = 0;
     fee = 0;
+    const uint32_t blockHeight = m_core.getCurrentBlockchainHeight();
+    const uint8_t blockMajorVersion = m_core.getBlockMajorVersionForHeight(blockHeight);
 
     size_t max_total_size = (125 * median_size) / 100;
     max_total_size = std::min(max_total_size, maxCumulativeSize) - m_currency.minerTxBlobReservedSize();
@@ -425,6 +464,12 @@ namespace CryptoNote {
 
     for (auto i = m_fee_index.begin(); i != m_fee_index.end(); ++i) {
       const auto& txd = *i;
+
+      if (!isTxVersionAllowedForHeight(txd.tx, blockHeight, blockMajorVersion)) {
+        logger(DEBUGGING) << "Transaction " << txd.id
+                          << " not included to block template due to tx version/fork gating mismatch";
+        continue;
+      }
 
       size_t blockSizeLimit = (txd.fee == 0) ? median_size : max_total_size;
       if (blockSizeLimit < total_size + txd.blobSize) {

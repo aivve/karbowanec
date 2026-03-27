@@ -306,6 +306,8 @@ bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uin
     return true;
   }
 
+  const uint8_t blockMajorVersion = m_blockchain.getBlockMajorVersionForHeight(height);
+
   size_t inputIndex = 0;
   for (const auto& txin : tx.inputs) {
     assert(inputIndex < tx.signatures.size());
@@ -316,7 +318,7 @@ bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uin
         logger(ERROR) << "Transaction " << Common::podToHex(txHash) << " has too large mixIn count, rejected";
         return false;
       }
-      if (getCurrentBlockMajorVersion() >= BLOCK_MAJOR_VERSION_4 && txMixin < m_currency.minMixin() && txMixin != 1) {
+      if (blockMajorVersion >= BLOCK_MAJOR_VERSION_4 && txMixin < m_currency.minMixin() && txMixin != 1) {
         logger(ERROR) << "Transaction " << Common::podToHex(txHash) << " has mixIn count below the required minimum, rejected";
         return false;
       }
@@ -915,26 +917,28 @@ bool Core::parse_tx_from_blob(Transaction& tx, Crypto::Hash& tx_hash, Crypto::Ha
   return parseAndValidateTransactionFromBinaryArray(blob, tx, tx_hash, tx_prefix_hash);
 }
 
-bool Core::check_tx_syntax(const Transaction& tx, const Crypto::Hash& tx_hash) {
+bool Core::check_tx_syntax(const Transaction& tx, const Crypto::Hash& tx_hash, uint32_t height) {
   if (tx.version != CURRENT_TRANSACTION_VERSION && tx.version != TRANSACTION_VERSION_CT) {
     logger(ERROR) << "Transaction " << Common::podToHex(tx_hash)
                   << " has unsupported version " << static_cast<int>(tx.version);
     return false;
   }
 
-  const uint32_t chainHeight = getCurrentBlockchainHeight();
-  const bool ctActivated = chainHeight >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  const bool ctActivated = height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
   if (tx.version == TRANSACTION_VERSION_CT && !ctActivated) {
     logger(ERROR) << "CT transaction " << Common::podToHex(tx_hash)
                   << " arrived before CT activation height "
                   << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT
-                  << " (current height " << chainHeight << ")";
+                  << " (validation height " << height << ")";
     return false;
   }
 
-  if (tx.version == CURRENT_TRANSACTION_VERSION && getCurrentBlockMajorVersion() >= BLOCK_MAJOR_VERSION_6) {
+  const uint8_t blockMajorVersion = m_blockchain.getBlockMajorVersionForHeight(height);
+  if (tx.version == CURRENT_TRANSACTION_VERSION && blockMajorVersion >= BLOCK_MAJOR_VERSION_6) {
     logger(ERROR) << "Legacy transaction " << Common::podToHex(tx_hash)
-                  << " rejected in block-major-version >= 6 (CT-only era)";
+                  << " rejected for block height " << height
+                  << " (major version " << static_cast<unsigned>(blockMajorVersion)
+                  << ", CT-only era)";
     return false;
   }
 
@@ -1380,7 +1384,7 @@ bool Core::getPaymentId(const Transaction& transaction, Crypto::Hash& paymentId)
 }
 
 bool Core::handleIncomingTransaction(const Transaction& tx, const Crypto::Hash& txHash, size_t blobSize, tx_verification_context& tvc, bool keptByBlock, uint32_t height) {
-  if (!check_tx_syntax(tx, txHash)) {
+  if (!check_tx_syntax(tx, txHash, height)) {
     logger(INFO) << "WRONG TRANSACTION BLOB, Failed to check tx " << txHash << " syntax, rejected";
     tvc.m_verification_failed = true;
     return false;

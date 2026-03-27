@@ -189,7 +189,7 @@ namespace CryptoNote {
      bool load_state_data();
      bool parse_tx_from_blob(Transaction& tx, Crypto::Hash& tx_hash, Crypto::Hash& tx_prefix_hash, const BinaryArray& blob);
 
-     bool check_tx_syntax(const Transaction& txc, const Crypto::Hash& txHash);
+     bool check_tx_syntax(const Transaction& txc, const Crypto::Hash& txHash, uint32_t height);
      //check correct values, amounts and all lightweight checks not related with database
      bool check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, bool keeped_by_block);
      //check if tx already in memory pool or in main blockchain
