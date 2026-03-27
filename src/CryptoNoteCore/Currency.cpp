@@ -167,7 +167,12 @@ namespace CryptoNote {
 
 		uint64_t supply = effectiveMoneySupply(height);
 
-		baseRewardInitial = alreadyGeneratedCoins < supply ? (supply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : CryptoNote::parameters::TAIL_EMISSION_REWARD;
+		uint64_t tailReward = CryptoNote::parameters::TAIL_EMISSION_REWARD;
+		if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
+			tailReward /= CryptoNote::parameters::REDENOMINATION_FACTOR;
+			if (tailReward == 0) tailReward = 1; // ensure at least 1 new atomic unit
+		}
+		baseRewardInitial = alreadyGeneratedCoins < supply ? (supply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : tailReward;
 		// Tail emission: Friedman's k-percent rule, 2% of circulating supply per year
 		const uint64_t blocksInOneYear = expectedNumberOfBlocksPerDay() * 365;
 		baseRewardTail = alreadyGeneratedCoins / (50 * blocksInOneYear);

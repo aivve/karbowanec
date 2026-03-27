@@ -310,7 +310,11 @@ bool lookup_acc_outs(const AccountKeys& acc, const Transaction& tx, const Public
   generate_key_derivation(tx_pub_key, acc.viewSecretKey, derivation);
 
   for (const TransactionOutput& o : tx.outputs) {
-    assert(o.target.type() == typeid(KeyOutput));
+    if (o.target.type() != typeid(KeyOutput)) {
+      // Skip non-KeyOutput types (e.g. ConfidentialOutput in CT transactions)
+      ++outputIndex;
+      continue;
+    }
     if (o.target.type() == typeid(KeyOutput)) {
       if (is_out_to_acc(acc, boost::get<KeyOutput>(o.target), derivation, keyIndex)) {
         outs.push_back(outputIndex);

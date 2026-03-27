@@ -133,7 +133,11 @@ bool findOutputsToAccount(const CryptoNote::TransactionPrefix& transaction, cons
   generate_key_derivation(txPubKey, keys.viewSecretKey, derivation);
 
   for (const TransactionOutput& o : transaction.outputs) {
-    assert(o.target.type() == typeid(KeyOutput));
+    if (o.target.type() != typeid(KeyOutput)) {
+      // Skip non-KeyOutput types (e.g. ConfidentialOutput in CT transactions)
+      ++outputIndex;
+      continue;
+    }
     if (o.target.type() == typeid(KeyOutput)) {
       if (is_out_to_acc(keys, boost::get<KeyOutput>(o.target), derivation, keyIndex)) {
         out.push_back(outputIndex);

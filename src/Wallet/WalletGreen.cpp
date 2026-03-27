@@ -2679,7 +2679,7 @@ std::vector<WalletGreen::WalletOuts> WalletGreen::pickWalletsWithMoney() const {
     ITransfersContainer* container = wallet.container;
 
     WalletOuts outs;
-    container->getOutputs(outs.outs, ITransfersContainer::IncludeKeyUnlocked);
+    container->getOutputs(outs.outs, ITransfersContainer::IncludeDefault);
     outs.wallet = const_cast<WalletRecord *>(&wallet);
 
     walletOuts.push_back(std::move(outs));
@@ -2693,7 +2693,7 @@ WalletGreen::WalletOuts WalletGreen::pickWallet(const std::string& address) cons
 
   ITransfersContainer* container = wallet.container;
   WalletOuts outs;
-  container->getOutputs(outs.outs, ITransfersContainer::IncludeKeyUnlocked);
+  container->getOutputs(outs.outs, ITransfersContainer::IncludeDefault);
   outs.wallet = const_cast<WalletRecord *>(&wallet);
 
   return outs;

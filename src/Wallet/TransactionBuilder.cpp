@@ -111,26 +111,9 @@ std::unique_ptr<ITransaction> buildTransaction(
 
 // ── Confidential (v2 CT) transaction builder ─────────────────────────────────
 
-// Helper: compute inputs hash for deterministic tx key derivation.
-// Hashes key images of all CT inputs.
-static Crypto::Hash computeCTInputsHash(const std::vector<CTBuildInput>& inputs) {
-  BinaryArray ba;
-  for (const auto& in : inputs) {
-    // Hash: key image = x * Hp(P), but we don't have it yet at this point.
-    // Instead hash the ring pubkeys + real index, which uniquely identifies the input.
-    for (const auto& pk : in.ringPubkeys) {
-      ba.insert(ba.end(), pk.data, pk.data + 32);
-    }
-    uint8_t idx_buf[8] = {0};
-    for (int i = 0; i < 8; ++i)
-      idx_buf[i] = static_cast<uint8_t>(in.realIndex >> (8 * i));
-    ba.insert(ba.end(), idx_buf, idx_buf + 8);
-  }
-
-  Crypto::Hash result;
-  Crypto::cn_fast_hash(ba.data(), ba.size(), result);
-  return result;
-}
+// computeCTInputsHash is no longer needed — we use getObjectHash(tx.inputs)
+// after fully populating the ConfidentialInput structs, which matches the
+// hash used by isOurOutgoingTransaction() in TransfersConsumer.cpp.
 
 Transaction buildConfidentialTransaction(
     std::vector<CTBuildInput>& inputs,
@@ -171,15 +154,76 @@ Transaction buildConfidentialTransaction(
     }
   }
 
-  // ── Step 1: Deterministic tx key from view secret key + inputs hash ────────
-  Crypto::Hash inputsHash = computeCTInputsHash(inputs);
+  // ── Step 1: Prepare inputs — key images, pseudo-commitments ─────────────────
+  std::vector<Crypto::EllipticCurveScalar> pseudoBlindings(inputs.size());
+  std::vector<Crypto::EllipticCurvePoint> pseudoCommitments(inputs.size());
+  std::vector<Crypto::KeyImage> keyImages(inputs.size());
+
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    // Generate random pseudo-blinding factor
+    Crypto::EllipticCurveScalar r_pseudo;
+    Random::randomBytes(32, r_pseudo.data);
+    sc_reduce32(r_pseudo.data);
+    pseudoBlindings[i] = r_pseudo;
+
+    // Compute pseudo-commitment: C' = amount*H + r'*G
+    Crypto::PublicKey pseudo_pk;
+    if (!Crypto::pedersen_commit(inputs[i].amount, r_pseudo, pseudo_pk)) {
+      throw std::runtime_error("Failed to compute pseudo-commitment for input " + std::to_string(i));
+    }
+    std::memcpy(&pseudoCommitments[i], &pseudo_pk, 32);
+
+    // Compute key image: I = x * Hp(P_real)
+    Crypto::PublicKey realPubkey = inputs[i].ringPubkeys[inputs[i].realIndex];
+    Crypto::generate_key_image(realPubkey, inputs[i].spendPrivkey, keyImages[i]);
+  }
+
+  // ── Step 2: Assemble inputs into transaction prefix ────────────────────────
+  // We must build the full ConfidentialInput structs BEFORE computing the
+  // deterministic tx key, so that getObjectHash(tx.inputs) matches the hash
+  // used by isOurOutgoingTransaction() in TransfersConsumer.cpp.
+  Transaction tx;
+  tx.version = TRANSACTION_VERSION_CT;
+  tx.unlockTime = 0;  // CT transactions: unlockTime must be 0
+  tx.fee = fee;
+
+  tx.inputs.resize(inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    ConfidentialInput cin;
+    cin.ringAmount = inputs[i].ringAmount;
+    cin.ringOutputIndexes = absolute_output_offsets_to_relative(inputs[i].ringOutputIndexes);
+    cin.ringPubkeys = inputs[i].ringPubkeys;
+    cin.ringCommitments = inputs[i].ringCommitments;
+    cin.pseudoCommitment = pseudoCommitments[i];
+    cin.keyImage = keyImages[i];
+    tx.inputs[i] = std::move(cin);
+  }
+
+  // ── Step 3: Deterministic tx key from view secret key + inputs hash ────────
+  // Uses getObjectHash(tx.inputs) which is the canonical serialization of the
+  // fully populated ConfidentialInput structs — identical to what
+  // ITransactionReader::getTransactionInputsHash() returns.
+  Crypto::Hash inputsHash;
+  getObjectHash(tx.inputs, inputsHash);
   KeyPair txKeyPair;
   if (!generateDeterministicTransactionKeys(inputsHash, viewSecretKey, txKeyPair)) {
     throw std::runtime_error("Failed to generate deterministic transaction keys");
   }
   txSecretKey = txKeyPair.secretKey;
 
-  // ── Step 2: Prepare outputs ────────────────────────────────────────────────
+  // Extra: add tx public key + any user extra data
+  {
+    tx.extra.push_back(0x01);  // TX_EXTRA_TAG_PUBKEY
+    const uint8_t* pk_data = reinterpret_cast<const uint8_t*>(&txKeyPair.publicKey);
+    tx.extra.insert(tx.extra.end(), pk_data, pk_data + 32);
+
+    if (!extra.empty()) {
+      const uint8_t* extra_data = reinterpret_cast<const uint8_t*>(extra.data());
+      tx.extra.insert(tx.extra.end(), extra_data, extra_data + extra.size());
+    }
+  }
+
+  // ── Step 4: Prepare outputs ────────────────────────────────────────────────
   // Shuffle outputs for privacy, then sort by amount (ascending) for determinism
   std::shuffle(outputs.begin(), outputs.end(), Random::generator());
   std::sort(outputs.begin(), outputs.end(), [](const CTBuildOutput& a, const CTBuildOutput& b) {
@@ -214,63 +258,6 @@ Transaction buildConfidentialTransaction(
     std::memcpy(outputMaskedAmounts[i].data(), masked.data, 8);
 
     outputDenomIndices[i] = denominationIndex(outputs[i].amount);
-  }
-
-  // ── Step 3: Prepare inputs — pseudo-output commitments ─────────────────────
-  std::vector<Crypto::EllipticCurveScalar> pseudoBlindings(inputs.size());
-  std::vector<Crypto::EllipticCurvePoint> pseudoCommitments(inputs.size());
-  std::vector<Crypto::KeyImage> keyImages(inputs.size());
-
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    // Generate random pseudo-blinding factor
-    Crypto::EllipticCurveScalar r_pseudo;
-    Random::randomBytes(32, r_pseudo.data);
-    sc_reduce32(r_pseudo.data);
-    pseudoBlindings[i] = r_pseudo;
-
-    // Compute pseudo-commitment: C' = amount*H + r'*G
-    Crypto::PublicKey pseudo_pk;
-    if (!Crypto::pedersen_commit(inputs[i].amount, r_pseudo, pseudo_pk)) {
-      throw std::runtime_error("Failed to compute pseudo-commitment for input " + std::to_string(i));
-    }
-    std::memcpy(&pseudoCommitments[i], &pseudo_pk, 32);
-
-    // Compute key image: I = x * Hp(P_real)
-    Crypto::PublicKey realPubkey = inputs[i].ringPubkeys[inputs[i].realIndex];
-    Crypto::generate_key_image(realPubkey, inputs[i].spendPrivkey, keyImages[i]);
-  }
-
-  // ── Step 4: Assemble the transaction prefix (without proof response fields) ─
-  Transaction tx;
-  tx.version = TRANSACTION_VERSION_CT;
-  tx.unlockTime = 0;  // CT transactions: unlockTime must be 0
-  tx.fee = fee;
-
-  // Extra: add tx public key + any user extra data
-  {
-    // Add transaction public key to extra
-    tx.extra.push_back(0x01);  // TX_EXTRA_TAG_PUBKEY
-    const uint8_t* pk_data = reinterpret_cast<const uint8_t*>(&txKeyPair.publicKey);
-    tx.extra.insert(tx.extra.end(), pk_data, pk_data + 32);
-
-    // Append user extra (payment ID, etc.)
-    if (!extra.empty()) {
-      const uint8_t* extra_data = reinterpret_cast<const uint8_t*>(extra.data());
-      tx.extra.insert(tx.extra.end(), extra_data, extra_data + extra.size());
-    }
-  }
-
-  // Build inputs (prefix only — MLSAG signatures go in tx.ctSignatures)
-  tx.inputs.resize(inputs.size());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    ConfidentialInput cin;
-    cin.ringAmount = inputs[i].ringAmount;
-    cin.ringOutputIndexes = absolute_output_offsets_to_relative(inputs[i].ringOutputIndexes);
-    cin.ringPubkeys = inputs[i].ringPubkeys;
-    cin.ringCommitments = inputs[i].ringCommitments;
-    cin.pseudoCommitment = pseudoCommitments[i];
-    cin.keyImage = keyImages[i];
-    tx.inputs[i] = std::move(cin);
   }
 
   // Build outputs (prefix only — GK proofs go in tx.ctProofs)
