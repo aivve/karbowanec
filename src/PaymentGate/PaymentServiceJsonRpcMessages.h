@@ -526,4 +526,120 @@ struct SendDelayedTransaction {
   };
 };
 
+// --- Webwallet mode messages ---
+
+struct GetNonce {
+  struct Request {
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+
+  struct Response {
+    std::string nonce;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+};
+
+struct RegisterAddress {
+  struct Request {
+    std::string address;
+    std::string spendPublicKey;
+    std::string nonce;
+    std::string signature;
+    uint32_t scanHeight = std::numeric_limits<uint32_t>::max();
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+
+  struct Response {
+    std::string address;
+    std::string token;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+};
+
+struct RefreshToken {
+  struct Request {
+    std::string address;
+    std::string nonce;
+    std::string signature;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+
+  struct Response {
+    std::string token;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+};
+
+struct SourceOutputInfo {
+  uint64_t amount;
+  std::string publicKey;     // output one-time key
+  uint32_t index;            // output index in transaction
+  uint32_t globalIndex;      // global output index
+  std::string txPublicKey;   // transaction public key
+
+  void serialize(CryptoNote::ISerializer& serializer);
+};
+
+struct MixinOutput {
+  std::string publicKey;
+  uint32_t globalIndex;
+
+  void serialize(CryptoNote::ISerializer& serializer);
+};
+
+struct SourceEntry {
+  SourceOutputInfo output;
+  std::vector<MixinOutput> mixOuts;
+
+  void serialize(CryptoNote::ISerializer& serializer);
+};
+
+struct PrepareTransaction {
+  struct Request {
+    std::string address;
+    std::string authToken;
+    std::vector<WalletRpcOrder> destinations;
+    uint64_t fee = 0;
+    uint32_t anonymity = DEFAULT_ANONYMITY_LEVEL;
+    std::string paymentId;
+    uint64_t unlockTime = 0;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+
+  struct Response {
+    std::vector<SourceEntry> sources;
+    std::vector<WalletRpcOrder> destinations;  // includes change
+    std::string changeAddress;
+    uint64_t fee;
+    uint32_t anonymity;
+    std::string paymentId;
+    uint64_t unlockTime;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+};
+
+struct SendRawTransaction {
+  struct Request {
+    std::string address;
+    std::string authToken;
+    std::string transactionHex;
+    std::string txSecretKey;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+
+  struct Response {
+    std::string transactionHash;
+
+    void serialize(CryptoNote::ISerializer& serializer);
+  };
+};
+
 } //namespace PaymentService

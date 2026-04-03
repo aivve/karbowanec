@@ -25,6 +25,7 @@
 
 #include "PaymentServiceJsonRpcMessages.h"
 #include "WalletService.h"
+#include "WebWalletAuth.h"
 
 #include "Serialization/JsonInputValueSerializer.h"
 #include "Serialization/JsonOutputStreamSerializer.h"
@@ -69,6 +70,103 @@ PaymentServiceJsonRpcServer::PaymentServiceJsonRpcServer(System::Dispatcher* sys
   handlers.emplace("signMessage", jsonHandler<SignMessage::Request, SignMessage::Response>(std::bind(&PaymentServiceJsonRpcServer::handleSignMessage, this, std::placeholders::_1, std::placeholders::_2)));
   handlers.emplace("verifyMessage", jsonHandler<VerifyMessage::Request, VerifyMessage::Response>(std::bind(&PaymentServiceJsonRpcServer::handleVerifyMessage, this, std::placeholders::_1, std::placeholders::_2)));
 
+  // Webwallet handlers (always registered, but only functional when webwallet mode enabled)
+  handlers.emplace("getNonce", jsonHandler<GetNonce::Request, GetNonce::Response>(std::bind(&PaymentServiceJsonRpcServer::handleGetNonce, this, std::placeholders::_1, std::placeholders::_2)));
+  handlers.emplace("registerAddress", jsonHandler<RegisterAddress::Request, RegisterAddress::Response>(std::bind(&PaymentServiceJsonRpcServer::handleRegisterAddress, this, std::placeholders::_1, std::placeholders::_2)));
+  handlers.emplace("refreshToken", jsonHandler<RefreshToken::Request, RefreshToken::Response>(std::bind(&PaymentServiceJsonRpcServer::handleRefreshToken, this, std::placeholders::_1, std::placeholders::_2)));
+  handlers.emplace("prepareTransaction", jsonHandler<PrepareTransaction::Request, PrepareTransaction::Response>(std::bind(&PaymentServiceJsonRpcServer::handlePrepareTransaction, this, std::placeholders::_1, std::placeholders::_2)));
+  handlers.emplace("sendRawTransaction", jsonHandler<SendRawTransaction::Request, SendRawTransaction::Response>(std::bind(&PaymentServiceJsonRpcServer::handleSendRawTransaction, this, std::placeholders::_1, std::placeholders::_2)));
+
+  initAuthLevels();
+}
+
+void PaymentServiceJsonRpcServer::setWebWalletMode(bool enabled, const std::string& authSidecarPath) {
+  m_webwalletMode = enabled;
+  if (enabled) {
+    m_auth.reset(new WebWalletAuth(authSidecarPath, logger.getLogger()));
+    m_auth->load();
+    logger(Logging::INFO, Logging::BRIGHT_WHITE) << "Webwallet mode enabled, auth sidecar: " << authSidecarPath;
+  }
+}
+
+void PaymentServiceJsonRpcServer::initAuthLevels() {
+  // Public: accessible without any authentication in webwallet mode
+  m_authLevels["getStatus"] = AuthLevel::PUBLIC;
+  m_authLevels["validateAddress"] = AuthLevel::PUBLIC;
+  m_authLevels["getNonce"] = AuthLevel::PUBLIC;
+  m_authLevels["registerAddress"] = AuthLevel::PUBLIC;
+  m_authLevels["refreshToken"] = AuthLevel::PUBLIC;
+
+  // Address token: requires per-address auth token
+  m_authLevels["getBalance"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["getTransactionHashes"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["getTransactions"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["getUnconfirmedTransactionHashes"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["getTransaction"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["getTransactionSecretKey"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["getTransactionProof"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["prepareTransaction"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["sendRawTransaction"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["deleteAddress"] = AuthLevel::ADDRESS_TOKEN;
+  m_authLevels["hasAddress"] = AuthLevel::ADDRESS_TOKEN;
+
+  // Master: requires HTTP Basic auth (existing mechanism)
+  // Everything else defaults to MASTER
+}
+
+bool PaymentServiceJsonRpcServer::checkWebWalletAuth(const std::string& method, const Common::JsonValue& params, Common::JsonValue& resp) {
+  if (!m_webwalletMode || !m_auth) {
+    return true; // not in webwallet mode, pass through
+  }
+
+  auto levelIt = m_authLevels.find(method);
+  AuthLevel level = (levelIt != m_authLevels.end()) ? levelIt->second : AuthLevel::MASTER;
+
+  if (level == AuthLevel::PUBLIC) {
+    return true;
+  }
+
+  if (level == AuthLevel::MASTER) {
+    // Master auth is handled by HTTP Basic auth in the HTTP layer.
+    // If we got here, it passed (or basic auth is not configured).
+    return true;
+  }
+
+  // ADDRESS_TOKEN: need authToken + address in params
+  if (level == AuthLevel::ADDRESS_TOKEN) {
+    std::string address;
+    std::string authToken;
+
+    // Try to extract address and authToken from params
+    if (params.contains("address") && params("address").isString()) {
+      address = params("address").getString();
+    }
+    if (params.contains("authToken") && params("authToken").isString()) {
+      authToken = params("authToken").getString();
+    }
+
+    // For methods that use "addresses" array, take the first one
+    if (address.empty() && params.contains("addresses") && params("addresses").isArray()) {
+      const auto& addrs = params("addresses");
+      if (addrs.size() > 0 && addrs[0].isString()) {
+        address = addrs[0].getString();
+      }
+    }
+
+    if (address.empty() || authToken.empty()) {
+      makeGenericErrorReponse(resp, "Authentication required: address and authToken must be provided", -32001);
+      return false;
+    }
+
+    if (!m_auth->validateToken(address, authToken)) {
+      makeGenericErrorReponse(resp, "Authentication failed: invalid or expired token", -32002);
+      return false;
+    }
+
+    return true;
+  }
+
+  return true;
 }
 
 void PaymentServiceJsonRpcServer::processJsonRpcRequest(const Common::JsonValue& req, Common::JsonValue& resp) {
@@ -96,11 +194,31 @@ void PaymentServiceJsonRpcServer::processJsonRpcRequest(const Common::JsonValue&
       return;
     }
 
+    // In webwallet mode, block dangerous methods entirely
+    if (m_webwalletMode) {
+      static const std::unordered_set<std::string> blockedMethods = {
+        "getSpendKeys", "getMnemonicSeed", "getViewKey",
+        "sendTransaction", "createDelayedTransaction", "sendDelayedTransaction",
+        "createAddress", "createAddressList",
+        "reset", "export", "signMessage",
+        "getReserveProof"
+      };
+      if (blockedMethods.count(method)) {
+        makeGenericErrorReponse(resp, "Method not available in webwallet mode", -32003);
+        return;
+      }
+    }
+
     logger(Logging::DEBUGGING) << method << " request came";
 
     Common::JsonValue params(Common::JsonValue::OBJECT);
     if (req.contains("params")) {
       params = req("params");
+    }
+
+    // Check webwallet auth before executing handler
+    if (!checkWebWalletAuth(method, params, resp)) {
+      return;
     }
 
     it->second(params, resp);
@@ -279,6 +397,123 @@ std::error_code PaymentServiceJsonRpcServer::handleGetAddresses(const GetAddress
 
 std::error_code PaymentServiceJsonRpcServer::handleGetAddressesCount(const GetAddressesCount::Request& request, GetAddressesCount::Response& response) {
   return service.getAddressesCount(response.addresses_count);
+}
+
+// --- Webwallet handlers ---
+
+std::error_code PaymentServiceJsonRpcServer::handleGetNonce(const GetNonce::Request& /*request*/, GetNonce::Response& response) {
+  if (!m_webwalletMode || !m_auth) {
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+
+  response.nonce = m_auth->generateNonce();
+  return std::error_code();
+}
+
+std::error_code PaymentServiceJsonRpcServer::handleRegisterAddress(const RegisterAddress::Request& request, RegisterAddress::Response& response) {
+  if (!m_webwalletMode || !m_auth) {
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+
+  // 1. Consume the nonce (one-time use)
+  if (!m_auth->consumeNonce(request.nonce)) {
+    logger(Logging::WARNING) << "Invalid or expired nonce for address registration: " << request.address;
+    return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_KEY_FORMAT);
+  }
+
+  // 2. Validate the address format matches the public spend key
+  bool isValid = false;
+  std::string validatedAddress, spendPubKey, viewPubKey;
+  auto ec = service.validateAddress(request.address, isValid, validatedAddress, spendPubKey, viewPubKey);
+  if (ec || !isValid) {
+    logger(Logging::WARNING) << "Invalid address for registration: " << request.address;
+    return make_error_code(CryptoNote::error::BAD_ADDRESS);
+  }
+
+  // Check that the provided public spend key matches the address
+  if (spendPubKey != request.spendPublicKey) {
+    logger(Logging::WARNING) << "Spend public key mismatch for address: " << request.address;
+    return make_error_code(CryptoNote::error::BAD_ADDRESS);
+  }
+
+  // 3. Verify the signature: sig(H(address || nonce)) against spendPublicKey
+  if (!m_auth->verifyAddressSignature(request.address, request.spendPublicKey, request.nonce, request.signature)) {
+    logger(Logging::WARNING) << "Signature verification failed for address: " << request.address;
+    return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_SIGNATURE);
+  }
+
+  // 4. Create tracking address in walletd (if not already registered)
+  bool isOurs = false;
+  service.hasAddress(request.address, isOurs);
+
+  if (!isOurs) {
+    std::string createdAddress;
+    if (request.scanHeight != std::numeric_limits<uint32_t>::max()) {
+      ec = service.createTrackingAddress(request.spendPublicKey, request.scanHeight, createdAddress);
+    } else {
+      ec = service.createTrackingAddress(request.spendPublicKey, createdAddress);
+    }
+    if (ec) {
+      logger(Logging::WARNING) << "Failed to create tracking address: " << ec.message();
+      return ec;
+    }
+
+    // Save wallet after adding address
+    service.saveWalletNoThrow();
+  }
+
+  // 5. Issue session token
+  response.token = m_auth->issueToken(request.address, request.spendPublicKey);
+  response.address = request.address;
+
+  logger(Logging::INFO, Logging::BRIGHT_WHITE) << "Address registered: " << request.address;
+  return std::error_code();
+}
+
+std::error_code PaymentServiceJsonRpcServer::handleRefreshToken(const RefreshToken::Request& request, RefreshToken::Response& response) {
+  if (!m_webwalletMode || !m_auth) {
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+
+  // Consume nonce
+  if (!m_auth->consumeNonce(request.nonce)) {
+    return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_KEY_FORMAT);
+  }
+
+  // Address must be already registered
+  if (!m_auth->hasAddress(request.address)) {
+    return make_error_code(CryptoNote::error::BAD_ADDRESS);
+  }
+
+  // Verify signature
+  bool isValid = false;
+  std::string validatedAddress, spendPubKey, viewPubKey;
+  auto ec = service.validateAddress(request.address, isValid, validatedAddress, spendPubKey, viewPubKey);
+  if (ec || !isValid) {
+    return make_error_code(CryptoNote::error::BAD_ADDRESS);
+  }
+
+  if (!m_auth->verifyAddressSignature(request.address, spendPubKey, request.nonce, request.signature)) {
+    return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_SIGNATURE);
+  }
+
+  // Issue new token
+  response.token = m_auth->issueToken(request.address, spendPubKey);
+  return std::error_code();
+}
+
+std::error_code PaymentServiceJsonRpcServer::handlePrepareTransaction(const PrepareTransaction::Request& request, PrepareTransaction::Response& response) {
+  if (!m_webwalletMode) {
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+  return service.prepareTransaction(request, response);
+}
+
+std::error_code PaymentServiceJsonRpcServer::handleSendRawTransaction(const SendRawTransaction::Request& request, SendRawTransaction::Response& response) {
+  if (!m_webwalletMode) {
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+  return service.sendRawTransaction(request.transactionHex, request.txSecretKey, response.transactionHash);
 }
 
 }

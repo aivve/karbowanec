@@ -111,6 +111,10 @@ public:
   std::error_code signMessage(const std::string& message, const std::string& address, std::string& signature);
   std::error_code verifyMessage(const std::string& message, const std::string& signature, const std::string& address, bool& isValid);
 
+  // Webwallet mode
+  std::error_code prepareTransaction(const PrepareTransaction::Request& request, PrepareTransaction::Response& response);
+  std::error_code sendRawTransaction(const std::string& transactionHex, const std::string& txSecretKeyHex, std::string& transactionHash);
+
 private:
   void refresh();
   void reset();

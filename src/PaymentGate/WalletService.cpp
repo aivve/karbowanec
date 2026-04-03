@@ -1633,4 +1633,155 @@ std::vector<TransactionsInBlockRpcInfo> WalletService::getRpcTransactions(uint32
   return convertTransactionsInBlockInfoToTransactionsInBlockRpcInfo(filteredTransactions);
 }
 
+// --- Webwallet mode ---
+
+std::error_code WalletService::prepareTransaction(const PrepareTransaction::Request& request, PrepareTransaction::Response& response) {
+  try {
+    System::EventLock lk(readyEvent);
+
+    validateAddresses({ request.address }, currency, logger);
+    validateAddresses(collectDestinationAddresses(request.destinations), currency, logger);
+    validateMixin(request.anonymity, currency, logger);
+
+    logger(Logging::DEBUGGING) << "Preparing transaction for address " << request.address;
+
+    // Cast to WalletGreen to access webwallet methods
+    CryptoNote::WalletGreen& walletGreen = dynamic_cast<CryptoNote::WalletGreen&>(wallet);
+
+    // 1. Get unspent outputs for this address
+    std::vector<CryptoNote::TransactionOutputInformation> outputs = walletGreen.getUnspentOutputsForAddress(request.address);
+
+    // 2. Calculate needed money
+    uint64_t neededMoney = request.fee;
+    for (const auto& dest : request.destinations) {
+      neededMoney += dest.amount;
+    }
+
+    // 3. Select outputs (simple greedy selection)
+    std::vector<CryptoNote::TransactionOutputInformation> selectedOutputs;
+    uint64_t foundMoney = 0;
+    for (const auto& out : outputs) {
+      if (foundMoney >= neededMoney) break;
+      selectedOutputs.push_back(out);
+      foundMoney += out.amount;
+    }
+
+    if (foundMoney < neededMoney) {
+      logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Not enough money. Needed: " << neededMoney << ", found: " << foundMoney;
+      return make_error_code(CryptoNote::error::WRONG_AMOUNT);
+    }
+
+    // 4. Get random ring members from node
+    std::vector<uint64_t> amounts;
+    for (const auto& out : selectedOutputs) {
+      amounts.push_back(out.amount);
+    }
+
+    typedef CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount outs_for_amount;
+    std::vector<outs_for_amount> mixinResult;
+
+    if (request.anonymity != 0) {
+      walletGreen.getRandomOutsByAmounts(amounts, request.anonymity, mixinResult);
+    }
+
+    // 5. Build response
+    for (size_t i = 0; i < selectedOutputs.size(); ++i) {
+      SourceEntry entry;
+
+      entry.output.amount = selectedOutputs[i].amount;
+      entry.output.publicKey = Common::podToHex(selectedOutputs[i].outputKey);
+      entry.output.index = selectedOutputs[i].outputInTransaction;
+      entry.output.globalIndex = selectedOutputs[i].globalOutputIndex;
+      entry.output.txPublicKey = Common::podToHex(selectedOutputs[i].transactionPublicKey);
+
+      if (i < mixinResult.size()) {
+        for (const auto& fakeOut : mixinResult[i].outs) {
+          if (fakeOut.global_amount_index == selectedOutputs[i].globalOutputIndex) {
+            continue;  // Skip our real output
+          }
+          MixinOutput mixOut;
+          mixOut.publicKey = Common::podToHex(reinterpret_cast<const Crypto::PublicKey&>(fakeOut.out_key));
+          mixOut.globalIndex = static_cast<uint32_t>(fakeOut.global_amount_index);
+          entry.mixOuts.push_back(std::move(mixOut));
+
+          if (entry.mixOuts.size() >= request.anonymity) break;
+        }
+      }
+
+      response.sources.push_back(std::move(entry));
+    }
+
+    // 6. Copy destinations and add change
+    response.destinations = request.destinations;
+    response.changeAddress = request.address;
+    response.fee = request.fee;
+    response.anonymity = request.anonymity;
+    response.paymentId = request.paymentId;
+    response.unlockTime = request.unlockTime;
+
+    uint64_t change = foundMoney - neededMoney;
+    if (change > 0) {
+      WalletRpcOrder changeOrder;
+      changeOrder.address = request.address;
+      changeOrder.amount = change;
+      response.destinations.push_back(changeOrder);
+    }
+
+    logger(Logging::DEBUGGING) << "Prepared transaction: " << selectedOutputs.size() << " inputs, "
+      << response.destinations.size() << " outputs, fee " << request.fee
+      << ", change " << change;
+
+  } catch (std::system_error& x) {
+    logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Error while preparing transaction: " << x.what();
+    return x.code();
+  } catch (std::exception& x) {
+    logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Error while preparing transaction: " << x.what();
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+
+  return std::error_code();
+}
+
+std::error_code WalletService::sendRawTransaction(const std::string& transactionHex, const std::string& txSecretKeyHex, std::string& transactionHash) {
+  try {
+    System::EventLock lk(readyEvent);
+
+    logger(Logging::DEBUGGING) << "Sending raw transaction";
+
+    BinaryArray transactionData;
+    if (!Common::fromHex(transactionHex, transactionData)) {
+      logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Invalid transaction hex";
+      return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_KEY_FORMAT);
+    }
+
+    Crypto::SecretKey txSecretKey = NULL_SECRET_KEY;
+    if (!txSecretKeyHex.empty()) {
+      if (!Common::podFromHex(txSecretKeyHex, txSecretKey)) {
+        logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Invalid tx secret key format";
+        return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_KEY_FORMAT);
+      }
+    }
+
+    // Cast to WalletGreen to access webwallet methods
+    CryptoNote::WalletGreen& walletGreen = dynamic_cast<CryptoNote::WalletGreen&>(wallet);
+    walletGreen.sendRawTransaction(transactionData, txSecretKey);
+
+    // Calculate the hash for the response
+    CryptoNote::Transaction tx;
+    if (fromBinaryArray(tx, transactionData)) {
+      transactionHash = Common::podToHex(getObjectHash(tx));
+    }
+
+    logger(Logging::DEBUGGING) << "Raw transaction sent: " << transactionHash;
+  } catch (std::system_error& x) {
+    logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Error while sending raw transaction: " << x.what();
+    return x.code();
+  } catch (std::exception& x) {
+    logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Error while sending raw transaction: " << x.what();
+    return make_error_code(CryptoNote::error::INTERNAL_WALLET_ERROR);
+  }
+
+  return std::error_code();
+}
+
 } //namespace PaymentService

@@ -31,7 +31,10 @@ enum class WalletServiceErrorCode {
   WRONG_HASH_FORMAT,
   OBJECT_NOT_FOUND,
   DUPLICATE_KEY,
-  KEYS_NOT_DETERMINISTIC
+  KEYS_NOT_DETERMINISTIC,
+  WRONG_SIGNATURE,
+  AUTH_REQUIRED,
+  AUTH_FAILED
 };
 
 // custom category:
@@ -57,6 +60,9 @@ public:
       case WalletServiceErrorCode::OBJECT_NOT_FOUND: return "Requested object not found";
       case WalletServiceErrorCode::DUPLICATE_KEY: return "Duplicate key";
       case WalletServiceErrorCode::KEYS_NOT_DETERMINISTIC: return "Keys are non-deterministic";
+      case WalletServiceErrorCode::WRONG_SIGNATURE: return "Invalid signature";
+      case WalletServiceErrorCode::AUTH_REQUIRED: return "Authentication required";
+      case WalletServiceErrorCode::AUTH_FAILED: return "Authentication failed";
       default: return "Unknown error";
     }
   }

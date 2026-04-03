@@ -327,6 +327,12 @@ void PaymentGateService::runWalletService(const CryptoNote::Currency& currency, 
 
     PaymentService::PaymentServiceJsonRpcServer rpcServer(dispatcher, stopEvent, *service, logger);
 
+    // Enable webwallet mode if configured
+    if (config.gateConfiguration.webwalletMode) {
+      std::string authSidecarPath = config.gateConfiguration.containerFile + ".auth.json";
+      rpcServer.setWebWalletMode(true, authSidecarPath);
+    }
+
     bool rpc_run_ssl = false;
     std::string rpc_chain_file = "";
     std::string rpc_key_file = "";

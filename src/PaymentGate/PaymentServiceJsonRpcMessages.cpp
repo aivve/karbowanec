@@ -441,4 +441,113 @@ void SendDelayedTransaction::Request::serialize(CryptoNote::ISerializer& seriali
 void SendDelayedTransaction::Response::serialize(CryptoNote::ISerializer& serializer) {
 }
 
+// --- Webwallet mode messages ---
+
+void GetNonce::Request::serialize(CryptoNote::ISerializer& /*serializer*/) {
+}
+
+void GetNonce::Response::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(nonce, "nonce");
+}
+
+void RegisterAddress::Request::serialize(CryptoNote::ISerializer& serializer) {
+  if (!serializer(address, "address")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(spendPublicKey, "spendPublicKey")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(nonce, "nonce")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(signature, "signature")) {
+    throw RequestSerializationError();
+  }
+  serializer(scanHeight, "scanHeight");
+}
+
+void RegisterAddress::Response::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(address, "address");
+  serializer(token, "token");
+}
+
+void RefreshToken::Request::serialize(CryptoNote::ISerializer& serializer) {
+  if (!serializer(address, "address")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(nonce, "nonce")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(signature, "signature")) {
+    throw RequestSerializationError();
+  }
+}
+
+void RefreshToken::Response::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(token, "token");
+}
+
+void SourceOutputInfo::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(amount, "amount");
+  serializer(publicKey, "publicKey");
+  serializer(index, "index");
+  serializer(globalIndex, "globalIndex");
+  serializer(txPublicKey, "txPublicKey");
+}
+
+void MixinOutput::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(publicKey, "publicKey");
+  serializer(globalIndex, "globalIndex");
+}
+
+void SourceEntry::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(output, "output");
+  serializer(mixOuts, "mixOuts");
+}
+
+void PrepareTransaction::Request::serialize(CryptoNote::ISerializer& serializer) {
+  if (!serializer(address, "address")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(authToken, "authToken")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(destinations, "destinations")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(fee, "fee")) {
+    throw RequestSerializationError();
+  }
+  serializer(anonymity, "anonymity");
+  serializer(paymentId, "paymentId");
+  serializer(unlockTime, "unlockTime");
+}
+
+void PrepareTransaction::Response::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(sources, "sources");
+  serializer(destinations, "destinations");
+  serializer(changeAddress, "changeAddress");
+  serializer(fee, "fee");
+  serializer(anonymity, "anonymity");
+  serializer(paymentId, "paymentId");
+  serializer(unlockTime, "unlockTime");
+}
+
+void SendRawTransaction::Request::serialize(CryptoNote::ISerializer& serializer) {
+  if (!serializer(address, "address")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(authToken, "authToken")) {
+    throw RequestSerializationError();
+  }
+  if (!serializer(transactionHex, "transactionHex")) {
+    throw RequestSerializationError();
+  }
+  serializer(txSecretKey, "txSecretKey");
+}
+
+void SendRawTransaction::Response::serialize(CryptoNote::ISerializer& serializer) {
+  serializer(transactionHash, "transactionHash");
+}
+
 }

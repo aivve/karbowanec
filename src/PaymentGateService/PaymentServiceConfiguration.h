@@ -71,6 +71,7 @@ struct Configuration {
   bool unregisterService;
   bool testnet;
   bool printAddresses;
+  bool webwalletMode;
 
   size_t logLevel;
 

@@ -44,6 +44,7 @@ Configuration::Configuration() {
   logFile = "walletd.log";
   testnet = false;
   printAddresses = false;
+  webwalletMode = false;
   logLevel = Logging::INFO;
   m_bind_address = "";
   m_bind_port = 0;
@@ -86,7 +87,8 @@ void Configuration::initOptions(po::options_description& desc) {
       ("server-root", po::value<std::string>(), "server root. The service will use it as working directory. Don't set it if don't want to change it")
       ("log-level", po::value<size_t>(), "log level")
       ("scan-height", po::value<uint32_t>(), "The height to begin scanning a wallet from")
-      ("address", "print wallet addresses and exit");
+      ("address", "print wallet addresses and exit")
+      ("webwallet-mode", "enable semicustodial webwallet mode with per-address token authentication");
 }
 
 void Configuration::init(const po::variables_map& options) {
@@ -209,6 +211,10 @@ void Configuration::init(const po::variables_map& options) {
 
   if (options.count("address") != 0) {
     printAddresses = true;
+  }
+
+  if (options.count("webwallet-mode") != 0) {
+    webwalletMode = true;
   }
 
   if (!registerService && !unregisterService) {

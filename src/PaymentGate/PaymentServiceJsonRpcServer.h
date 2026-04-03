@@ -22,10 +22,13 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
+#include <memory>
 
 #include "Common/JsonValue.h"
 #include "JsonRpcServer/JsonRpcServer.h"
 #include "PaymentServiceJsonRpcMessages.h"
+#include "WebWalletAuth.h"
 #include "Serialization/JsonInputValueSerializer.h"
 #include "Serialization/JsonOutputStreamSerializer.h"
 
@@ -37,6 +40,8 @@ class PaymentServiceJsonRpcServer : public CryptoNote::JsonRpcServer {
 public:
   PaymentServiceJsonRpcServer(System::Dispatcher* sys, System::Event* stopEvent, WalletService& service, Logging::ILogger& loggerGroup);
   PaymentServiceJsonRpcServer(const PaymentServiceJsonRpcServer&) = delete;
+
+  void setWebWalletMode(bool enabled, const std::string& authSidecarPath);
 
 protected:
   virtual void processJsonRpcRequest(const Common::JsonValue& req, Common::JsonValue& resp) override;
@@ -105,6 +110,25 @@ private:
   std::error_code handleGetReserveProof(const GetReserveProof::Request& request, GetReserveProof::Response& response);
   std::error_code handleSignMessage(const SignMessage::Request& request, SignMessage::Response& response);
   std::error_code handleVerifyMessage(const VerifyMessage::Request& request, VerifyMessage::Response& response);
+
+  // Webwallet handlers
+  std::error_code handleGetNonce(const GetNonce::Request& request, GetNonce::Response& response);
+  std::error_code handleRegisterAddress(const RegisterAddress::Request& request, RegisterAddress::Response& response);
+  std::error_code handleRefreshToken(const RefreshToken::Request& request, RefreshToken::Response& response);
+  std::error_code handlePrepareTransaction(const PrepareTransaction::Request& request, PrepareTransaction::Response& response);
+  std::error_code handleSendRawTransaction(const SendRawTransaction::Request& request, SendRawTransaction::Response& response);
+
+  // Webwallet auth
+  bool m_webwalletMode = false;
+  std::unique_ptr<WebWalletAuth> m_auth;
+
+  // Auth classification for methods in webwallet mode
+  enum class AuthLevel { PUBLIC, ADDRESS_TOKEN, MASTER };
+  std::unordered_map<std::string, AuthLevel> m_authLevels;
+  void initAuthLevels();
+
+  // Extract address and token from request params for auth check
+  bool checkWebWalletAuth(const std::string& method, const Common::JsonValue& params, Common::JsonValue& resp);
 };
 
 }//namespace PaymentService

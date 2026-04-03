@@ -126,6 +126,16 @@ public:
 
   uint64_t getBalanceMinusDust(const std::vector<std::string>& addresses);
 
+  // Webwallet mode: get unspent outputs for an address (works in tracking mode)
+  std::vector<TransactionOutputInformation> getUnspentOutputsForAddress(const std::string& address) const;
+
+  // Webwallet mode: get random outputs from node for ring member selection
+  void getRandomOutsByAmounts(std::vector<uint64_t>& amounts, uint64_t mixIn,
+    std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& result);
+
+  // Webwallet mode: relay a raw transaction and add to internal tracking
+  void sendRawTransaction(const BinaryArray& transactionData, const Crypto::SecretKey& txSecretKey);
+
 protected:
   struct NewAddressData {
     Crypto::PublicKey spendPublicKey;

@@ -2759,6 +2759,115 @@ std::vector<TransactionOutputInformation> WalletGreen::getTransfers(size_t index
   return allTransfers;
 }
 
+std::vector<TransactionOutputInformation> WalletGreen::getUnspentOutputsForAddress(const std::string& address) const {
+  throwIfNotInitialized();
+  throwIfStopped();
+
+  const auto& wallet = getWalletRecord(address);
+
+  std::vector<TransactionOutputInformation> outputs;
+  wallet.container->getOutputs(outputs, ITransfersContainer::IncludeKeyUnlocked);
+  return outputs;
+}
+
+void WalletGreen::getRandomOutsByAmounts(std::vector<uint64_t>& amounts, uint64_t mixIn,
+  std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& result) {
+
+  throwIfNotInitialized();
+  throwIfStopped();
+
+  auto requestMixinCount = mixIn + 1;
+
+  std::error_code mixinError;
+  try {
+    auto completed = std::promise<std::error_code>();
+    auto future = completed.get_future();
+
+    m_node.getRandomOutsByAmounts(std::move(amounts), requestMixinCount, result,
+      [&completed, &mixinError](std::error_code ec) {
+        auto detached = std::move(completed);
+        detached.set_value(ec);
+      });
+
+    mixinError = future.get();
+  }
+  catch (const std::exception& e) {
+    m_logger(ERROR, BRIGHT_RED) << "Failed to request random outputs: " << e.what();
+    throw;
+  }
+
+  if (mixinError) {
+    m_logger(ERROR, BRIGHT_RED) << "Failed to get random outputs: " << mixinError << ", " << mixinError.message();
+    throw std::system_error(mixinError);
+  }
+}
+
+void WalletGreen::sendRawTransaction(const BinaryArray& transactionData, const Crypto::SecretKey& txSecretKey) {
+  throwIfNotInitialized();
+  throwIfStopped();
+
+  CryptoNote::Transaction cryptoNoteTransaction;
+  if (!fromBinaryArray(cryptoNoteTransaction, transactionData)) {
+    m_logger(ERROR, BRIGHT_RED) << "Failed to deserialize raw transaction";
+    throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR), "Failed to deserialize transaction");
+  }
+
+  if (transactionData.size() > getMaxTxSize()) {
+    m_logger(ERROR, BRIGHT_RED) << "Raw transaction is too big, size " << transactionData.size()
+      << ", limit " << m_upperTransactionSizeLimit;
+    throw std::system_error(make_error_code(error::TRANSACTION_SIZE_TOO_BIG));
+  }
+
+  Crypto::Hash transactionHash = getObjectHash(cryptoNoteTransaction);
+
+  // Relay to the network
+  std::error_code ec;
+  try {
+    auto relayCompleted = std::promise<std::error_code>();
+    auto relayFuture = relayCompleted.get_future();
+
+    m_node.relayTransaction(cryptoNoteTransaction, [&ec, &relayCompleted](std::error_code error) {
+      auto detached = std::move(relayCompleted);
+      detached.set_value(error);
+    });
+    ec = relayFuture.get();
+  }
+  catch (const std::exception& e) {
+    m_logger(ERROR, BRIGHT_RED) << "Failed to relay raw transaction: " << e.what();
+    throw;
+  }
+
+  if (ec) {
+    m_logger(ERROR, BRIGHT_RED) << "Failed to relay raw transaction: " << ec << ", " << ec.message()
+      << ". Transaction hash " << transactionHash;
+    throw std::system_error(ec);
+  }
+
+  m_logger(INFO, BRIGHT_WHITE) << "Raw transaction relayed, hash " << transactionHash;
+
+  // Insert into outgoing transaction tracking
+  uint64_t inputTotal = 0;
+  for (const auto& input : cryptoNoteTransaction.inputs) {
+    if (input.type() == typeid(KeyInput)) {
+      inputTotal += boost::get<KeyInput>(input).amount;
+    }
+  }
+
+  uint64_t outputTotal = 0;
+  for (const auto& output : cryptoNoteTransaction.outputs) {
+    outputTotal += output.amount;
+  }
+
+  uint64_t fee = (inputTotal > outputTotal) ? inputTotal - outputTotal : 0;
+
+  Crypto::SecretKey mutableTxSecretKey = txSecretKey;
+  size_t transactionId = insertOutgoingTransactionAndPushEvent(transactionHash, fee, cryptoNoteTransaction.extra, cryptoNoteTransaction.unlockTime, mutableTxSecretKey);
+
+  updateTransactionStateAndPushEvent(transactionId, WalletTransactionState::SUCCEEDED);
+
+  m_logger(DEBUGGING) << "Raw transaction added to wallet cache, ID " << transactionId << ", hash " << transactionHash;
+}
+
 Crypto::SecretKey WalletGreen::getTransactionDeterministicSecretKey(Crypto::Hash& transactionHash) const {
   throwIfNotInitialized();
   throwIfStopped();
