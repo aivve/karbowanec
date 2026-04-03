@@ -289,7 +289,28 @@ void PaymentGateService::runRpcProxy(Logging::LoggerRef& log) {
 
 void PaymentGateService::runWalletServiceOr(const CryptoNote::Currency& currency, CryptoNote::INode& node) {
   if (config.gateConfiguration.generateNewContainer) {
-    generateNewWallet(currency, getWalletConfig(), logger, *dispatcher, node);
+    if (config.gateConfiguration.webwalletMode) {
+      Logging::LoggerRef log(logger, "generateWebWallet");
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Generating new tracking wallet for webwallet mode";
+
+      CryptoNote::IWallet* wallet = new CryptoNote::WalletGreen(*dispatcher, currency, node, logger);
+      std::unique_ptr<CryptoNote::IWallet> walletGuard(wallet);
+
+      // Generate a random view keypair — addresses will be added via registerAddress
+      Crypto::SecretKey viewSecretKey;
+      Crypto::PublicKey viewPublicKey;
+      Crypto::generate_keys(viewPublicKey, viewSecretKey);
+
+      auto conf = getWalletConfig();
+      wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, viewSecretKey);
+      wallet->save(CryptoNote::WalletSaveLevel::SAVE_KEYS_ONLY);
+
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Tracking wallet created: " << conf.walletFile;
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "View secret key: " << viewSecretKey;
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Save the view key! You need it to restore the wallet.";
+    } else {
+      generateNewWallet(currency, getWalletConfig(), logger, *dispatcher, node);
+    }
   }
   else if (config.gateConfiguration.changePassword) {
     changePassword(currency, getWalletConfig(), logger, *dispatcher, node, config.gateConfiguration.newContainerPassword);
