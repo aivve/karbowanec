@@ -98,6 +98,7 @@ void PaymentServiceJsonRpcServer::initAuthLevels() {
   m_authLevels["getNonce"] = AuthLevel::PUBLIC;
   m_authLevels["registerAddress"] = AuthLevel::PUBLIC;
   m_authLevels["refreshToken"] = AuthLevel::PUBLIC;
+  m_authLevels["getViewKey"] = AuthLevel::PUBLIC;
 
   // Address token: requires per-address auth token
   m_authLevels["getBalance"] = AuthLevel::ADDRESS_TOKEN;
@@ -199,7 +200,7 @@ void PaymentServiceJsonRpcServer::processJsonRpcRequest(const Common::JsonValue&
     // In webwallet mode, block dangerous methods entirely
     if (m_webwalletMode) {
       static const std::unordered_set<std::string> blockedMethods = {
-        "getSpendKeys", "getMnemonicSeed", "getViewKey",
+        "getSpendKeys", "getMnemonicSeed",
         "sendTransaction", "createDelayedTransaction", "sendDelayedTransaction",
         "createAddress", "createAddressList",
         "reset", "export", "signMessage",
