@@ -469,7 +469,7 @@ std::error_code PaymentServiceJsonRpcServer::handleRegisterAddress(const Registe
   response.token = m_auth->issueToken(request.address, request.spendPublicKey);
   response.address = request.address;
 
-  logger(Logging::INFO, Logging::BRIGHT_WHITE) << "Address registered: " << request.address;
+  logger(Logging::DEBUGGING, Logging::BRIGHT_WHITE) << "Address registered: " << request.address;
   return std::error_code();
 }
 
