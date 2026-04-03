@@ -2,7 +2,7 @@
 // Copyright (c) 2018, The TurtleCoin Developers
 // Copyright (c) 2018-2019 The Cash2 developers
 // Copyright (c) 2021-2023, The Talleo developers
-// Copyright (c) 2016-2024, The Karbo developers
+// Copyright (c) 2016-2025, The Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -35,6 +35,7 @@
 
 #include "crypto/crypto.h"
 #include "CryptoNote.h"
+#include "CryptoNoteCore/CryptoNoteTools.h"
 #include "CryptoNoteCore/CryptoNoteFormatUtils.h"
 #include "CryptoNoteCore/CryptoNoteBasicImpl.h"
 #include "CryptoNoteCore/TransactionExtra.h"

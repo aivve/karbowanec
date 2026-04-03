@@ -25,6 +25,8 @@
 
 #include "PaymentServiceJsonRpcMessages.h"
 #include "WalletService.h"
+#include "WalletServiceErrorCategory.h"
+#include "Wallet/WalletErrors.h"
 #include "WebWalletAuth.h"
 
 #include "Serialization/JsonInputValueSerializer.h"
