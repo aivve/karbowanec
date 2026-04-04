@@ -793,7 +793,7 @@ std::error_code WalletService::createTrackingAddress(const std::string& spendPub
       return make_error_code(CryptoNote::error::WalletServiceErrorCode::WRONG_KEY_FORMAT);
     }
 
-    address = wallet.createAddress(publicKey);
+    address = wallet.createAddress(publicKey, false);
   } catch (std::system_error& x) {
     logger(Logging::WARNING, Logging::BRIGHT_YELLOW) << "Error while creating tracking address: " << x.what();
     return x.code();
