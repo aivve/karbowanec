@@ -385,6 +385,14 @@ uint32_t TransfersConsumer::onNewBlocks(const CompleteBlock* blocks, uint32_t st
         });
       }
     }
+
+    if (processedBlockCount < count) {
+      const uint32_t newHeight = startHeight + count - 1;
+      forEachSubscription([newHeight](TransfersSubscription& sub) {
+        sub.advanceHeight(newHeight);
+      });
+      processedBlockCount = count;
+    }
   } catch (const MarkTransactionConfirmedException& e) {
     m_logger(ERROR, BRIGHT_RED) << "Failed to process block transactions: failed to confirm transaction " << e.getTxHash() <<
     //  ", remove this transaction from all containers and transaction pool";

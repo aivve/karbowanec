@@ -191,6 +191,7 @@ void serialize(TransactionPrefix& txP, ISerializer& serializer) {
 
   if (txP.version == TRANSACTION_VERSION_CT) {
     // Version 4 (CT): fee is plaintext, unlockTime must be 0
+    txP.unlockTime = 0;
     serializer(txP.fee, "fee");
     serializer(txP.inputs, "vin");
     serializer(txP.outputs, "vout");

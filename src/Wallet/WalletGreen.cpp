@@ -1619,7 +1619,7 @@ void WalletGreen::prepareTransaction(std::vector<WalletOuts>&& wallets,
   preparedTransaction.changeAmount = foundMoney - preparedTransaction.neededMoney - donationAmount;
 
   // Detect post-fork: use CT transaction path with canonical denomination decomposition.
-  bool isPostFork = static_cast<uint32_t>(m_blockchain.size()) >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   if (isPostFork) {
     // CT path: decompose amounts into canonical denominations (Denominations.h)
@@ -2605,7 +2605,7 @@ uint64_t WalletGreen::selectTransfers(
   uint64_t foundMoney = 0;
   // Post-fork: skip transparent outputs whose resolved spendable value is zero.
   // This covers pre-fork dust that became worthless after redenomination.
-  bool isPostFork = static_cast<uint32_t>(m_blockchain.size()) >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   struct OutputData {
     WalletRecord* wallet = nullptr;

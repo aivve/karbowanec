@@ -416,11 +416,17 @@ void TestBlockchainGenerator::addTx(const CryptoNote::Transaction& tx) {
   auto& globalIndexes = transactionGlobalOuts[txHash];
   for (uint16_t outIndex = 0; outIndex < tx.outputs.size(); ++outIndex) {
     const auto& out = tx.outputs[outIndex];
+    uint32_t globalIndex = 0;
     if (out.target.type() == typeid(KeyOutput)) {
       auto& keyOutsContainer = keyOutsIndex[out.amount];
-      globalIndexes.push_back(static_cast<uint32_t>(keyOutsContainer.size()));
+      globalIndex = static_cast<uint32_t>(keyOutsContainer.size());
+      keyOutsContainer.push_back({ txHash, outIndex });
+    } else if (out.target.type() == typeid(ConfidentialOutput)) {
+      auto& keyOutsContainer = keyOutsIndex[CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT];
+      globalIndex = static_cast<uint32_t>(keyOutsContainer.size());
       keyOutsContainer.push_back({ txHash, outIndex });
     }
+    globalIndexes.push_back(globalIndex);
   }
 }
 
@@ -432,6 +438,46 @@ bool TestBlockchainGenerator::getTransactionGlobalIndexesByHash(const Crypto::Ha
 
   globalIndexes = globalIndexesIt->second;
   return true;
+}
+
+bool TestBlockchainGenerator::getRandomOutputsByAmount(uint64_t amount, uint64_t outsCount, std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry>& outs) {
+  std::unique_lock<std::mutex> lock(m_mutex);
+
+  auto amountIt = keyOutsIndex.find(amount);
+  if (amountIt == keyOutsIndex.end()) {
+    return false;
+  }
+
+  const auto& indexedOuts = amountIt->second;
+  const uint64_t count = std::min<uint64_t>(outsCount, indexedOuts.size());
+  for (uint32_t i = 0; i < count; ++i) {
+    const auto& indexedOut = indexedOuts[i];
+    auto txIt = m_txs.find(indexedOut.transactionHash);
+    if (txIt == m_txs.end() || indexedOut.indexOut >= txIt->second.outputs.size()) {
+      continue;
+    }
+
+    const auto& txOut = txIt->second.outputs[indexedOut.indexOut];
+    CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry outEntry;
+    outEntry.global_amount_index = i;
+
+    if (txOut.target.type() == typeid(KeyOutput)) {
+      const auto& keyOut = boost::get<KeyOutput>(txOut.target);
+      outEntry.out_key = keyOut.key;
+      outEntry.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Key);
+    } else if (txOut.target.type() == typeid(ConfidentialOutput)) {
+      const auto& confidentialOut = boost::get<ConfidentialOutput>(txOut.target);
+      outEntry.out_key = confidentialOut.targetKey;
+      outEntry.commitment = confidentialOut.commitment;
+      outEntry.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Confidential);
+    } else {
+      continue;
+    }
+
+    outs.emplace_back(std::move(outEntry));
+  }
+
+  return !outs.empty();
 }
 
 bool TestBlockchainGenerator::generateFromBaseTx(const CryptoNote::AccountBase& address) {

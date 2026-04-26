@@ -216,17 +216,20 @@ void INodeTrivialRefreshStub::doGetRandomOutsByAmounts(std::vector<uint64_t> amo
 
     uint64_t count = std::min(outsCount, m_maxMixin);
 
-    for (uint32_t i = 0; i < count; ++i)
-    {
-      Crypto::PublicKey key;
-      Crypto::SecretKey sk;
-      generate_keys(key, sk);
+    if (!m_blockchainGenerator.getRandomOutputsByAmount(amount, count, out.outs)) {
+      for (uint32_t i = 0; i < count; ++i)
+      {
+        Crypto::PublicKey key;
+        Crypto::SecretKey sk;
+        generate_keys(key, sk);
 
-      COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry e;
-      e.global_amount_index = i;
-      e.out_key = key;
+        COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry e;
+        e.global_amount_index = i;
+        e.out_key = key;
+        e.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Key);
 
-      out.outs.push_back(e);
+        out.outs.push_back(e);
+      }
     }
 
     result.push_back(std::move(out));

@@ -742,6 +742,82 @@ TEST_F(WalletApi, transferFromOneAddress) {
   wait(100);
 }
 
+TEST_F(WalletApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
+  CryptoNote::WalletGreen bob(dispatcher, currency, node, logger, TRANSACTION_SOFTLOCK_TIME);
+  bob.initialize(BOB_WALLET_PATH, "pass2");
+  std::string bobAddress = bob.createAddress();
+
+  const uint64_t fundingAmount = 100;
+  const uint64_t spendAmount = 50;
+  const uint64_t fee = CryptoNote::parameters::CT_MINIMUM_FEE;
+
+  setMinerTo(alice);
+  ASSERT_TRUE(generator.generateFromBaseTx(generator.getMinerAccount()));
+  unlockMoney();
+
+  size_t fundingTx;
+  {
+    SCOPED_TRACE("funding Bob with a CT output");
+    node.setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+    fundingTx = sendMoney(bobAddress, fundingAmount, fee, 0);
+    node.clearLastLocalBlockHeightOverride();
+    node.updateObservers();
+    waitForTransactionConfirmed(alice, fundingTx);
+  }
+
+  generator.generateEmptyBlocks(static_cast<size_t>(TRANSACTION_SOFTLOCK_TIME + 2));
+  for (size_t i = 0; i < 3 && bob.getActualBalance() != fundingAmount; ++i) {
+    node.updateObservers();
+    ASSERT_TRUE(waitForWalletEvent(bob, WalletEventType::SYNC_COMPLETED, std::chrono::seconds(5)));
+  }
+  ASSERT_EQ(fundingAmount, bob.getActualBalance());
+
+  {
+    SCOPED_TRACE("saving Bob keys-only before rescan");
+    bob.save(WalletSaveLevel::SAVE_KEYS_ONLY);
+    bob.shutdown();
+  }
+
+  CryptoNote::WalletGreen rescannedBob(dispatcher, currency, node, logger, TRANSACTION_SOFTLOCK_TIME);
+  {
+    SCOPED_TRACE("loading Bob and rescanning CT output");
+    rescannedBob.load(BOB_WALLET_PATH, "pass2");
+    node.updateObservers();
+    waitForActualBalance(rescannedBob, fundingAmount);
+  }
+
+  size_t firstSpendTx;
+  {
+    SCOPED_TRACE("spending rescanned CT output");
+    node.setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+    firstSpendTx = sendMoney(rescannedBob, RANDOM_ADDRESS, spendAmount, fee, 3);
+    node.clearLastLocalBlockHeightOverride();
+    node.updateObservers();
+    waitForTransactionConfirmed(rescannedBob, firstSpendTx);
+  }
+
+  uint32_t detachedSpendHeight = static_cast<uint32_t>(generator.getBlockchain().size() - 1);
+  {
+    SCOPED_TRACE("detaching CT spend and restoring balance");
+    node.startAlternativeChain(detachedSpendHeight);
+    generator.generateEmptyBlocks(1);
+    node.updateObservers();
+    waitForActualBalance(rescannedBob, fundingAmount);
+  }
+
+  {
+    SCOPED_TRACE("spending restored CT output again");
+    node.setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+    size_t secondSpendTx = sendMoney(rescannedBob, RANDOM_ADDRESS, spendAmount, fee, 3);
+    node.clearLastLocalBlockHeightOverride();
+    node.updateObservers();
+    waitForTransactionConfirmed(rescannedBob, secondSpendTx);
+  }
+
+  rescannedBob.shutdown();
+  wait(100);
+}
+
 TEST_F(WalletApi, pendingBalanceUpdatedAfterTransactionGotInBlock) {
   generateAndUnlockMoney();
 

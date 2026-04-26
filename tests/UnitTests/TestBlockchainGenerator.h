@@ -25,6 +25,7 @@
 #include "CryptoNoteCore/CryptoNoteBasic.h"
 #include "CryptoNoteCore/Currency.h"
 #include "CryptoNoteCore/BlockchainIndices.h"
+#include "Rpc/CoreRpcServerCommandsDefinitions.h"
 #include "crypto/hash.h"
 
 #include "../TestGenerator/TestGenerator.h"
@@ -62,6 +63,7 @@ public:
   bool getTransactionIdsByPaymentId(const Crypto::Hash& paymentId, std::vector<Crypto::Hash>& transactionHashes);
 
   bool getTransactionGlobalIndexesByHash(const Crypto::Hash& transactionHash, std::vector<uint32_t>& globalIndexes);
+  bool getRandomOutputsByAmount(uint64_t amount, uint64_t outsCount, std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry>& outs);
   void setMinerAccount(const CryptoNote::AccountBase& account);
 
 private:

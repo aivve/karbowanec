@@ -105,7 +105,7 @@ bool test_generator::constructBlock(CryptoNote::Block& blk, uint32_t height, con
   }
 
   blk.baseTransaction = boost::value_initialized<Transaction>();
-  size_t targetBlockSize = txsSize + getObjectBinarySize(blk.baseTransaction);
+  size_t targetBlockSize = txsSize;
   while (true) {
     Crypto::SecretKey minerTxKey;
     if (!m_currency.constructMinerTx(blk.majorVersion, height, Common::medianValue(blockSizes), alreadyGeneratedCoins, targetBlockSize,
@@ -219,7 +219,7 @@ bool test_generator::constructBlockManually(Block& blk, const Block& prevBlock, 
     blk.baseTransaction = baseTransaction;
   } else {
     blk.baseTransaction = boost::value_initialized<Transaction>();
-    size_t currentBlockSize = txsSizes + getObjectBinarySize(blk.baseTransaction);
+    size_t currentBlockSize = txsSizes;
     // TODO: This will work, until size of constructed block is less then m_currency.blockGrantedFullRewardZone()
     Crypto::SecretKey minerTxKey2;
     if (!m_currency.constructMinerTx(blk.majorVersion, height, Common::medianValue(blockSizes), alreadyGeneratedCoins, currentBlockSize, 0,

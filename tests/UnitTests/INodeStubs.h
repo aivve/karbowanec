@@ -101,9 +101,15 @@ public:
   };
 
   void setGetNewBlocksLimit(size_t maxBlocks) { m_getMaxBlocks = maxBlocks; }
+  void setLastLocalBlockHeight(uint32_t height) { m_lastLocalBlockHeightOverride = height; }
+  void clearLastLocalBlockHeightOverride() { m_lastLocalBlockHeightOverride = std::numeric_limits<uint32_t>::max(); }
 
-  virtual uint32_t getLastLocalBlockHeight() const override { return static_cast<uint32_t>(m_blockchainGenerator.getBlockchain().size() - 1); }
-  virtual uint32_t getLastKnownBlockHeight() const override { return static_cast<uint32_t>(m_blockchainGenerator.getBlockchain().size() - 1); }
+  virtual uint32_t getLastLocalBlockHeight() const override {
+    return m_lastLocalBlockHeightOverride == std::numeric_limits<uint32_t>::max()
+      ? static_cast<uint32_t>(m_blockchainGenerator.getBlockchain().size() - 1)
+      : m_lastLocalBlockHeightOverride;
+  }
+  virtual uint32_t getLastKnownBlockHeight() const override { return getLastLocalBlockHeight(); }
 
   virtual uint32_t getLocalBlockCount() const override { return static_cast<uint32_t>(m_blockchainGenerator.getBlockchain().size()); }
   virtual uint32_t getKnownBlockCount() const override { return static_cast<uint32_t>(m_blockchainGenerator.getBlockchain().size()); }
@@ -169,6 +175,7 @@ protected:
   std::mutex m_walletLock;
   CryptoNote::WalletAsyncContextCounter m_asyncCounter;
   uint64_t m_maxMixin = std::numeric_limits<uint64_t>::max();
+  uint32_t m_lastLocalBlockHeightOverride = std::numeric_limits<uint32_t>::max();
   bool m_synchronized;
   bool consumerTests;
 };
