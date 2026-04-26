@@ -1,5 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
-// Copyright (c) 2016-2020, The Karbo developers
+// Copyright (c) 2016-2026, The Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -19,12 +19,15 @@
 #include "InProcessNode.h"
 
 #include <functional>
+#include <limits>
 #include <boost/utility/value_init.hpp>
 #include <CryptoNoteCore/TransactionApi.h>
 
 #include "CryptoNoteConfig.h"
 #include "Common/Math.h"
 #include "Common/StringTools.h"
+#include "CryptoNoteCore/AccountNumber.h"
+#include "CryptoNoteCore/CryptoNoteBasicImpl.h"
 #include "CryptoNoteCore/CryptoNoteTools.h"
 #include "CryptoNoteCore/IBlock.h"
 #include "CryptoNoteCore/VerificationContext.h"
@@ -1285,6 +1288,86 @@ std::error_code InProcessNode::doGetConnections(std::vector<p2pConnection>& conn
   }
 
   return std::error_code();
+}
+
+void InProcessNode::resolveAccountNumber(const std::string& accountNumber, std::string& address, const Callback& callback) {
+  std::unique_lock<std::mutex> lock(mutex);
+  if (state != INITIALIZED) {
+    lock.unlock();
+    callback(make_error_code(CryptoNote::error::NOT_INITIALIZED));
+    return;
+  }
+
+  std::string numberCopy = accountNumber;
+  ioService.post(
+    std::bind(&InProcessNode::resolveAccountNumberAsync,
+      this,
+      std::move(numberCopy),
+      std::ref(address),
+      callback
+    )
+  );
+}
+
+void InProcessNode::resolveAccountNumberAsync(std::string accountNumber, std::string& address, const Callback& callback) {
+  AccountNumber acctNum;
+  if (!AccountNumber::fromString(accountNumber, acctNum)) {
+    callback(std::make_error_code(std::errc::invalid_argument));
+    return;
+  }
+  if (acctNum.txIndex == 0 ||
+      acctNum.txIndex > std::numeric_limits<uint16_t>::max() ||
+      acctNum.blockHeight >= core.getCurrentBlockchainHeight()) {
+    callback(std::make_error_code(std::errc::invalid_argument));
+    return;
+  }
+
+  AccountPublicAddress addr;
+  if (!core.resolveAccountNumber(acctNum.blockHeight, acctNum.txIndex, addr)) {
+    callback(std::make_error_code(std::errc::no_such_file_or_directory));
+    return;
+  }
+
+  address = getAccountAddressAsStr(parameters::CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX, addr);
+  callback(std::error_code());
+}
+
+void InProcessNode::getAccountNumber(const std::string& address, std::string& accountNumber, const Callback& callback) {
+  std::unique_lock<std::mutex> lock(mutex);
+  if (state != INITIALIZED) {
+    lock.unlock();
+    callback(make_error_code(CryptoNote::error::NOT_INITIALIZED));
+    return;
+  }
+
+  std::string addressCopy = address;  // copy before posting
+  ioService.post(
+    std::bind(&InProcessNode::getAccountNumberAsync,
+      this,
+      std::move(addressCopy),
+      std::ref(accountNumber),
+      callback
+    )
+  );
+}
+
+void InProcessNode::getAccountNumberAsync(std::string address, std::string& accountNumber, const Callback& callback) {
+  AccountPublicAddress addr;
+  uint64_t prefix;
+  if (!parseAccountAddressString(prefix, addr, address)) {
+    callback(std::make_error_code(std::errc::invalid_argument));
+    return;
+  }
+
+  uint32_t blockHeight, txIndex;
+  if (!core.getAccountNumber(addr, blockHeight, txIndex)) {
+    callback(std::make_error_code(std::errc::no_such_file_or_directory));
+    return;
+  }
+
+  AccountNumber acctNum{blockHeight, txIndex};
+  accountNumber = acctNum.toString();
+  callback(std::error_code());
 }
 
 } //namespace CryptoNote

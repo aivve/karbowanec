@@ -1,5 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
-// Copyright (c) 2016-2021, The Karbo developers
+// Copyright (c) 2016-2026, The Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -178,6 +178,12 @@ namespace CryptoNote {
      uint64_t getTotalGeneratedAmount() override;
      uint8_t getBlockMajorVersionForHeight(uint32_t height) const;
      virtual bool getMixin(const Transaction& transaction, uint64_t& mixin) override;
+
+     virtual bool resolveAccountNumber(uint32_t blockHeight, uint32_t txIndex,
+                                       AccountPublicAddress& address) override;
+     virtual bool getAccountNumber(const AccountPublicAddress& address,
+                                   uint32_t& blockHeight, uint32_t& txIndex) override;
+     virtual bool getCanonicalAccountRegistrationsCount(uint64_t& count) override;
 
      bool is_key_image_spent(const Crypto::KeyImage& key_im);
      bool is_key_image_spent(const Crypto::KeyImage& key_im, uint32_t height);

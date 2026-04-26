@@ -1,6 +1,6 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
 // Copyright (c) 2016, The Forknote developers
-// Copyright (c) 2017-2022, The Karbo developers
+// Copyright (c) 2017-2026, The Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -361,6 +361,30 @@ struct COMMAND_EXPLORER_GET_TRANSACTIONS_BY_PAYMENT_ID {
   typedef std::string response;
 };
 
+struct COMMAND_EXPLORER_GET_ACCOUNT_NUMBER {
+  struct request {
+    std::string account_number;
+
+    void serialize(ISerializer &s) {
+      KV_MEMBER(account_number)
+    }
+  };
+
+  typedef std::string response;
+};
+
+struct COMMAND_EXPLORER_GET_ADDRESS {
+  struct request {
+    std::string address;
+
+    void serialize(ISerializer &s) {
+      KV_MEMBER(address)
+    }
+  };
+
+  typedef std::string response;
+};
+
 struct COMMAND_RPC_EXPLORER_SEARCH {
   struct request {
     std::string query;
@@ -397,6 +421,7 @@ struct COMMAND_RPC_GET_INFO {
     uint64_t min_fee;
     uint64_t transactions_count;
     uint64_t transactions_pool_size;
+    uint64_t registered_account_numbers_count;
     uint64_t alt_blocks_count;
     uint64_t outgoing_connections_count;
     uint64_t incoming_connections_count;
@@ -421,6 +446,7 @@ struct COMMAND_RPC_GET_INFO {
       KV_MEMBER(min_fee)
       KV_MEMBER(transactions_count)
       KV_MEMBER(transactions_pool_size)
+      KV_MEMBER(registered_account_numbers_count)
       KV_MEMBER(alt_blocks_count)
       KV_MEMBER(outgoing_connections_count)
       KV_MEMBER(incoming_connections_count)
@@ -562,7 +588,7 @@ struct COMMAND_RPC_GETBLOCKTEMPLATE {
     uint32_t height;
     uint64_t reserved_offset;
     std::string blocktemplate_blob;
-	std::string blockhashing_blob;
+  std::string blockhashing_blob;
     std::string status;
 
     void serialize(ISerializer &s) {
@@ -570,7 +596,7 @@ struct COMMAND_RPC_GETBLOCKTEMPLATE {
       KV_MEMBER(height)
       KV_MEMBER(reserved_offset)
       KV_MEMBER(blocktemplate_blob)
-	  KV_MEMBER(blockhashing_blob)
+    KV_MEMBER(blockhashing_blob)
       KV_MEMBER(status)
     }
   };
@@ -898,31 +924,31 @@ struct COMMAND_RPC_CHECK_TRANSACTION_KEY {
 
 //-----------------------------------------------
 struct COMMAND_RPC_CHECK_TRANSACTION_WITH_PRIVATE_VIEW_KEY {
-	struct request {
-		std::string transaction_id;
-		std::string view_key;
-		std::string address;
+  struct request {
+    std::string transaction_id;
+    std::string view_key;
+    std::string address;
 
-		void serialize(ISerializer &s) {
-			KV_MEMBER(transaction_id)
-			KV_MEMBER(view_key)
-			KV_MEMBER(address)
-		}
-	};
+    void serialize(ISerializer &s) {
+      KV_MEMBER(transaction_id)
+      KV_MEMBER(view_key)
+      KV_MEMBER(address)
+    }
+  };
 
-	struct response {
-		uint64_t amount;
-		std::vector<TransactionOutput> outputs;
-		uint32_t confirmations = 0;
-		std::string status;
+  struct response {
+    uint64_t amount;
+    std::vector<TransactionOutput> outputs;
+    uint32_t confirmations = 0;
+    std::string status;
 
-		void serialize(ISerializer &s) {
-			KV_MEMBER(amount)
-			KV_MEMBER(outputs)
-			KV_MEMBER(confirmations)
-			KV_MEMBER(status)
-		}
-	};
+    void serialize(ISerializer &s) {
+      KV_MEMBER(amount)
+      KV_MEMBER(outputs)
+      KV_MEMBER(confirmations)
+      KV_MEMBER(status)
+    }
+  };
 };
 
 struct COMMAND_RPC_VALIDATE_ADDRESS {
@@ -1256,13 +1282,13 @@ struct reserve_proof_entry
 };
 
 struct reserve_proof {
-	std::vector<reserve_proof_entry> proofs;
-	Crypto::Signature signature;
+  std::vector<reserve_proof_entry> proofs;
+  Crypto::Signature signature;
 
-	void serialize(ISerializer &s) {
-		KV_MEMBER(proofs)
-		KV_MEMBER(signature)
-	}
+  void serialize(ISerializer &s) {
+    KV_MEMBER(proofs)
+    KV_MEMBER(signature)
+  }
 };
 
 struct COMMAND_RPC_CHECK_TRANSACTION_PROOF {
@@ -1438,6 +1464,46 @@ struct COMMAND_RPC_CHECK_PAYMENT_BY_PAYMENT_ID {
       KV_MEMBER(transaction_hashes);
       KV_MEMBER(received_amount);
       KV_MEMBER(confirmations);
+    }
+  };
+};
+
+struct COMMAND_RPC_RESOLVE_ACCOUNT_NUMBER {
+  struct request {
+    std::string account_number;
+
+    void serialize(ISerializer& s) {
+      KV_MEMBER(account_number)
+    }
+  };
+
+  struct response {
+    std::string address;
+    std::string status;
+
+    void serialize(ISerializer& s) {
+      KV_MEMBER(address)
+      KV_MEMBER(status)
+    }
+  };
+};
+
+struct COMMAND_RPC_GET_ACCOUNT_NUMBER {
+  struct request {
+    std::string address;
+
+    void serialize(ISerializer& s) {
+      KV_MEMBER(address)
+    }
+  };
+
+  struct response {
+    std::string account_number;
+    std::string status;
+
+    void serialize(ISerializer& s) {
+      KV_MEMBER(account_number)
+      KV_MEMBER(status)
     }
   };
 };

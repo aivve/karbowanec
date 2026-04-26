@@ -59,7 +59,7 @@ using namespace Logging;
 #undef ERROR
 
 namespace{
-	Tools::PasswordContainer pwd_container;
+  Tools::PasswordContainer pwd_container;
 }
 
 namespace CryptoNote
@@ -130,6 +130,7 @@ namespace CryptoNote
     bool get_reserve_proof(const std::vector<std::string> &args);
     bool sign_message(const std::vector<std::string> &args);
     bool verify_message(const std::vector<std::string> &args);
+    bool register_account(const std::vector<std::string> &args);
 
     std::string get_formatted_wallet_keys();
 

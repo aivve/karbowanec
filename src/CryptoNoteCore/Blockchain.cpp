@@ -19,6 +19,7 @@
 #include "Blockchain.h"
 
 #include <algorithm>
+#include <limits>
 #include <numeric>
 #include <cstdio>
 #include <cmath>
@@ -199,6 +200,16 @@ bool Blockchain::init(const std::string& config_folder, bool load_existing) {
 
   if (!m_db.open(lmdbPath)) {
     namespace fs = std::filesystem;
+
+    // Check if another process already holds the exclusive lock
+    if (LMDBBlockchainDB::isLocked(lmdbPath)) {
+      logger(ERROR, BRIGHT_RED)
+          << "The blockchain database at " << lmdbPath
+          << " is already in use by another process. "
+          << "Only one process can access the database at a time. "
+          << "Please close the other instance and try again.";
+      return false;
+    }
 
     logger(WARNING, BRIGHT_YELLOW)
         << "Failed to open LMDB database at " << lmdbPath
@@ -479,6 +490,67 @@ bool Blockchain::init(const std::string& config_folder, bool load_existing) {
 
   update_next_cumulative_size_limit();
 
+  // One-time backfill of account registration index for blocks that predate it.
+  // Scans backwards from chain tip down to the first known registration.
+  // If the first registration (1264265, 1) is already indexed, skip entirely.
+  {
+    static const uint32_t ACCT_REG_FIRST_HEIGHT = 1264265;
+    static const uint16_t ACCT_REG_FIRST_TX     = 1;
+    chainHeight = m_db.getChainHeight();
+
+    if (chainHeight > ACCT_REG_FIRST_HEIGHT) {
+      uint8_t sk[32], vk[32];
+      if (!m_db.getAccountRegistration(ACCT_REG_FIRST_HEIGHT, ACCT_REG_FIRST_TX, sk, vk)) {
+        logger(INFO, BRIGHT_WHITE) << "Backfilling account registration index from block "
+          << (chainHeight - 1) << " down to " << ACCT_REG_FIRST_HEIGHT << " ...";
+
+        uint32_t indexed = 0;
+        static const uint32_t BATCH = 1000;
+        uint32_t batchCount = 0;
+
+        for (uint32_t h = chainHeight - 1; h >= ACCT_REG_FIRST_HEIGHT; --h) {
+          if (batchCount == 0) {
+            m_db.growMapIfNeeded();
+            m_db.beginWriteTxn();
+          }
+
+          DbBlockMeta meta{};
+          m_db.getBlockMeta(h, meta);
+
+          for (uint16_t t = 1; t < meta.txCount; ++t) {
+            uint8_t s[32], v[32];
+            if (m_db.getAccountRegistration(h, t, s, v)) {
+              continue;
+            }
+
+            try {
+              TransactionEntry te = transactionByIndex({ h, t });
+                TransactionExtraAccountRegistration reg;
+              if (getAccountRegistrationFromExtra(te.tx.extra, reg) &&
+                  isWellFormedAccountRegistration(te.tx.extra)) {
+                m_db.putAccountRegistration(h, t, reg.spendPublicKey.data, reg.viewPublicKey.data);
+                ++indexed;
+              }
+            } catch (...) {
+            }
+          }
+
+          ++batchCount;
+          if (batchCount >= BATCH || h == ACCT_REG_FIRST_HEIGHT) {
+            m_db.commitTxn();
+            batchCount = 0;
+          }
+        }
+
+        if (indexed > 0) {
+          logger(INFO, BRIGHT_GREEN) << "Account registration backfill complete: " << indexed << " registrations indexed.";
+        } else {
+          logger(INFO) << "Account registration backfill complete: no new registrations found.";
+        }
+      }
+    }
+  }
+
   chainHeight = m_db.getChainHeight();
   DbBlockMeta tailMeta{};
   m_db.getBlockMeta(chainHeight - 1, tailMeta);
@@ -724,7 +796,7 @@ difficulty_type Blockchain::getDifficultyForNextBlock(const Crypto::Hash& prevHa
   // Walk backwards through the alt-chain then the main chain by hash links.
   uint32_t processed = 0;
   Crypto::Hash h = prevHash;
-  do {
+  while (processed < difficultyBlocksCount && h != NULL_HASH) {
     uint64_t       ts      = 0;
     difficulty_type cumDiff = 0;
     Crypto::Hash   prevH{};
@@ -752,8 +824,7 @@ difficulty_type Blockchain::getDifficultyForNextBlock(const Crypto::Hash& prevHa
     cumulative_difficulties.push_back(cumDiff);
     ++processed;
     h = prevH;
-
-  } while (processed < difficultyBlocksCount);
+  }
 
   std::reverse(timestamps.begin(), timestamps.end());
   std::reverse(cumulative_difficulties.begin(), cumulative_difficulties.end());
@@ -2929,6 +3000,17 @@ bool Blockchain::pushTransaction(BlockEntry& block, const Crypto::Hash& transact
     }
   }
 
+  // Record account registration (non-coinbase only, well-formed only)
+  if (transactionIndex.transaction != 0) {
+    TransactionExtraAccountRegistration reg;
+    if (getAccountRegistrationFromExtra(tx.extra, reg) &&
+        isWellFormedAccountRegistration(tx.extra)) {
+      m_db.putAccountRegistration(block.height, transactionIndex.transaction,
+                                  reg.spendPublicKey.data, reg.viewPublicKey.data);
+      invalidateAccountRegistrationsCountCache();
+    }
+  }
+
   // Serialize and store tx entry: [u32 tx_size][tx_blob][u32 num_gidx][u32 gidx...]
   BinaryArray txBlob = toBinaryArray(tx);
   uint32_t txSize  = static_cast<uint32_t>(txBlob.size());
@@ -2982,6 +3064,18 @@ void Blockchain::popTransaction(const Transaction& transaction,
     Crypto::Hash paymentId;
     if (getPaymentIdFromTxExtra(transaction.extra, paymentId)) {
       m_db.removePaymentId(paymentId, transactionHash);
+    }
+  }
+
+  // Remove account registration
+  {
+    TransactionExtraAccountRegistration reg;
+    if (getAccountRegistrationFromExtra(transaction.extra, reg)) {
+      uint32_t block; uint16_t txSlot;
+      if (m_db.getTxIndex(transactionHash, block, txSlot)) {
+        m_db.removeAccountRegistration(block, txSlot);
+        invalidateAccountRegistrationsCountCache();
+      }
     }
   }
 
@@ -3219,6 +3313,68 @@ bool Blockchain::isBlockInMainChain(const Crypto::Hash& blockId) {
 
 bool Blockchain::isInCheckpointZone(const uint32_t height) {
   return m_checkpoints.is_in_checkpoint_zone(height);
+}
+
+// ─── Account number lookups ──────────────────────────────────────────────────
+
+bool Blockchain::resolveAccountNumber(uint32_t blockHeight, uint32_t txIndex,
+                                      AccountPublicAddress& address) {
+  std::lock_guard<std::recursive_mutex> lk(m_blockchain_lock);
+  const uint32_t chainHeight = m_db.getChainHeight();
+  if (blockHeight >= chainHeight || txIndex == 0 ||
+      txIndex > std::numeric_limits<uint16_t>::max()) {
+    return false;
+  }
+  uint8_t spendKey[32], viewKey[32];
+  if (m_db.getAccountRegistration(blockHeight, txIndex, spendKey, viewKey)) {
+    memcpy(address.spendPublicKey.data, spendKey, 32);
+    memcpy(address.viewPublicKey.data, viewKey, 32);
+    return true;
+  }
+
+  // Fallback: registration may predate the index — fetch the tx directly
+  try {
+    TransactionEntry te = transactionByIndex({ blockHeight, static_cast<uint16_t>(txIndex) });
+    TransactionExtraAccountRegistration reg;
+    if (getAccountRegistrationFromExtra(te.tx.extra, reg) &&
+        isWellFormedAccountRegistration(te.tx.extra)) {
+      address.spendPublicKey = reg.spendPublicKey;
+      address.viewPublicKey = reg.viewPublicKey;
+      return true;
+    }
+  } catch (...) {
+  }
+  return false;
+}
+
+bool Blockchain::getAccountNumber(const AccountPublicAddress& address,
+                                  uint32_t& blockHeight, uint32_t& txIndex) {
+  std::lock_guard<std::recursive_mutex> lk(m_blockchain_lock);
+  return m_db.findAccountRegistrationByKeys(address.spendPublicKey.data,
+                                            address.viewPublicKey.data,
+                                            blockHeight, txIndex);
+}
+
+void Blockchain::invalidateAccountRegistrationsCountCache() {
+  m_accountRegistrationsCountCacheTime = std::chrono::steady_clock::time_point();
+}
+
+bool Blockchain::getCanonicalAccountRegistrationsCount(uint64_t& count) {
+  std::lock_guard<std::recursive_mutex> lk(m_blockchain_lock);
+  const auto now = std::chrono::steady_clock::now();
+  if (m_accountRegistrationsCountCacheTime != std::chrono::steady_clock::time_point() &&
+      now - m_accountRegistrationsCountCacheTime < std::chrono::seconds(ACCOUNT_REGISTRATIONS_COUNT_CACHE_SECONDS)) {
+    count = m_cachedCanonicalAccountRegistrationsCount;
+    return true;
+  }
+
+  if (!m_db.getCanonicalAccountRegistrationsCount(count)) {
+    return false;
+  }
+
+  m_cachedCanonicalAccountRegistrationsCount = count;
+  m_accountRegistrationsCountCacheTime = now;
+  return true;
 }
 
 // ─── blockDifficulty / blockCumulativeDifficulty / getblockEntry ─────────────
@@ -3468,6 +3624,16 @@ bool Blockchain::migrateFromSwappedVector(const std::string& config_folder) {
               << ", resizing map and retrying batch...";
             m_db.resizeMap();
             // batchStart unchanged - retry same batch from the beginning
+          }
+          catch (const std::exception& e) {
+            // Any non-map-full LMDB/storage error (e.g. EIO during commit):
+            // abort the batch transaction and return a recoverable migration
+            // failure instead of crashing daemon startup.
+            m_db.abortTxn();
+            logger(ERROR, BRIGHT_RED)
+              << "Migration: batch [" << batchStart << ", " << (batchEnd - 1)
+              << "] failed: " << e.what();
+            return false;
           }
         }
       }

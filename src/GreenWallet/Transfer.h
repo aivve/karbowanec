@@ -6,13 +6,16 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include <GreenWallet/Types.h>
 #include <GreenWallet/WalletConfig.h>
+#include <CryptoNoteCore/AccountNumber.h>
+#include <INode.h>
 
 enum BalanceInfo { NotEnoughBalance, EnoughBalance, SetMixinToZero };
 void transfer(std::shared_ptr<WalletInfo> walletInfo, uint32_t height,
-	bool sendAll = false, std::string nodeAddress = std::string(), uint64_t nodeFee = 0);
+    bool sendAll = false, std::string nodeAddress = std::string(), uint64_t nodeFee = 0);
 
 void doTransfer(std::string address, uint64_t amount, uint64_t fee,
                 std::string extra, std::shared_ptr<WalletInfo> walletInfo,
@@ -57,12 +60,18 @@ Maybe<std::string> getExtra();
 
 Maybe<std::string> getDestinationAddress();
 
+bool isAccountNumber(const std::string& input);
+
+bool resolveAccountNumberViaNode(CryptoNote::INode& node, const std::string& accountNumber, std::string& address);
+
+bool getAccountNumberViaNode(CryptoNote::INode& node, const std::string& address, std::string& accountNumber);
+
 Maybe<uint64_t> getFee();
 
 Maybe<uint64_t> getTransferAmount();
 
 BalanceInfo doWeHaveEnoughBalance(uint64_t amount, uint64_t fee,
-	std::shared_ptr<WalletInfo> walletInfo,
-	uint32_t height, uint64_t nodeFee);
+    std::shared_ptr<WalletInfo> walletInfo,
+    uint32_t height, uint64_t nodeFee);
 
 uint64_t calculateNodeFee(uint64_t amount);

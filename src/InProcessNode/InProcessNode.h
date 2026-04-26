@@ -1,5 +1,5 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
-// Copyright (c) 2016-2020, The Karbo developers
+// Copyright (c) 2016-2026, The Karbo developers
 //
 // This file is part of Karbo.
 //
@@ -98,6 +98,9 @@ public:
   virtual void isSynchronized(bool& syncStatus, const Callback& callback) override;
   virtual void getConnections(std::vector<p2pConnection>& connections, const Callback& callback) override;
 
+  virtual void resolveAccountNumber(const std::string& accountNumber, std::string& address, const Callback& callback) override;
+  virtual void getAccountNumber(const std::string& address, std::string& accountNumber, const Callback& callback) override;
+
   virtual void setRootCert(const std::string &path) override;
   virtual void disableVerify() override;
 
@@ -159,6 +162,9 @@ private:
 
   void getConnectionsAsync(std::vector<p2pConnection>& connections, const Callback& callback);
   std::error_code doGetConnections(std::vector<p2pConnection>& connections);
+
+  void resolveAccountNumberAsync(std::string accountNumber, std::string& address, const Callback& callback);
+  void getAccountNumberAsync(std::string address, std::string& accountNumber, const Callback& callback);
 
   void workerFunc();
   bool doShutdown();

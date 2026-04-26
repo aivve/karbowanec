@@ -1,6 +1,6 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
 // Copyright (c) 2016-2018  zawy12
-// Copyright (c) 2016-2021, The Karbowanec developers
+// Copyright (c) 2016-2026, The Karbowanec developers
 //
 // This file is part of Karbo.
 //
@@ -160,29 +160,22 @@ namespace CryptoNote {
   }
 
   uint64_t Currency::calculateReward(uint64_t alreadyGeneratedCoins, uint32_t height) const {
-    // assert(alreadyGeneratedCoins <= m_moneySupply);
     assert(m_emissionSpeedFactor > 0 && m_emissionSpeedFactor <= 8 * sizeof(uint64_t));
-
-    uint64_t baseRewardInitial, baseRewardTail, baseReward;
-
     uint64_t supply = effectiveMoneySupply(height);
-
     uint64_t tailReward = CryptoNote::parameters::TAIL_EMISSION_REWARD;
     if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
       tailReward /= CryptoNote::parameters::REDENOMINATION_FACTOR;
       if (tailReward == 0) tailReward = 1; // ensure at least 1 new atomic unit
     }
-    baseRewardInitial = alreadyGeneratedCoins < supply ? (supply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : tailReward;
-    // Tail emission: Friedman's k-percent rule, 2% of circulating supply per year
+    // Initial exponential emission curve with fallback to flat rate tail emission
+    uint64_t baseRewardInitial = alreadyGeneratedCoins < supply ? (supply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : tailReward;
+    // Friedman's k-percent rule, inflation 2% of total coins in circulation p.a.
     const uint64_t blocksInOneYear = expectedNumberOfBlocksPerDay() * 365;
-    baseRewardTail = alreadyGeneratedCoins / (50 * blocksInOneYear);
-
-    baseReward = std::max(baseRewardInitial, baseRewardTail);
-
-    logger(DEBUGGING) << "Init. reward: " << formatAmount(baseRewardInitial);
-    logger(DEBUGGING) << "Tail  reward: " << formatAmount(baseRewardTail);
-
-    return baseReward;
+    assert(blocksInOneYear > 0);
+    uint64_t twoPercentOfEmission = alreadyGeneratedCoins / 100 * 2;
+    uint64_t baseRewardTail = twoPercentOfEmission / blocksInOneYear;
+    // Transition from exponential to tail emission (whichever reward is larger)
+    return std::max(baseRewardInitial, baseRewardTail);
   }
 
   bool Currency::getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins,
@@ -605,7 +598,8 @@ namespace CryptoNote {
       solveTime = std::min<int64_t>((T * 7), std::max<int64_t>(solveTime, (-6 * T)));
       difficulty = cumulativeDifficulties[i] - cumulativeDifficulties[i - 1];
       LWMA += (int64_t)(solveTime * i) / k;
-      sum_inverse_D += 1 / static_cast<double>(difficulty);
+      if (difficulty > 0)
+        sum_inverse_D += 1 / static_cast<double>(difficulty);
     }
 
     // Keep LWMA sane in case something unforeseen occurs.

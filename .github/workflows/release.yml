@@ -10,7 +10,7 @@ jobs:
     name: Windows
     runs-on: windows-2022
     env:
-      BOOST_ROOT: C:\thirdparties\boost-1.83.0
+      BOOST_ROOT: C:\thirdparties\boost-1.86.0
     steps:
       - uses: actions/checkout@master
         with:
@@ -20,19 +20,16 @@ jobs:
       - name: Add msbuild to PATH
         uses: microsoft/setup-msbuild@v1.1
 
-      - name: Install OpenSSL
-        run: choco install openssl
-
       - name: Install curl
         run: |
           choco install curl -y
 
-      - name: Download and Install Boost 1.83
+      - name: Download and Install Boost 1.86
         run: |
-          $Url = "https://sourceforge.net/projects/boost/files/boost-binaries/1.83.0/boost_1_83_0-msvc-14.3-64.exe"
+          $Url = "https://sourceforge.net/projects/boost/files/boost-binaries/1.86.0/boost_1_86_0-msvc-14.3-64.exe"
           $OutputPath = "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\boost-installer.exe"
           curl -L $Url -o $OutputPath
-          Start-Process -Wait -FilePath $OutputPath "/SILENT","/SP-","/SUPPRESSMSGBOXES","/DIR=C:\\thirdparties\\boost-1.83.0"
+          Start-Process -Wait -FilePath $OutputPath "/SILENT","/SP-","/SUPPRESSMSGBOXES","/DIR=C:\\thirdparties\\boost-1.86.0"
 
       - name: Build
         shell: powershell
@@ -255,14 +252,16 @@ jobs:
 
           make -j$(nproc)
 
-          cd src
-          exeFiles=()
-          for f in ./*; do [[ -x $f && -f $f ]] && exeFiles+=( "$f" ); done
-          strip "${exeFiles[@]}"
-          tar -czf "$release_name".tar.gz "${exeFiles[@]}"
-          mv "$release_name".tar.gz ../
-          cd ..
-          sha256=$(shasum -a 256 "$release_name.tar.gz" | awk '{print toupper($1)}')
+          mkdir -p "$release_name"
+          for f in src/*; do
+            if [ -x "$f" ] && [ -f "$f" ]; then
+              strip "$f"
+              cp "$f" "$release_name/"
+            fi
+          done
+
+          tar -czf "$release_name".tar.gz -C "$release_name" .
+          sha256=$(sha256sum "$release_name.tar.gz" | awk '{print toupper($1)}')
           asset_path="./$build_folder/$release_name.tar.gz"
 
           echo "sha256=${sha256}" >> $GITHUB_OUTPUT

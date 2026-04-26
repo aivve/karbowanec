@@ -17,8 +17,10 @@
 
 #include "LMDBBlockchainDB.h"
 
+#include <array>
 #include <cassert>
 #include <cstring>
+#include <set>
 #include <stdexcept>
 
 namespace CryptoNote {
@@ -88,13 +90,44 @@ LMDBBlockchainDB::~LMDBBlockchainDB() {
 // ─── open / close / clear ─────────────────────────────────────────────────
 
 bool LMDBBlockchainDB::open(const std::string& path) {
-  int rc = mdb_env_create(&m_env);
-  if (rc) return false;
+  // ── Acquire an exclusive application-level lock ──────────────────────────
+  // LMDB allows multiple processes to share the same environment (serialised
+  // writers, concurrent readers).  That is fine for the library, but two
+  // daemon instances operating on the same blockchain directory would cause
+  // application-level conflicts.  An exclusive lock file prevents this.
+  std::string lockPath = path + "/db.lock";
 
-  mdb_env_set_maxdbs(m_env, 16);
+#ifdef _WIN32
+  m_lockFile = CreateFileA(
+      lockPath.c_str(),
+      GENERIC_READ | GENERIC_WRITE,
+      0,                        // no sharing — exclusive access
+      nullptr,
+      OPEN_ALWAYS,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE,
+      nullptr);
+  if (m_lockFile == INVALID_HANDLE_VALUE)
+    return false;
+#else
+  m_lockFd = ::open(lockPath.c_str(), O_RDWR | O_CREAT, 0664);
+  if (m_lockFd < 0)
+    return false;
+  if (::flock(m_lockFd, LOCK_EX | LOCK_NB) != 0) {
+    ::close(m_lockFd);
+    m_lockFd = -1;
+    return false;
+  }
+#endif
+
+  int rc = mdb_env_create(&m_env);
+  if (rc) { close(); return false; }
+
+  rc = mdb_env_set_maxdbs(m_env, 16);
+  if (rc) { close(); return false; }
 
   // Start at 1 GB; grows as needed via resizeMap()
-  mdb_env_set_mapsize(m_env, size_t(1) << 30);
+  rc = mdb_env_set_mapsize(m_env, size_t(1) << 30);
+  if (rc) { close(); return false; }
 
   // MDB_NORDAHEAD: no read-ahead (saves RAM on large chains).
   // MDB_WRITEMAP and MDB_MAPASYNC are intentionally absent: WRITEMAP writes
@@ -106,20 +139,12 @@ bool LMDBBlockchainDB::open(const std::string& path) {
 
   // Ensure the directory exists
   rc = mdb_env_open(m_env, path.c_str(), envFlags, 0664);
-  if (rc) {
-    mdb_env_close(m_env);
-    m_env = nullptr;
-    return false;
-  }
+  if (rc) { close(); return false; }
 
   // Open all named databases in a setup transaction
   MDB_txn* setupTxn = nullptr;
   rc = mdb_txn_begin(m_env, nullptr, 0, &setupTxn);
-  if (rc) {
-    mdb_env_close(m_env);
-    m_env = nullptr;
-    return false;
-  }
+  if (rc) { close(); return false; }
 
   try {
     openDb(setupTxn, "block_meta",        0,                         m_dbiBlockMeta);
@@ -134,19 +159,15 @@ bool LMDBBlockchainDB::open(const std::string& path) {
     openDb(setupTxn, "payment_id_idx",    MDB_DUPSORT | MDB_DUPFIXED, m_dbiPaymentIdIdx);
     openDb(setupTxn, "timestamp_idx",     0,                         m_dbiTimestampIdx);
     openDb(setupTxn, "gen_tx_idx",        0,                         m_dbiGenTxIdx);
+    openDb(setupTxn, "acct_reg",          0,                         m_dbiAccountRegistrations);
   } catch (...) {
     mdb_txn_abort(setupTxn);
-    mdb_env_close(m_env);
-    m_env = nullptr;
+    close();
     return false;
   }
 
   rc = mdb_txn_commit(setupTxn);
-  if (rc) {
-    mdb_env_close(m_env);
-    m_env = nullptr;
-    return false;
-  }
+  if (rc) { close(); return false; }
 
   return true;
 }
@@ -160,6 +181,18 @@ void LMDBBlockchainDB::close() {
     mdb_env_close(m_env);
     m_env = nullptr;
   }
+#ifdef _WIN32
+  if (m_lockFile != INVALID_HANDLE_VALUE) {
+    CloseHandle(m_lockFile);
+    m_lockFile = INVALID_HANDLE_VALUE;
+  }
+#else
+  if (m_lockFd >= 0) {
+    ::flock(m_lockFd, LOCK_UN);
+    ::close(m_lockFd);
+    m_lockFd = -1;
+  }
+#endif
 }
 
 void LMDBBlockchainDB::clear() {
@@ -186,9 +219,40 @@ void LMDBBlockchainDB::clear() {
   dropDb(m_dbiPaymentIdIdx);
   dropDb(m_dbiTimestampIdx);
   dropDb(m_dbiGenTxIdx);
+  dropDb(m_dbiAccountRegistrations);
 
   rc = mdb_txn_commit(txn);
   checkRc(rc, "clear:commit");
+}
+
+// ─── isLocked ─────────────────────────────────────────────────────────────
+
+bool LMDBBlockchainDB::isLocked(const std::string& path) {
+  std::string lockPath = path + "/db.lock";
+#ifdef _WIN32
+  HANDLE h = CreateFileA(
+      lockPath.c_str(),
+      GENERIC_READ | GENERIC_WRITE,
+      0,          // exclusive — will fail if already held
+      nullptr,
+      OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL,
+      nullptr);
+  if (h == INVALID_HANDLE_VALUE)
+    return (GetLastError() == ERROR_SHARING_VIOLATION);
+  CloseHandle(h);
+  return false;
+#else
+  int fd = ::open(lockPath.c_str(), O_RDWR, 0664);
+  if (fd < 0) return false;  // file doesn't exist → not locked
+  if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
+    ::close(fd);
+    return true;  // another process holds the lock
+  }
+  ::flock(fd, LOCK_UN);
+  ::close(fd);
+  return false;
+#endif
 }
 
 // ─── Transaction control ───────────────────────────────────────────────────
@@ -334,9 +398,10 @@ bool LMDBBlockchainDB::getBlockMetaRange(uint32_t fromHeight, uint32_t toHeight,
 bool LMDBBlockchainDB::removeLastBlockMeta() {
   assert(m_writeTxn);
   MDB_cursor* cur = nullptr;
-  mdb_cursor_open(m_writeTxn, m_dbiBlockMeta, &cur);
+  int rc = mdb_cursor_open(m_writeTxn, m_dbiBlockMeta, &cur);
+  checkRc(rc, "removeLastBlockMeta:cursor_open");
   MDB_val k{}, v{};
-  int rc = mdb_cursor_get(cur, &k, &v, MDB_LAST);
+  rc = mdb_cursor_get(cur, &k, &v, MDB_LAST);
   if (rc == MDB_NOTFOUND) { mdb_cursor_close(cur); return false; }
   checkRc(rc, "removeLastBlockMeta:get");
   rc = mdb_cursor_del(cur, 0);
@@ -796,6 +861,123 @@ bool LMDBBlockchainDB::removeGeneratedTxCount(uint32_t height) {
   int rc = mdb_del(m_writeTxn, m_dbiGenTxIdx, &k, nullptr);
   if (rc == MDB_NOTFOUND) return false;
   checkRc(rc, "removeGeneratedTxCount");
+  return true;
+}
+
+// ─── account_registrations ────────────────────────────────────────────────
+
+// Big-endian key encoding so LMDB sort order = block height order.
+// Only used for acct_reg table; other tables use native byte order.
+static void packAcctRegKey(uint32_t blockHeight, uint32_t txIndex, uint8_t out[8]) {
+  out[0] = static_cast<uint8_t>(blockHeight >> 24);
+  out[1] = static_cast<uint8_t>(blockHeight >> 16);
+  out[2] = static_cast<uint8_t>(blockHeight >>  8);
+  out[3] = static_cast<uint8_t>(blockHeight);
+  out[4] = static_cast<uint8_t>(txIndex >> 24);
+  out[5] = static_cast<uint8_t>(txIndex >> 16);
+  out[6] = static_cast<uint8_t>(txIndex >>  8);
+  out[7] = static_cast<uint8_t>(txIndex);
+}
+
+static void unpackAcctRegKey(const uint8_t in[8], uint32_t& blockHeight, uint32_t& txIndex) {
+  blockHeight = (static_cast<uint32_t>(in[0]) << 24) | (static_cast<uint32_t>(in[1]) << 16) |
+                (static_cast<uint32_t>(in[2]) <<  8) |  static_cast<uint32_t>(in[3]);
+  txIndex     = (static_cast<uint32_t>(in[4]) << 24) | (static_cast<uint32_t>(in[5]) << 16) |
+                (static_cast<uint32_t>(in[6]) <<  8) |  static_cast<uint32_t>(in[7]);
+}
+
+bool LMDBBlockchainDB::putAccountRegistration(uint32_t blockHeight, uint32_t txIndex,
+                                              const uint8_t* spendKey, const uint8_t* viewKey) {
+  assert(m_writeTxn);
+  uint8_t keyBuf[8];
+  packAcctRegKey(blockHeight, txIndex, keyBuf);
+  uint8_t valueBuf[64];
+  memcpy(valueBuf, spendKey, 32);
+  memcpy(valueBuf + 32, viewKey, 32);
+  MDB_val k = {sizeof(keyBuf), keyBuf};
+  MDB_val v = {64, valueBuf};
+  int rc = mdb_put(m_writeTxn, m_dbiAccountRegistrations, &k, &v, 0);
+  checkRc(rc, "putAccountRegistration");
+  return true;
+}
+
+bool LMDBBlockchainDB::getAccountRegistration(uint32_t blockHeight, uint32_t txIndex,
+                                              uint8_t* spendKey, uint8_t* viewKey) const {
+  auto guard = readTxn();
+  uint8_t keyBuf[8];
+  packAcctRegKey(blockHeight, txIndex, keyBuf);
+  MDB_val k = {sizeof(keyBuf), keyBuf}, v{};
+  int rc = mdb_get(guard.txn, m_dbiAccountRegistrations, &k, &v);
+  if (rc == MDB_NOTFOUND) return false;
+  checkRc(rc, "getAccountRegistration");
+  if (v.mv_size != 64) return false;
+  memcpy(spendKey, v.mv_data, 32);
+  memcpy(viewKey, static_cast<const uint8_t*>(v.mv_data) + 32, 32);
+  return true;
+}
+
+bool LMDBBlockchainDB::removeAccountRegistration(uint32_t blockHeight, uint32_t txIndex) {
+  assert(m_writeTxn);
+  uint8_t keyBuf[8];
+  packAcctRegKey(blockHeight, txIndex, keyBuf);
+  MDB_val k = {sizeof(keyBuf), keyBuf};
+  int rc = mdb_del(m_writeTxn, m_dbiAccountRegistrations, &k, nullptr);
+  if (rc == MDB_NOTFOUND) return false;
+  checkRc(rc, "removeAccountRegistration");
+  return true;
+}
+
+bool LMDBBlockchainDB::findAccountRegistrationByKeys(const uint8_t* spendKey, const uint8_t* viewKey,
+                                                     uint32_t& blockHeight, uint32_t& txIndex) const {
+  auto guard = readTxn();
+  MDB_cursor* cursor = nullptr;
+  int rc = mdb_cursor_open(guard.txn, m_dbiAccountRegistrations, &cursor);
+  checkRc(rc, "findAccountRegistrationByKeys:open");
+
+  MDB_val k{}, v{};
+  // Walk forward — canonical account number is the first registration
+  rc = mdb_cursor_get(cursor, &k, &v, MDB_FIRST);
+  while (rc == 0) {
+    if (v.mv_size == 64) {
+      const uint8_t* data = static_cast<const uint8_t*>(v.mv_data);
+      if (memcmp(data, spendKey, 32) == 0 && memcmp(data + 32, viewKey, 32) == 0) {
+        unpackAcctRegKey(static_cast<const uint8_t*>(k.mv_data), blockHeight, txIndex);
+        mdb_cursor_close(cursor);
+        return true;
+      }
+    }
+    rc = mdb_cursor_get(cursor, &k, &v, MDB_NEXT);
+  }
+
+  mdb_cursor_close(cursor);
+  return false;
+}
+
+bool LMDBBlockchainDB::getCanonicalAccountRegistrationsCount(uint64_t& count) const {
+  auto guard = readTxn();
+  MDB_cursor* cursor = nullptr;
+  int rc = mdb_cursor_open(guard.txn, m_dbiAccountRegistrations, &cursor);
+  checkRc(rc, "getCanonicalAccountRegistrationsCount:open");
+
+  // Later registrations for the same address are aliases; only the first one is canonical.
+  std::set<std::array<uint8_t, 64>> uniqueAddresses;
+  MDB_val k{}, v{};
+  rc = mdb_cursor_get(cursor, &k, &v, MDB_FIRST);
+  while (rc == 0) {
+    if (v.mv_size == 64) {
+      std::array<uint8_t, 64> addressKeys;
+      std::memcpy(addressKeys.data(), v.mv_data, addressKeys.size());
+      uniqueAddresses.insert(addressKeys);
+    }
+    rc = mdb_cursor_get(cursor, &k, &v, MDB_NEXT);
+  }
+
+  mdb_cursor_close(cursor);
+  if (rc != MDB_NOTFOUND) {
+    checkRc(rc, "getCanonicalAccountRegistrationsCount:next");
+  }
+
+  count = uniqueAddresses.size();
   return true;
 }
 

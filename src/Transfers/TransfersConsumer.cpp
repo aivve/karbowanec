@@ -48,8 +48,7 @@ using namespace CryptoNote;
 
 class MarkTransactionConfirmedException : public std::exception {
 public:
-  MarkTransactionConfirmedException(const Crypto::Hash& txHash) {
-  }
+  explicit MarkTransactionConfirmedException(const Crypto::Hash& txHash) : m_txHash(txHash) {}
 
   const Hash& getTxHash() const {
     return m_txHash;
@@ -388,11 +387,11 @@ uint32_t TransfersConsumer::onNewBlocks(const CompleteBlock* blocks, uint32_t st
     }
   } catch (const MarkTransactionConfirmedException& e) {
     m_logger(ERROR, BRIGHT_RED) << "Failed to process block transactions: failed to confirm transaction " << e.getTxHash() <<
-      ", remove this transaction from all containers and transaction pool";
-    forEachSubscription([&e](TransfersSubscription& sub) {
-      sub.deleteUnconfirmedTransaction(e.getTxHash());
-    });
-
+    //  ", remove this transaction from all containers and transaction pool";
+    //forEachSubscription([&e](TransfersSubscription& sub) {
+    //  sub.deleteUnconfirmedTransaction(e.getTxHash());
+    //  });
+      ", keep wallet state unconfirmed and remove this hash from known pool state";
     m_poolTxs.erase(e.getTxHash());
   } catch (std::exception& e) {
     m_logger(ERROR, BRIGHT_RED) << "Failed to process block transactions, exception: " << e.what();
@@ -690,8 +689,11 @@ void TransfersConsumer::processOutputs(const TransactionBlockInfo& blockInfo, Tr
         // pool->blockchain
         sub.markTransactionConfirmed(blockInfo, tx.getTransactionHash(), globalIdxs);
         updated = true;
+      } catch (const std::exception& e) {
+        m_logger(ERROR, BRIGHT_RED) << "markTransactionConfirmed failed for tx " << tx.getTransactionHash() << ": " << e.what();
+        throw MarkTransactionConfirmedException(tx.getTransactionHash());
       } catch (...) {
-        m_logger(ERROR, BRIGHT_RED) << "markTransactionConfirmed failed, throw MarkTransactionConfirmedException";
+        m_logger(ERROR, BRIGHT_RED) << "markTransactionConfirmed failed for tx " << tx.getTransactionHash() << ": unknown exception";
         throw MarkTransactionConfirmedException(tx.getTransactionHash());
       }
     } else {
