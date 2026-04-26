@@ -44,7 +44,7 @@ void serialize(TransactionInformation& ti, CryptoNote::ISerializer& s) {
   s(ti.paymentId, "");
 }
 
-const uint32_t TRANSFERS_CONTAINER_STORAGE_VERSION = 1;
+const uint32_t TRANSFERS_CONTAINER_STORAGE_VERSION = 2;
 
 namespace {
   template<typename TIterator>

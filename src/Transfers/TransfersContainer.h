@@ -102,6 +102,7 @@ struct TransactionOutputInformationEx : public TransactionOutputInformationIn {
     if (type == TransactionTypes::OutputType::Key) {
       s(outputKey, "");
     } else if (type == TransactionTypes::OutputType::Confidential) {
+      s(outputKey, "");
       s(commitment, "");
       s(blindingFactor, "");
     }

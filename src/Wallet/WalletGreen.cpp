@@ -2395,16 +2395,21 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
     }
 
     // Ring commitments must be computed exactly as core validation does:
-    // resolve each ring member amount from (raw amount bucket + member block/coinbase metadata).
+    // transparent members are reconstructed from their public amount bucket;
+    // confidential members carry their public commitment.
     TransactionOutput ringMemberOutput;
     ringMemberOutput.amount = ki.amount;
     ringMemberOutput.target = KeyOutput();
     for (size_t k = 0; k < ki.outputs.size(); ++k) {
-      const uint64_t resolvedAmount = resolveOutputAmount(
-        ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
-      Crypto::EllipticCurvePoint ringCommit;
-      if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
-        throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
+      Crypto::EllipticCurvePoint ringCommit{};
+      if (ki.outputs[k].isConfidential) {
+        ringCommit = ki.outputs[k].commitment;
+      } else {
+        const uint64_t resolvedAmount = resolveOutputAmount(
+          ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
+        if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
+          throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
+        }
       }
       cti.ringCommitments.push_back(ringCommit);
     }
@@ -2422,17 +2427,13 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
         ephKeys, dummyKeyImage);
     cti.spendPrivkey = ephKeys.secretKey;
 
-    // Real input's blinding factor: zero for pre-fork transparent outputs
-    std::memset(&cti.realBlinding, 0, sizeof(cti.realBlinding));
+    cti.realBlinding = ki.realOutputBlinding;
 
     if (cti.realIndex >= ki.outputs.size()) {
       throw std::runtime_error("Invalid real input index in CT input");
     }
 
-    // Real input amount must use the same per-output resolver as the ring commitments.
-    cti.amount = resolveOutputAmount(ringMemberOutput,
-      ki.outputs[cti.realIndex].blockHeight,
-      ki.outputs[cti.realIndex].isCoinbase);
+    cti.amount = ki.realOutputAmount;
 
     // Store ephKeys back for caller
     input.ephKeys = ephKeys;
@@ -2557,7 +2558,9 @@ void WalletGreen::requestMixinOuts(
 
   std::vector<uint64_t> amounts;
   for (const auto& out: selectedTransfers) {
-    amounts.push_back(out.out.amount);
+    amounts.push_back(out.out.type == TransactionTypes::OutputType::Confidential
+      ? CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT
+      : out.out.amount);
   }
 
   std::error_code mixinError;
@@ -2600,8 +2603,6 @@ uint64_t WalletGreen::selectTransfers(
   std::vector<OutputToTransfer>& selectedTransfers) {
 
   uint64_t foundMoney = 0;
-  size_t skippedConfidentialOutputs = 0;
-
   // Post-fork: skip transparent outputs whose resolved spendable value is zero.
   // This covers pre-fork dust that became worthless after redenomination.
   bool isPostFork = static_cast<uint32_t>(m_blockchain.size()) >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
@@ -2616,16 +2617,9 @@ uint64_t WalletGreen::selectTransfers(
   std::vector<OutputData> walletOuts;
   for (auto walletIt = wallets.begin(); walletIt != wallets.end(); ++walletIt) {
     for (auto outIt = walletIt->outs.begin(); outIt != walletIt->outs.end(); ++outIt) {
-      // Spending confidential outputs is not implemented yet in CT input construction.
-      // Keep them out of automatic selection to avoid constructing invalid spends.
-      if (outIt->type == TransactionTypes::OutputType::Confidential) {
-        ++skippedConfidentialOutputs;
-        continue;
-      }
-
       uint64_t spendAmount = outIt->amount;
 
-      if (isPostFork) {
+      if (isPostFork && outIt->type == TransactionTypes::OutputType::Key) {
         TransactionInformation txInfo;
         const bool haveTxInfo = walletIt->wallet != nullptr &&
           walletIt->wallet->container != nullptr &&
@@ -2670,12 +2664,6 @@ uint64_t WalletGreen::selectTransfers(
       foundMoney += out.spendAmount;
       selectedTransfers.emplace_back(OutputToTransfer{ std::move(out.output), out.wallet });
     } while (foundMoney < neededMoney && !dustIndexGenerator.empty());
-  }
-
-  if (skippedConfidentialOutputs != 0 && foundMoney < neededMoney) {
-    m_logger(WARNING, BRIGHT_YELLOW)
-      << "Skipped " << skippedConfidentialOutputs
-      << " confidential output(s) during selection because confidential-input spending is not implemented yet";
   }
 
   return foundMoney;
@@ -2762,12 +2750,11 @@ void WalletGreen::prepareInputs(
 
   size_t i = 0;
   for (const auto& input: selectedTransfers) {
-    if (input.out.type != TransactionTypes::OutputType::Key) {
-      throw std::runtime_error("Cannot spend confidential output: confidential-input spending is not implemented yet");
-    }
-
     TransactionTypes::InputKeyInfo keyInfo;
-    keyInfo.amount = input.out.amount;
+    const bool realIsConfidential = input.out.type == TransactionTypes::OutputType::Confidential;
+    keyInfo.amount = realIsConfidential
+      ? CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT
+      : input.out.amount;
 
     TransactionInformation txInfo;
     bool haveTxInfo = input.wallet != nullptr &&
@@ -2788,8 +2775,10 @@ void WalletGreen::prepareInputs(
         TransactionTypes::GlobalOutput globalOutput;
         globalOutput.outputIndex = static_cast<uint32_t>(fakeOut.global_amount_index);
         globalOutput.targetKey = reinterpret_cast<PublicKey&>(fakeOut.out_key);
+        globalOutput.commitment = fakeOut.commitment;
         globalOutput.blockHeight = fakeOut.block_height;
         globalOutput.isCoinbase = fakeOut.is_coinbase != 0;
+        globalOutput.isConfidential = fakeOut.output_type == static_cast<uint8_t>(TransactionTypes::OutputType::Confidential);
         keyInfo.outputs.push_back(std::move(globalOutput));
         if(keyInfo.outputs.size() >= mixIn)
           break;
@@ -2804,14 +2793,27 @@ void WalletGreen::prepareInputs(
     TransactionTypes::GlobalOutput realOutput;
     realOutput.outputIndex = input.out.globalOutputIndex;
     realOutput.targetKey = reinterpret_cast<const PublicKey&>(input.out.outputKey);
+    realOutput.commitment = input.out.commitment;
     realOutput.blockHeight = realBlockHeight;
     realOutput.isCoinbase = realIsCoinbase;
+    realOutput.isConfidential = realIsConfidential;
 
     auto insertedIn = keyInfo.outputs.insert(insertIn, realOutput);
 
     keyInfo.realOutput.transactionPublicKey = reinterpret_cast<const PublicKey&>(input.out.transactionPublicKey);
     keyInfo.realOutput.transactionIndex = static_cast<size_t>(insertedIn - keyInfo.outputs.begin());
     keyInfo.realOutput.outputInTransaction = input.out.outputInTransaction;
+    if (realIsConfidential) {
+      keyInfo.realOutputAmount = input.out.amount;
+      keyInfo.realOutputBlinding = input.out.blindingFactor;
+    } else {
+      TransactionOutput transparentOutput;
+      transparentOutput.amount = input.out.amount;
+      transparentOutput.target = KeyOutput();
+      keyInfo.realOutputAmount = resolveOutputAmount(transparentOutput, realBlockHeight, realIsCoinbase);
+      std::memset(&keyInfo.realOutputBlinding, 0, sizeof(keyInfo.realOutputBlinding));
+    }
+    keyInfo.realOutputIsConfidential = realIsConfidential;
 
     //Important! outputs in selectedTransfers and in keysInfo must have the same order!
     InputInfo inputInfo;

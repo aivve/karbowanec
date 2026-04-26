@@ -227,7 +227,7 @@ namespace
     TxTestBase(size_t ringSize) :
       m_currency(CryptoNote::CurrencyBuilder(m_logger).currency()),
       txGenerator(m_currency, ringSize),
-      pool(m_currency, validator, coreStub, m_time, m_logger, false)
+      pool(m_currency, validator, coreStub, m_time, m_logger)
     {
       txGenerator.createSources();
     }

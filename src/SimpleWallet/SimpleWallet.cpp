@@ -276,7 +276,7 @@ struct TransferCommand {
               return false;
             }
           } else if (arg == "-f") {
-            bool ok = m_currency.parseAmount(value, fee);
+            bool ok = m_currency.parseAmount(value, fee, m_node.getLastLocalBlockHeight());
             if (!ok) {
               logger(ERROR, BRIGHT_RED) << "Fee value is invalid: " << value;
               return false;
@@ -335,7 +335,7 @@ struct TransferCommand {
           }
 
           auto value = ar.next();
-          bool ok = m_currency.parseAmount(value, deAmount);
+          bool ok = m_currency.parseAmount(value, deAmount, m_node.getLastLocalBlockHeight());
           if (!ok || 0 == deAmount) {
 #if defined(WIN32)
 #undef max
@@ -550,8 +550,8 @@ void printListTransfersItem(LoggerRef& logger, const WalletLegacyTransaction& tx
   logger(INFO, rowColor)
     << std::setw(TIMESTAMP_MAX_WIDTH) << timeString
     << "  " << std::setw(HASH_MAX_WIDTH) << Common::podToHex(txInfo.hash)
-    << "  " << std::setw(TOTAL_AMOUNT_MAX_WIDTH) << currency.formatAmount(txInfo.totalAmount)
-    << "  " << std::setw(FEE_MAX_WIDTH) << currency.formatAmount(txInfo.fee)
+    << "  " << std::setw(TOTAL_AMOUNT_MAX_WIDTH) << currency.formatAmount(txInfo.totalAmount, txInfo.blockHeight)
+    << "  " << std::setw(FEE_MAX_WIDTH) << currency.formatAmount(txInfo.fee, txInfo.blockHeight)
     << "  " << std::setw(BLOCK_MAX_WIDTH) << txInfo.blockHeight
     << "  " << std::setw(UNLOCK_TIME_MAX_WIDTH) << txInfo.unlockTime;
 
@@ -565,7 +565,7 @@ void printListTransfersItem(LoggerRef& logger, const WalletLegacyTransaction& tx
       for (TransferId id = txInfo.firstTransferId; id < txInfo.firstTransferId + txInfo.transferCount; ++id) {
         WalletLegacyTransfer tr;
         wallet.getTransfer(id, tr);
-        logger(INFO, rowColor) << tr.address << "  " << std::setw(TOTAL_AMOUNT_MAX_WIDTH) << currency.formatAmount(tr.amount);
+        logger(INFO, rowColor) << tr.address << "  " << std::setw(TOTAL_AMOUNT_MAX_WIDTH) << currency.formatAmount(tr.amount, txInfo.blockHeight);
       }
     }
   }
@@ -834,7 +834,7 @@ bool simple_wallet::get_reserve_proof(const std::vector<std::string> &args)
 
   uint64_t reserve = 0;
   if (args[0] != "all") {
-    if (!m_currency.parseAmount(args[0], reserve)) {
+    if (!m_currency.parseAmount(args[0], reserve, m_node->getLastLocalBlockHeight())) {
       fail_msg_writer() << "amount is wrong: " << args[0];
       return true;
     }
@@ -2094,10 +2094,11 @@ bool simple_wallet::restore_seed(const std::vector<std::string>& args/* = std::v
 }
 //----------------------------------------------------------------------------------------------------
 bool simple_wallet::show_balance(const std::vector<std::string>& args/* = std::vector<std::string>()*/) {
-  success_msg_writer() << "available: " << m_currency.formatAmount(m_wallet->actualBalance());
-  success_msg_writer() << "pending: " << m_currency.formatAmount(m_wallet->pendingBalance());
-  success_msg_writer() << "unmixable: " << m_currency.formatAmount(m_wallet->unmixableBalance());
-  success_msg_writer() << "total balance: " << m_currency.formatAmount(m_wallet->actualBalance() + m_wallet->pendingBalance());
+  const uint32_t walletHeight = m_node->getLastLocalBlockHeight();
+  success_msg_writer() << "available: " << m_currency.formatAmount(m_wallet->actualBalance(), walletHeight);
+  success_msg_writer() << "pending: " << m_currency.formatAmount(m_wallet->pendingBalance(), walletHeight);
+  success_msg_writer() << "unmixable: " << m_currency.formatAmount(m_wallet->unmixableBalance(), walletHeight);
+  success_msg_writer() << "total balance: " << m_currency.formatAmount(m_wallet->actualBalance() + m_wallet->pendingBalance(), walletHeight);
 
   // Dust sweep warning: check for pre-fork outputs below REDENOMINATION_FACTOR
   auto outputs = m_wallet->getOutputs();
@@ -2752,9 +2753,10 @@ int main(int argc, char* argv[]) {
     try  {
       walletFileName = ::tryToOpenWalletOrLoadKeysOrThrow(logger, wallet, wallet_file, wallet_password);
 
-      logger(INFO) << "available balance: " << currency.formatAmount(wallet->actualBalance())
-                   << ", locked amount: " << currency.formatAmount(wallet->pendingBalance())
-                   << ", unmixable: " << currency.formatAmount(wallet->unmixableBalance());
+      const uint32_t walletHeight = node->getLastLocalBlockHeight();
+      logger(INFO) << "available balance: " << currency.formatAmount(wallet->actualBalance(), walletHeight)
+                   << ", locked amount: " << currency.formatAmount(wallet->pendingBalance(), walletHeight)
+                   << ", unmixable: " << currency.formatAmount(wallet->unmixableBalance(), walletHeight);
 
       logger(INFO, BRIGHT_GREEN) << "Loaded ok";
     } catch (const std::exception& e)  {

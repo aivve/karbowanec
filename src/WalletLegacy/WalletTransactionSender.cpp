@@ -99,6 +99,10 @@ void WalletTransactionSender::validateTransfersAddresses(const std::vector<Walle
 }
 
 uint64_t WalletTransactionSender::resolveSpendableAmount(const TransactionOutputInformation& output, bool isPostFork) const {
+  if (output.type == TransactionTypes::OutputType::Confidential) {
+    return output.amount;
+  }
+
   if (!isPostFork) {
     return output.amount;
   }
@@ -189,7 +193,9 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
     std::vector<uint64_t> amounts;
 
     for (const auto& td : context->selectedTransfers) {
-      amounts.push_back(td.amount);
+      amounts.push_back(td.type == TransactionTypes::OutputType::Confidential
+        ? CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT
+        : td.amount);
     }
 
     auto queryAmountsCompleted = std::promise<std::error_code>();
@@ -263,7 +269,9 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::makeGetRandomOutsRequest
   std::vector<uint64_t> amounts;
 
   for (const auto& td : context->selectedTransfers) {
-    amounts.push_back(td.amount);
+    amounts.push_back(td.type == TransactionTypes::OutputType::Confidential
+      ? CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT
+      : td.amount);
   }
 
   return std::make_shared<WalletGetRandomOutsByAmountsRequest>(amounts, outsCount, context, std::bind(&WalletTransactionSender::sendTransactionRandomOutsByAmount,
@@ -355,11 +363,15 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
         ringMemberOutput.amount = ki.amount;
         ringMemberOutput.target = KeyOutput();
         for (size_t k = 0; k < ki.outputs.size(); ++k) {
-          const uint64_t resolvedAmount = resolveOutputAmount(
-            ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
-          Crypto::EllipticCurvePoint ringCommit;
-          if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
-            throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
+          Crypto::EllipticCurvePoint ringCommit{};
+          if (ki.outputs[k].isConfidential) {
+            ringCommit = ki.outputs[k].commitment;
+          } else {
+            const uint64_t resolvedAmount = resolveOutputAmount(
+              ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
+            if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
+              throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
+            }
           }
           cti.ringCommitments.push_back(ringCommit);
         }
@@ -375,10 +387,8 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
             ki.realOutput.outputInTransaction,
             ephKeys, dummy_ki);
         cti.spendPrivkey = ephKeys.secretKey;
-        std::memset(&cti.realBlinding, 0, sizeof(cti.realBlinding)); // transparent: zero blinding
-        cti.amount = resolveOutputAmount(ringMemberOutput,
-          ki.outputs[cti.realIndex].blockHeight,
-          ki.outputs[cti.realIndex].isCoinbase);
+        cti.realBlinding = ki.realOutputBlinding;
+        cti.amount = ki.realOutputAmount;
         ctInputs.push_back(std::move(cti));
       }
 
@@ -475,14 +485,13 @@ void WalletTransactionSender::prepareInputs(
   size_t i = 0;
 
   for (const auto& td: selectedTransfers) {
-    if (td.type != TransactionTypes::OutputType::Key) {
-      throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
-    }
-
     inputs.resize(inputs.size() + 1);
     TxBuildInput& inp = inputs.back();
 
-    inp.keyInfo.amount = td.amount;
+    const bool realIsConfidential = td.type == TransactionTypes::OutputType::Confidential;
+    inp.keyInfo.amount = realIsConfidential
+      ? CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT
+      : td.amount;
     inp.senderKeys = m_keys;
 
     TransactionInformation txInfo;
@@ -500,8 +509,10 @@ void WalletTransactionSender::prepareInputs(
         TransactionTypes::GlobalOutput go;
         go.outputIndex = static_cast<uint32_t>(daemon_oe.global_amount_index);
         go.targetKey = daemon_oe.out_key;
+        go.commitment = daemon_oe.commitment;
         go.blockHeight = daemon_oe.block_height;
         go.isCoinbase = daemon_oe.is_coinbase != 0;
+        go.isConfidential = daemon_oe.output_type == static_cast<uint8_t>(TransactionTypes::OutputType::Confidential);
         inp.keyInfo.outputs.push_back(go);
         if (inp.keyInfo.outputs.size() >= mixIn)
           break;
@@ -515,14 +526,27 @@ void WalletTransactionSender::prepareInputs(
     TransactionTypes::GlobalOutput real_go;
     real_go.outputIndex = td.globalOutputIndex;
     real_go.targetKey = td.outputKey;
+    real_go.commitment = td.commitment;
     real_go.blockHeight = realBlockHeight;
     real_go.isCoinbase = realIsCoinbase;
+    real_go.isConfidential = realIsConfidential;
 
     auto inserted_it = inp.keyInfo.outputs.insert(it_to_insert, real_go);
 
     inp.keyInfo.realOutput.transactionPublicKey = td.transactionPublicKey;
     inp.keyInfo.realOutput.transactionIndex = inserted_it - inp.keyInfo.outputs.begin();
     inp.keyInfo.realOutput.outputInTransaction = td.outputInTransaction;
+    if (realIsConfidential) {
+      inp.keyInfo.realOutputAmount = td.amount;
+      inp.keyInfo.realOutputBlinding = td.blindingFactor;
+    } else {
+      TransactionOutput transparentOutput;
+      transparentOutput.amount = td.amount;
+      transparentOutput.target = KeyOutput();
+      inp.keyInfo.realOutputAmount = resolveOutputAmount(transparentOutput, realBlockHeight, realIsCoinbase);
+      std::memset(&inp.keyInfo.realOutputBlinding, 0, sizeof(inp.keyInfo.realOutputBlinding));
+    }
+    inp.keyInfo.realOutputIsConfidential = realIsConfidential;
     ++i;
   }
 }
@@ -570,7 +594,7 @@ uint64_t WalletTransactionSender::selectTransfersToSend(uint64_t neededMoney, bo
   std::vector<size_t> unusedUnmixable;
   
   std::vector<TransactionOutputInformation> outputs;
-  m_transferDetails.getOutputs(outputs, ITransfersContainer::IncludeKeyUnlocked);
+  m_transferDetails.getOutputs(outputs, ITransfersContainer::IncludeDefault);
   const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
   std::vector<uint64_t> spendableAmounts(outputs.size(), 0);
 
@@ -583,7 +607,7 @@ uint64_t WalletTransactionSender::selectTransfersToSend(uint64_t neededMoney, bo
       }
       spendableAmounts[i] = spendableAmount;
 
-      if (is_valid_decomposed_amount(out.amount)) {
+      if (out.type == TransactionTypes::OutputType::Confidential || is_valid_decomposed_amount(out.amount)) {
         if (dust < spendableAmount) {
           unusedTransfers.push_back(i);
         } else {

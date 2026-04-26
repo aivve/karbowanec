@@ -144,8 +144,13 @@ public:
 
   uint64_t effectiveMoneySupply(uint32_t height) const;
   uint64_t calculateReward(uint64_t alreadyGeneratedCoins, uint32_t height) const;
+  uint64_t calculateReward(uint64_t alreadyGeneratedCoins) const { return calculateReward(alreadyGeneratedCoins, 0); }
   bool getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins, uint64_t fee,
     uint64_t& reward, int64_t& emissionChange, uint32_t height) const;
+  bool getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins, uint64_t fee,
+    uint64_t& reward, int64_t& emissionChange) const {
+    return getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, reward, emissionChange, 0);
+  }
   size_t maxBlockCumulativeSize(uint64_t height) const;
 
   bool constructMinerTx(uint8_t blockMajorVersion, uint32_t height, size_t medianSize, uint64_t alreadyGeneratedCoins, size_t currentBlockSize,
@@ -173,7 +178,9 @@ public:
   std::string formatAmount(int64_t amount) const;
   // Height-aware formatting: uses post-fork 2 decimal places after REDENOMINATION_FORK_HEIGHT
   std::string formatAmount(uint64_t amount, uint32_t height) const;
+  std::string formatAmount(int64_t amount, uint32_t height) const;
   bool parseAmount(const std::string& str, uint64_t& amount) const;
+  bool parseAmount(const std::string& str, uint64_t& amount, uint32_t height) const;
 
   // Resolve a pre-fork output amount to post-fork new atomic units.
   // Returns amount / REDENOMINATION_FACTOR (floors to zero for dust).

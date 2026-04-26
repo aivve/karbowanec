@@ -1789,7 +1789,10 @@ bool Blockchain::add_out_to_get_random_outs(uint64_t amount, size_t globalIdx,
       << outIdx << " more than transaction outputs = " << te.tx.outputs.size();
     return false;
   }
-  if (!(te.tx.outputs[outIdx].target.type() == typeid(KeyOutput))) {
+  const auto& target = te.tx.outputs[outIdx].target;
+  const bool isKeyOutput = target.type() == typeid(KeyOutput);
+  const bool isConfidentialOutput = target.type() == typeid(ConfidentialOutput);
+  if (!isKeyOutput && !isConfidentialOutput) {
     logger(ERROR, BRIGHT_RED) << "unknown tx out type";
     return false;
   }
@@ -1801,7 +1804,16 @@ bool Blockchain::add_out_to_get_random_outs(uint64_t amount, size_t globalIdx,
     *result_outs.outs.insert(result_outs.outs.end(),
                               COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry());
   oen.global_amount_index = static_cast<uint32_t>(globalIdx);
-  oen.out_key = boost::get<KeyOutput>(te.tx.outputs[outIdx].target).key;
+  if (isKeyOutput) {
+    oen.out_key = boost::get<KeyOutput>(target).key;
+    Crypto::transparent_amount_to_commitment(resolveOutputAmount(te.tx.outputs[outIdx], block, txSlot == 0), oen.commitment);
+    oen.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Key);
+  } else {
+    const auto& cout = boost::get<ConfidentialOutput>(target);
+    oen.out_key = cout.targetKey;
+    oen.commitment = cout.commitment;
+    oen.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Confidential);
+  }
   oen.block_height = block;
   oen.is_coinbase = (txSlot == 0) ? 1 : 0;
   return true;
@@ -2368,13 +2380,30 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       }
 
       const auto& referencedOutput = te.tx.outputs[outIdx];
-      if (referencedOutput.target.type() != typeid(KeyOutput)) {
+      const bool ringMemberIsKey = referencedOutput.target.type() == typeid(KeyOutput);
+      const bool ringMemberIsConfidential = referencedOutput.target.type() == typeid(ConfidentialOutput);
+      if (!ringMemberIsKey && !ringMemberIsConfidential) {
         logger(ERROR) << "CT validation: input " << i << " ring member " << k
-                      << " does not reference transparent output in tx " << txHash;
+                      << " has unsupported output type in tx " << txHash;
         return false;
       }
 
-      const auto& referencedPubkey = boost::get<KeyOutput>(referencedOutput.target).key;
+      Crypto::PublicKey referencedPubkey;
+      Crypto::EllipticCurvePoint expectedCommitment;
+      if (ringMemberIsKey) {
+        referencedPubkey = boost::get<KeyOutput>(referencedOutput.target).key;
+        uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, txSlot == 0);
+        if (!Crypto::transparent_amount_to_commitment(resolvedAmount, expectedCommitment)) {
+          logger(ERROR) << "CT validation: input " << i << " failed to build expected commitment for ring member " << k
+                        << " in tx " << txHash;
+          return false;
+        }
+      } else {
+        const auto& referencedConfidentialOutput = boost::get<ConfidentialOutput>(referencedOutput.target);
+        referencedPubkey = referencedConfidentialOutput.targetKey;
+        expectedCommitment = referencedConfidentialOutput.commitment;
+      }
+
       if (!Crypto::check_key(referencedPubkey)) {
         logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k << " invalid on-chain in tx " << txHash;
         return false;
@@ -2385,13 +2414,6 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         return false;
       }
 
-      uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, txSlot == 0);
-      Crypto::EllipticCurvePoint expectedCommitment;
-      if (!Crypto::transparent_amount_to_commitment(resolvedAmount, expectedCommitment)) {
-        logger(ERROR) << "CT validation: input " << i << " failed to build expected commitment for ring member " << k
-                      << " in tx " << txHash;
-        return false;
-      }
       if (!Crypto::point_valid_for_pedersen(expectedCommitment)) {
         logger(ERROR) << "CT validation: input " << i << " expected ring commitment " << k
                       << " fails subgroup check in tx " << txHash;
@@ -2986,6 +3008,11 @@ bool Blockchain::pushTransaction(BlockEntry& block, const Crypto::Hash& transact
       m_db.putKeyOutput(tx.outputs[o].amount, globalIdx,
                         block.height, transactionIndex.transaction, o);
       gidx[o] = globalIdx;
+    } else if (tx.outputs[o].target.type() == typeid(ConfidentialOutput)) {
+      uint32_t globalIdx = m_db.getKeyOutputCount(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT);
+      m_db.putKeyOutput(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT, globalIdx,
+                        block.height, transactionIndex.transaction, o);
+      gidx[o] = globalIdx;
     }
   }
 
@@ -3040,6 +3067,10 @@ void Blockchain::popTransaction(const Transaction& transaction,
     if (out.target.type() == typeid(KeyOutput)) {
       if (!m_db.removeLastKeyOutput(out.amount)) {
         logger(ERROR, BRIGHT_RED) << "Blockchain consistency broken - removeLastKeyOutput failed for amount=" << out.amount;
+      }
+    } else if (out.target.type() == typeid(ConfidentialOutput)) {
+      if (!m_db.removeLastKeyOutput(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT)) {
+        logger(ERROR, BRIGHT_RED) << "Blockchain consistency broken - removeLastKeyOutput failed for confidential output bucket";
       }
     }
   }

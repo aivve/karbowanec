@@ -407,8 +407,22 @@ namespace CryptoNote {
     return Common::Format::formatAmount(amount);
   }
 
+  std::string Currency::formatAmount(int64_t amount, uint32_t height) const {
+    if (amount < 0) {
+      return "-" + formatAmount(static_cast<uint64_t>(-amount), height);
+    }
+    return formatAmount(static_cast<uint64_t>(amount), height);
+  }
+
   bool Currency::parseAmount(const std::string& str, uint64_t& amount) const {
     return Common::Format::parseAmount(str, amount);
+  }
+
+  bool Currency::parseAmount(const std::string& str, uint64_t& amount, uint32_t height) const {
+    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
+      return Common::Format::parseAmountPostFork(str, amount);
+    }
+    return parseAmount(str, amount);
   }
 
   uint64_t Currency::resolveOutputAmount(uint64_t preForkAmount) {
@@ -420,6 +434,9 @@ namespace CryptoNote {
   }
 
   uint64_t Currency::getMinimalFee(const uint32_t height) const {
+    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT)
+      return CryptoNote::parameters::CT_MINIMUM_FEE;
+
     if (height <= CryptoNote::parameters::UPGRADE_HEIGHT_V3_1)
       return CryptoNote::parameters::MINIMUM_FEE_V1;
     else if (height > CryptoNote::parameters::UPGRADE_HEIGHT_V3_1 && height <= CryptoNote::parameters::UPGRADE_HEIGHT_V4)

@@ -79,6 +79,7 @@ const size_t   CT_MIN_RING_SIZE                              = 4;     // min rin
 const size_t   CT_MAX_RING_SIZE                              = 16;    // max ring members per CT input
 const uint64_t CT_MINIMUM_FEE                                = UINT64_C(1);     // 0.01 KRB in new atomic units
 const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(10000); // 100 KRB in new atomic units
+const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      // internal bucket for hidden-output rings
 const size_t   CT_MAX_INPUTS                                 = 256;
 const size_t   CT_MAX_OUTPUTS                                = 256;
 

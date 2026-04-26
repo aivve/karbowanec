@@ -33,10 +33,17 @@ namespace TransactionTypes {
   enum class OutputType : uint8_t { Invalid, Key, Confidential };
 
   struct GlobalOutput {
+    GlobalOutput() = default;
+    GlobalOutput(const Crypto::PublicKey& targetKey, uint32_t outputIndex) :
+      targetKey(targetKey), outputIndex(outputIndex) {
+    }
+
     Crypto::PublicKey targetKey;
-    uint32_t outputIndex;
+    Crypto::EllipticCurvePoint commitment{};
+    uint32_t outputIndex = 0;
     uint32_t blockHeight = 0;
     bool isCoinbase = false;
+    bool isConfidential = false;
   };
 
   typedef std::vector<GlobalOutput> GlobalOutputsContainer;
@@ -51,6 +58,9 @@ namespace TransactionTypes {
     uint64_t amount;
     GlobalOutputsContainer outputs;
     OutputKeyInfo realOutput;
+    uint64_t realOutputAmount = 0;
+    Crypto::EllipticCurveScalar realOutputBlinding{};
+    bool realOutputIsConfidential = false;
   };
 }
 
