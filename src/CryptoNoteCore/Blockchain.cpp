@@ -2561,6 +2561,36 @@ bool Blockchain::addNewBlock(const Block& bl, block_verification_context& bvc) {
   return add_result;
 }
 
+bool Blockchain::scanCtInputRingForIndexes(const ConfidentialInput& cin,
+                                            std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) {
+  std::lock_guard<decltype(m_blockchain_lock)> bcLock(m_blockchain_lock);
+
+  const std::vector<uint32_t> absoluteOffsets = relative_output_offsets_to_absolute(cin.ringOutputIndexes);
+  if (absoluteOffsets.empty()) {
+    return false;
+  }
+
+  const uint32_t outputCount = m_db.getKeyOutputCount(cin.ringAmount);
+  if (outputCount == 0 || absoluteOffsets.back() >= outputCount) {
+    return false;
+  }
+
+  for (uint32_t absIdx : absoluteOffsets) {
+    uint32_t block = 0;
+    uint16_t txSlot = 0;
+    uint16_t outIdx = 0;
+    if (!m_db.getKeyOutput(cin.ringAmount, absIdx, block, txSlot, outIdx)) {
+      return false;
+    }
+    TransactionEntry te = transactionByIndex({block, txSlot});
+    if (outIdx >= te.tx.outputs.size()) {
+      return false;
+    }
+    outputReferences.emplace_back(getObjectHash(te.tx), static_cast<size_t>(outIdx));
+  }
+  return true;
+}
+
 Blockchain::TransactionEntry Blockchain::transactionByIndex(TransactionIndex idx) {
   std::vector<uint8_t> raw;
   if (!m_db.getTxEntry(idx.block, idx.transaction, raw)) {

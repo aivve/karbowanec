@@ -244,6 +244,10 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
   }
   transactionDetails.size = getObjectBinarySize(transaction);
   transactionDetails.unlockTime = transaction.unlockTime;
+
+  // For CT transactions amounts are hidden; these helpers correctly return 0 for CT
+  // (CT inputs/outputs aren't typed as KeyInput / transparent KeyOutput here), which is
+  // the right "public total" to expose.
   transactionDetails.totalOutputsAmount = get_outs_money_amount(transaction);
 
   uint64_t inputsAmount;
@@ -293,6 +297,8 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
     if (txIn.type() == typeid(BaseInput)) {
       BaseInputDetails txInGenDetails;
       txInGenDetails.input.blockIndex = boost::get<BaseInput>(txIn).blockIndex;
+      // For CT-era coinbase, output amounts are still public (coinbase stays transparent),
+      // so summing output.amount is correct here.
       txInGenDetails.amount = 0;
       for (const TransactionOutput& out : transaction.outputs) {
         txInGenDetails.amount += out.amount;
@@ -301,7 +307,7 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
     } else if (txIn.type() == typeid(KeyInput)) {
       CryptoNote::KeyInputDetails txInToKeyDetails;
       const KeyInput& txInToKey = boost::get<KeyInput>(txIn);
-      txInToKeyDetails.input = txInToKey; 
+      txInToKeyDetails.input = txInToKey;
       std::list<std::pair<Crypto::Hash, size_t>> outputReferences;
       if (!m_core.scanOutputkeysForIndices(txInToKey, outputReferences)) {
         return false;
@@ -314,6 +320,26 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
         txInToKeyDetails.outputs.push_back(d);
       }
       txInDetails = txInToKeyDetails;
+    } else if (txIn.type() == typeid(ConfidentialInput)) {
+      const ConfidentialInput& cin = boost::get<ConfidentialInput>(txIn);
+      CryptoNote::ConfidentialInputDetails ctInDetails;
+      ctInDetails.ringAmount = cin.ringAmount;
+      ctInDetails.keyImage = cin.keyImage;
+      ctInDetails.pseudoCommitment = cin.pseudoCommitment;
+      ctInDetails.mixin = cin.ringPubkeys.size();
+      std::list<std::pair<Crypto::Hash, size_t>> outputReferences;
+      if (m_core.scanCtInputRingForIndices(cin, outputReferences)) {
+        for (const auto& r : outputReferences) {
+          TransactionOutputReferenceDetails d;
+          d.number = r.second;
+          d.transactionHash = r.first;
+          ctInDetails.outputs.push_back(d);
+        }
+      }
+      // If ring resolution fails (e.g. mempool tx referencing something the explorer
+      // can't introspect right now), keep the basic CT details rather than dropping
+      // the whole transaction from explorer view.
+      txInDetails = ctInDetails;
     } else {
       return false;
     }

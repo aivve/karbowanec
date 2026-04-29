@@ -29,6 +29,7 @@ void serialize(TransactionOutputReferenceDetails& outputReference, ISerializer& 
 
 void serialize(BaseInputDetails& inputBase, ISerializer& serializer);
 void serialize(KeyInputDetails& inputToKey, ISerializer& serializer);
+void serialize(ConfidentialInputDetails& ctIn, ISerializer& serializer);
 void serialize(transactionInputDetails2& input, ISerializer& serializer);
 
 void serialize(TransactionExtraDetails& extra, ISerializer& serializer);

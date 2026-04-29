@@ -1227,6 +1227,10 @@ bool Core::getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t c
   return m_currency.getBlockReward(blockMajorVersion, medianSize, currentBlockSize, alreadyGeneratedCoins, fee, reward, emissionChange, height);
 }
 
+bool Core::scanCtInputRingForIndices(const ConfidentialInput& cin, std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) {
+  return m_blockchain.scanCtInputRingForIndexes(cin, outputReferences);
+}
+
 bool Core::scanOutputkeysForIndices(const KeyInput& txInToKey, std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) {
   struct outputs_visitor
   {
@@ -1482,10 +1486,14 @@ std::unique_ptr<IBlock> Core::getBlock(const Crypto::Hash& blockId) {
 bool Core::getMixin(const Transaction& transaction, uint64_t& mixin) {
   mixin = 0;
   for (const TransactionInput& txin : transaction.inputs) {
-    if (txin.type() != typeid(KeyInput)) {
+    uint64_t currentMixin = 0;
+    if (txin.type() == typeid(KeyInput)) {
+      currentMixin = boost::get<KeyInput>(txin).outputIndexes.size();
+    } else if (txin.type() == typeid(ConfidentialInput)) {
+      currentMixin = boost::get<ConfidentialInput>(txin).ringPubkeys.size();
+    } else {
       continue;
     }
-    uint64_t currentMixin = boost::get<KeyInput>(txin).outputIndexes.size();
     if (currentMixin > mixin) {
       mixin = currentMixin;
     }

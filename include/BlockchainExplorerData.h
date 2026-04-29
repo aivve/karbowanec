@@ -98,7 +98,17 @@ struct KeyInputDetails {
   std::vector<TransactionOutputReferenceDetails> outputs;
 };
 
-typedef boost::variant<BaseInputDetails, KeyInputDetails> transactionInputDetails2;
+// Confidential (CT) input detail: amount is hidden, but the ring layout,
+// pseudo-commitment and key image are public and useful for explorers.
+struct ConfidentialInputDetails {
+  uint64_t ringAmount;
+  Crypto::KeyImage keyImage;
+  Crypto::EllipticCurvePoint pseudoCommitment;
+  uint64_t mixin;
+  std::vector<TransactionOutputReferenceDetails> outputs;
+};
+
+typedef boost::variant<BaseInputDetails, KeyInputDetails, ConfidentialInputDetails> transactionInputDetails2;
 
 struct TransactionExtraDetails2 {
   std::vector<size_t> padding;

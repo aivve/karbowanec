@@ -106,6 +106,7 @@ public:
   virtual bool getBlockReward(uint8_t blockMajorVersion, size_t medianSize, size_t currentBlockSize, uint64_t alreadyGeneratedCoins, uint64_t fee,
                               uint64_t& reward, int64_t& emissionChange, uint32_t height = 0) = 0;
   virtual bool scanOutputkeysForIndices(const KeyInput& txInToKey, std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) = 0;
+  virtual bool scanCtInputRingForIndices(const ConfidentialInput& cin, std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) = 0;
   virtual bool getBlockDifficulty(uint32_t height, difficulty_type& difficulty) = 0;
   virtual bool getBlockCumulativeDifficulty(uint32_t height, difficulty_type& difficulty) = 0;
   virtual bool getBlockTimestamp(uint32_t height, uint64_t& timestamp) = 0;

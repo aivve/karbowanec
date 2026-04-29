@@ -157,6 +157,11 @@ namespace CryptoNote {
     bool scanOutputKeysForIndexes(const KeyInput& tx_in_to_key, visitor_t& vis,
                                    uint32_t* pmax_related_block_height = nullptr);
 
+    // Resolve a CT input ring to (txHash, outputIndex) pairs for explorer / detail rendering.
+    // Returns false if any ring offset can't be resolved.
+    bool scanCtInputRingForIndexes(const ConfidentialInput& cin,
+                                    std::list<std::pair<Crypto::Hash, size_t>>& outputReferences);
+
     bool addMessageQueue(MessageQueue<BlockchainMessage>& messageQueue);
     bool removeMessageQueue(MessageQueue<BlockchainMessage>& messageQueue);
 

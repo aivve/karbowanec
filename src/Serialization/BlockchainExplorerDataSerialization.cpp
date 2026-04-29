@@ -29,13 +29,14 @@
 
 namespace CryptoNote {
 
-enum class SerializationTag : uint8_t { Base = 0xff, Key = 0x2, Transaction = 0xcc, Block = 0xbb };
+enum class SerializationTag : uint8_t { Base = 0xff, Key = 0x2, Confidential = 0x4, Transaction = 0xcc, Block = 0xbb };
 
 namespace {
 
 struct BinaryVariantTagGetter: boost::static_visitor<uint8_t> {
   uint8_t operator()(const CryptoNote::BaseInputDetails) { return static_cast<uint8_t>(SerializationTag::Base); }
   uint8_t operator()(const CryptoNote::KeyInputDetails) { return static_cast<uint8_t>(SerializationTag::Key); }
+  uint8_t operator()(const CryptoNote::ConfidentialInputDetails) { return static_cast<uint8_t>(SerializationTag::Confidential); }
 };
 
 struct VariantSerializer : boost::static_visitor<> {
@@ -48,8 +49,8 @@ struct VariantSerializer : boost::static_visitor<> {
   const std::string name;
 };
 
-void getVariantValue(CryptoNote::ISerializer& serializer, uint8_t tag, boost::variant<CryptoNote::BaseInputDetails,
-                                                                                      CryptoNote::KeyInputDetails> in) {
+void getVariantValue(CryptoNote::ISerializer& serializer, uint8_t tag,
+                     CryptoNote::transactionInputDetails2& in) {
   switch (static_cast<SerializationTag>(tag)) {
   case SerializationTag::Base: {
     CryptoNote::BaseInputDetails v;
@@ -59,6 +60,12 @@ void getVariantValue(CryptoNote::ISerializer& serializer, uint8_t tag, boost::va
   }
   case SerializationTag::Key: {
     CryptoNote::KeyInputDetails v;
+    serializer(v, "data");
+    in = v;
+    break;
+  }
+  case SerializationTag::Confidential: {
+    CryptoNote::ConfidentialInputDetails v;
     serializer(v, "data");
     in = v;
     break;
@@ -96,6 +103,14 @@ void serialize(KeyInputDetails& inputToKey, ISerializer& serializer) {
   serializer(inputToKey.input, "input");
   serializer(inputToKey.mixin, "mixin");
   serializer(inputToKey.outputs, "outputs");
+}
+
+void serialize(ConfidentialInputDetails& ctIn, ISerializer& serializer) {
+  serializer(ctIn.ringAmount, "ringAmount");
+  serializePod(ctIn.keyImage, "keyImage", serializer);
+  serializePod(ctIn.pseudoCommitment, "pseudoCommitment", serializer);
+  serializer(ctIn.mixin, "mixin");
+  serializer(ctIn.outputs, "outputs");
 }
 
 void serialize(transactionInputDetails2& input, ISerializer& serializer) {
