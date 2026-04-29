@@ -28,6 +28,7 @@
 #include "CryptoNoteCore/Account.h"
 #include "CryptoNoteCore/Currency.h"
 #include "CryptoNote.h"
+#include "Denominations.h"
 
 #include "INodeStubs.h"
 #include "TestBlockchainGenerator.h"
@@ -619,11 +620,12 @@ TEST_F(WalletLegacyApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
   aliceNode->updateObservers();
   ASSERT_NO_FATAL_FAILURE(WaitWalletSync(aliceWalletObserver.get()));
 
-  const uint64_t fundingAmount = 100;
-  const uint64_t spendAmount = 50;
+  // Amounts must be multiples of MIN_CT_DENOMINATION (0.01 KRB).
+  const uint64_t fundingAmount = 100 * CryptoNote::MIN_CT_DENOMINATION; // 1 KRB
+  const uint64_t spendAmount = 50 * CryptoNote::MIN_CT_DENOMINATION;    // 0.5 KRB
   const uint64_t fee = CryptoNote::parameters::CT_MINIMUM_FEE;
 
-  aliceNode->setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+  aliceNode->setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
   TransferMoney(*alice, *bob, fundingAmount, fee, 0);
   ASSERT_NO_FATAL_FAILURE(WaitWalletSend(aliceWalletObserver.get()));
   aliceNode->clearLastLocalBlockHeightOverride();
@@ -639,14 +641,14 @@ TEST_F(WalletLegacyApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
   bob->shutdown();
 
   prepareBobWallet();
-  bobNode->setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+  bobNode->setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
   bob->initAndLoad(bobKeysOnly, "pass2");
   ASSERT_NO_FATAL_FAILURE(WaitWalletLoad(bobWalletObserver.get()));
   bobNode->updateObservers();
   ASSERT_NO_FATAL_FAILURE(WaitWalletSync(bobWalletObserver.get()));
   ASSERT_EQ(fundingAmount, bob->actualBalance());
 
-  bobNode->setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+  bobNode->setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
   TransferMoney(*bob, *alice, spendAmount, fee, 3);
   ASSERT_NO_FATAL_FAILURE(WaitWalletSend(bobWalletObserver.get()));
   bobNode->clearLastLocalBlockHeightOverride();
@@ -665,7 +667,7 @@ TEST_F(WalletLegacyApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
   ASSERT_NO_FATAL_FAILURE(WaitWalletSync(bobWalletObserver.get()));
   ASSERT_EQ(fundingAmount, bob->actualBalance());
 
-  bobNode->setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+  bobNode->setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
   TransferMoney(*bob, *alice, spendAmount, fee, 3);
   ASSERT_NO_FATAL_FAILURE(WaitWalletSend(bobWalletObserver.get()));
   bobNode->clearLastLocalBlockHeightOverride();

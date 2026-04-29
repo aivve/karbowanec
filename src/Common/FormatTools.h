@@ -26,12 +26,6 @@ namespace Common {
 
     std::string formatAmount(int64_t amount);
 
-    // Post-fork amount formatting with 2 decimal places
-    std::string formatAmountPostFork(uint64_t amount);
-
     bool parseAmount(const std::string& str, uint64_t& amount);
-
-    // Post-fork amount parsing with 2 decimal places
-    bool parseAmountPostFork(const std::string& str, uint64_t& amount);
   }
 }

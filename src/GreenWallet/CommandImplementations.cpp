@@ -194,7 +194,8 @@ void balance(CryptoNote::INode &node, CryptoNote::WalletGreen &wallet,
                   << std::endl;
     }
 
-    // Dust sweep warning: check for pre-fork outputs below REDENOMINATION_FACTOR
+    // Sub-MIN_CT outputs are spendable as transparent inputs but cannot become CT outputs;
+    // when sending CT they are absorbed into the transaction fee.
     try {
         auto outputs = wallet.getTransfers(0, CryptoNote::ITransfersContainer::IncludeKeyUnlocked);
         uint64_t dustTotal = 0;
@@ -208,20 +209,15 @@ void balance(CryptoNote::INode &node, CryptoNote::WalletGreen &wallet,
         }
         if (dustCount > 0) {
             std::cout << std::endl
-                      << WarningMsg("WARNING: You have " + std::to_string(dustCount)
-                         + " dust output(s) totaling "
+                      << InformationMsg("Note: " + std::to_string(dustCount)
+                         + " sub-MIN_CT output(s) totaling "
                          + Common::Format::formatAmount(dustTotal) + " KRB.")
                       << std::endl
-                      << WarningMsg("These outputs are below 0.01 KRB and will become "
-                         "ZERO after the redenomination fork.")
-                      << std::endl
-                      << InformationMsg("Consider consolidating them before block "
-                         + std::to_string(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT)
-                         + ".")
+                      << InformationMsg("Spendable, but will be absorbed into fees"
+                         " rather than becoming confidential outputs.")
                       << std::endl;
         }
     } catch (...) {
-        // Don't let dust check failure interfere with balance display
     }
 }
 

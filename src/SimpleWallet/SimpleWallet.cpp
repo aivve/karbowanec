@@ -1991,7 +1991,9 @@ void simple_wallet::synchronizationCompleted(std::error_code result) {
   m_walletSynchronized = true;
   m_walletSynchronizedCV.notify_one();
 
-  // One-time dust warning after initial sync
+  // One-time dust notice after initial sync. With CT activated, sub-floor outputs
+  // remain spendable as transparent inputs but cannot become CT outputs; the wallet
+  // will absorb them into fees when sending.
   if (!result) {
     try {
       auto outputs = m_wallet->getOutputs();
@@ -2004,14 +2006,13 @@ void simple_wallet::synchronizationCompleted(std::error_code result) {
         }
       }
       if (dustCount > 0) {
-        logger(WARNING, BRIGHT_YELLOW)
-          << "\nDust alert: " << dustCount << " output(s) totaling "
-          << m_currency.formatAmount(dustTotal) << " KRB will be lost after the redenomination fork.\n"
-          << "Use 'sweep_dust' to consolidate them before block "
-          << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT << ".";
+        logger(INFO, BRIGHT_YELLOW)
+          << "\nNote: " << dustCount << " sub-MIN_CT output(s) totaling "
+          << m_currency.formatAmount(dustTotal) << " KRB.\n"
+          << "These are spendable but will be absorbed into transaction fees rather than"
+          << " becoming confidential outputs.";
       }
     } catch (...) {
-      // Don't let dust check failure interfere with sync completion
     }
   }
 }
@@ -2100,7 +2101,8 @@ bool simple_wallet::show_balance(const std::vector<std::string>& args/* = std::v
   success_msg_writer() << "unmixable: " << m_currency.formatAmount(m_wallet->unmixableBalance(), walletHeight);
   success_msg_writer() << "total balance: " << m_currency.formatAmount(m_wallet->actualBalance() + m_wallet->pendingBalance(), walletHeight);
 
-  // Dust sweep warning: check for pre-fork outputs below REDENOMINATION_FACTOR
+  // Sub-MIN_CT outputs are spendable as transparent inputs but cannot become CT outputs;
+  // when sending CT they will be absorbed into transaction fees.
   auto outputs = m_wallet->getOutputs();
   uint64_t dustTotal = 0;
   size_t dustCount = 0;
@@ -2111,12 +2113,10 @@ bool simple_wallet::show_balance(const std::vector<std::string>& args/* = std::v
     }
   }
   if (dustCount > 0) {
-    logger(WARNING, BRIGHT_YELLOW)
-      << "WARNING: You have " << dustCount << " dust output(s) totaling "
+    logger(INFO, BRIGHT_YELLOW)
+      << "Note: " << dustCount << " sub-MIN_CT output(s) totaling "
       << m_currency.formatAmount(dustTotal) << " KRB.\n"
-      << "These outputs are below 0.01 KRB and will become ZERO after the redenomination fork.\n"
-      << "Consider consolidating them with 'sweep_dust' before the fork height ("
-      << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT << ").";
+      << "Spendable, but will be absorbed into fees rather than becoming confidential outputs.";
   }
 
   return true;

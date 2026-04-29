@@ -51,8 +51,7 @@ const size_t CRYPTONOTE_COIN_VERSION                         = 1;
 const unsigned EMISSION_SPEED_FACTOR                         = 18;
 static_assert(EMISSION_SPEED_FACTOR <= 8 * sizeof(uint64_t), "Bad EMISSION_SPEED_FACTOR");
 
-const uint64_t REDENOMINATION_FACTOR                         = UINT64_C(10000000000); // 10^10
-const uint32_t REDENOMINATION_FORK_HEIGHT                    = 999999999; // placeholder
+const uint32_t CT_FORK_HEIGHT                                = 999999999; // placeholder
 
 const size_t   CRYPTONOTE_REWARD_BLOCKS_WINDOW               = 100;
 const size_t   CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE     = 1000000; //size of block (bytes) after which reward for block calculated using block size
@@ -61,7 +60,6 @@ const size_t   CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1  = 100000;
 const size_t   CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_CURRENT = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE;
 const size_t   CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE        = 600;
 const size_t   CRYPTONOTE_DISPLAY_DECIMAL_POINT              = 12;
-const size_t   CRYPTONOTE_DISPLAY_DECIMAL_POINT_POST_FORK    = 2;
 
 const uint64_t MINIMUM_FEE_V1                                = UINT64_C(100000000);
 const uint64_t MINIMUM_FEE_V2                                = UINT64_C(100000000000);
@@ -77,8 +75,8 @@ const uint64_t MAX_EXTRA_SIZE                                = 1024;
 // Confidential transaction parameters (post-fork)
 const size_t   CT_MIN_RING_SIZE                              = 4;     // min ring members per CT input
 const size_t   CT_MAX_RING_SIZE                              = 16;    // max ring members per CT input
-const uint64_t CT_MINIMUM_FEE                                = UINT64_C(1);     // 0.01 KRB in new atomic units
-const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(10000); // 100 KRB in new atomic units
+const uint64_t CT_MINIMUM_FEE                                = UINT64_C(10000000000);    // 0.01 KRB (= MIN_CT_DENOMINATION)
+const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(100000000000000); // 100 KRB
 const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      // internal bucket for hidden-output rings
 const size_t   CT_MAX_INPUTS                                 = 256;
 const size_t   CT_MAX_OUTPUTS                                = 256;

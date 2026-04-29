@@ -98,25 +98,8 @@ void WalletTransactionSender::validateTransfersAddresses(const std::vector<Walle
   }
 }
 
-uint64_t WalletTransactionSender::resolveSpendableAmount(const TransactionOutputInformation& output, bool isPostFork) const {
-  if (output.type == TransactionTypes::OutputType::Confidential) {
-    return output.amount;
-  }
-
-  if (!isPostFork) {
-    return output.amount;
-  }
-
-  TransactionInformation txInfo;
-  const bool haveTxInfo = m_transferDetails.getTransactionInformation(output.transactionHash, txInfo);
-  const bool isCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
-  const uint32_t blockHeight = haveTxInfo ? txInfo.blockHeight : 0;
-
-  TransactionOutput transparentOutput;
-  transparentOutput.amount = output.amount;
-  transparentOutput.target = KeyOutput();
-
-  return resolveOutputAmount(transparentOutput, blockHeight, isCoinbase);
+uint64_t WalletTransactionSender::resolveSpendableAmount(const TransactionOutputInformation& output) const {
+  return output.amount;
 }
 
 std::shared_ptr<WalletRequest> WalletTransactionSender::makeSendRequest(TransactionId& transactionId, std::deque<std::shared_ptr<WalletLegacyEvent>>& events,
@@ -127,13 +110,12 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::makeSendRequest(Transact
   throwIf(transfers.empty(), error::ZERO_DESTINATION);
   validateTransfersAddresses(transfers);
   uint64_t neededMoney = countNeededMoney(fee, transfers);
-  const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
 
   if (selectedOuts.size() > 0) {
     for (auto& out : selectedOuts) {
-      context->foundMoney += resolveSpendableAmount(out, isPostFork);
+      context->foundMoney += resolveSpendableAmount(out);
     }
     context->selectedTransfers = selectedOuts;
   }
@@ -167,13 +149,12 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
   throwIf(transfers.empty(), error::ZERO_DESTINATION);
   validateTransfersAddresses(transfers);
   uint64_t neededMoney = countNeededMoney(fee, transfers);
-  const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
 
   if (selectedOuts.size() > 0) {
     for (auto& out : selectedOuts) {
-      context->foundMoney += resolveSpendableAmount(out, isPostFork);
+      context->foundMoney += resolveSpendableAmount(out);
     }
     context->selectedTransfers = selectedOuts;
   }
@@ -319,12 +300,29 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
     uint64_t totalAmount = -transaction.totalAmount;
     uint64_t changeAmount = context->foundMoney > totalAmount ? context->foundMoney - totalAmount : 0;
 
-    bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+    bool useCT = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::CT_FORK_HEIGHT;
 
     Transaction tx;
-    if (isPostFork) {
-      // CT path: canonical denomination decomposition + confidential transaction
-      uint64_t fee = transaction.fee;
+    if (useCT) {
+      // CT path: canonical denomination decomposition + confidential transaction.
+      // Sub-floor change residue is absorbed into fee so no new CT dust is ever created.
+
+      // Reject non-canonical destination amounts up-front.
+      for (TransferId idx = transaction.firstTransferId;
+           idx < transaction.firstTransferId + transaction.transferCount; ++idx) {
+        const WalletLegacyTransfer& de = m_transactionsCache.getTransfer(idx);
+        const uint64_t amt = static_cast<uint64_t>(de.amount);
+        if (amt == 0 || amt % CryptoNote::MIN_CT_DENOMINATION != 0) {
+          throw std::system_error(make_error_code(error::WRONG_AMOUNT),
+            "Confidential transactions require amounts to be a multiple of 0.01 KRB");
+        }
+      }
+
+      // Split change into canonical + sub-floor residue; fold residue into the fee.
+      uint64_t changeCanonical = (changeAmount / CryptoNote::MIN_CT_DENOMINATION)
+                                * CryptoNote::MIN_CT_DENOMINATION;
+      uint64_t dustResidue = changeAmount - changeCanonical;
+      uint64_t fee = transaction.fee + dustResidue;
 
       // Decompose each destination into canonical denominations
       std::vector<CTBuildOutput> ctOutputs;
@@ -340,9 +338,9 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
         }
       }
 
-      // Change output
-      if (changeAmount > 0) {
-        auto changeDenoms = decomposeAmount(changeAmount);
+      // Canonical change output (residue is in fee, not here).
+      if (changeCanonical > 0) {
+        auto changeDenoms = decomposeAmount(changeCanonical);
         for (uint64_t d : changeDenoms) {
           ctOutputs.push_back(CTBuildOutput{m_keys.address, d});
         }
@@ -595,16 +593,12 @@ uint64_t WalletTransactionSender::selectTransfersToSend(uint64_t neededMoney, bo
   
   std::vector<TransactionOutputInformation> outputs;
   m_transferDetails.getOutputs(outputs, ITransfersContainer::IncludeDefault);
-  const bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
   std::vector<uint64_t> spendableAmounts(outputs.size(), 0);
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     const auto& out = outputs[i];
     if (!m_transactionsCache.isUsed(out)) {
-      const uint64_t spendableAmount = resolveSpendableAmount(out, isPostFork);
-      if (isPostFork && spendableAmount == 0) {
-        continue;
-      }
+      const uint64_t spendableAmount = resolveSpendableAmount(out);
       spendableAmounts[i] = spendableAmount;
 
       if (out.type == TransactionTypes::OutputType::Confidential || is_valid_decomposed_amount(out.amount)) {

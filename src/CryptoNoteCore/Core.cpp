@@ -23,6 +23,7 @@
 #include <boost/utility/value_init.hpp>
 #include <boost/range/combine.hpp>
 #include "../CryptoNoteConfig.h"
+#include "Denominations.h"
 #include "../Common/CommandLine.h"
 #include "../Common/Util.h"
 #include "../Common/Math.h"
@@ -429,10 +430,12 @@ bool Core::check_tx_unmixable(const Transaction& tx, const Crypto::Hash& txHash,
       return false;
     }
 
-    // Post-redenomination: all outputs must be >= 1 new atomic unit (0.01 KRB).
-    // This structurally eliminates dust in the new denomination system.
-    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT && out.amount < 1) {
-      logger(ERROR) << "Output amount below minimum post-fork for tx id= " << Common::podToHex(txHash);
+    // Post-CT-fork: transparent outputs in non-coinbase transactions must be >= MIN_CT_DENOMINATION
+    // (this function is only invoked for non-coinbase txs). Coinbase remains the dust sink and
+    // may carry sub-floor fee residue. CT outputs are validated structurally via the GK proof.
+    if (height >= CryptoNote::parameters::CT_FORK_HEIGHT &&
+        out.amount > 0 && out.amount < CryptoNote::MIN_CT_DENOMINATION) {
+      logger(ERROR) << "Transparent output below MIN_CT_DENOMINATION for tx id= " << Common::podToHex(txHash);
       return false;
     }
   }
@@ -935,11 +938,11 @@ bool Core::check_tx_syntax(const Transaction& tx, const Crypto::Hash& tx_hash, u
     return false;
   }
 
-  const bool ctActivated = height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  const bool ctActivated = height >= CryptoNote::parameters::CT_FORK_HEIGHT;
   if (tx.version == TRANSACTION_VERSION_CT && !ctActivated) {
     logger(ERROR) << "CT transaction " << Common::podToHex(tx_hash)
                   << " arrived before CT activation height "
-                  << CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT
+                  << CryptoNote::parameters::CT_FORK_HEIGHT
                   << " (validation height " << height << ")";
     return false;
   }

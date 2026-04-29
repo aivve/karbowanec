@@ -2714,13 +2714,6 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
     prevCumulativeDifficulty  = prevMeta.cumulativeDifficulty;
   }
 
-  // One-time redenomination conversion at fork height (spec Section 4.2).
-  // Divide the accumulator so that calculateReward() operates on new-unit magnitudes
-  // from this block onward. The sub-factor remainder is the single bounded supply burn.
-  if (newHeight == CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
-    already_generated_coins /= CryptoNote::parameters::REDENOMINATION_FACTOR;
-  }
-
   // Outputs that must survive past the write-txn block for the log below.
   BlockEntry block;
   block.bl     = blockData;

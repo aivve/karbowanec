@@ -78,103 +78,70 @@ static int tests_passed = 0;
 #define FAIL(msg) do { printf("[FAIL] %s\n", msg); return; } while(0)
 
 // =====================================================================
-// SECTION 1: REDENOMINATION TESTS
+// SECTION 1: CT FLOOR / DUST POLICY TESTS
 // =====================================================================
+// Redenomination was removed: CT denominations sit on top of the existing
+// 12-decimal atomic precision, with MIN_CT_DENOMINATION = 0.01 KRB = 10^10 au.
 
-static void test_redenomination_exact_division() {
-  TEST("Redenomination: exactly divisible amount");
-  // 100 KRB old = 100 * 10^12 au_old = 100,000,000,000,000
-  // / 10^10 = 10,000 au_new = 100.00 KRB
-  uint64_t pre_fork = UINT64_C(100000000000000);
-  uint64_t expected = pre_fork / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (expected != 10000) FAIL("expected 10000");
-  if (pre_fork % CryptoNote::parameters::REDENOMINATION_FACTOR != 0) FAIL("expected zero remainder");
+static void test_min_ct_denomination_value() {
+  TEST("CT floor: MIN_CT_DENOMINATION == 10^10 atomic units");
+  if (CryptoNote::MIN_CT_DENOMINATION != UINT64_C(10000000000))
+    FAIL("expected 10^10");
   PASS();
 }
 
-static void test_redenomination_remainder_1() {
-  TEST("Redenomination: remainder of 1 (smallest dust)");
-  uint64_t pre_fork = CryptoNote::parameters::REDENOMINATION_FACTOR + 1;
-  uint64_t scaled = pre_fork / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  uint64_t remainder = pre_fork % CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (scaled != 1) FAIL("expected 1");
-  if (remainder != 1) FAIL("expected remainder 1");
+static void test_min_ct_denomination_matches_table() {
+  TEST("CT floor: DENOMINATIONS[0] == MIN_CT_DENOMINATION");
+  if (CryptoNote::DENOMINATIONS[0] != CryptoNote::MIN_CT_DENOMINATION)
+    FAIL("table head must equal floor");
   PASS();
 }
 
-static void test_redenomination_max_remainder() {
-  TEST("Redenomination: max remainder (factor - 1)");
-  uint64_t pre_fork = 2 * CryptoNote::parameters::REDENOMINATION_FACTOR - 1;
-  uint64_t scaled = pre_fork / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  uint64_t remainder = pre_fork % CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (scaled != 1) FAIL("expected 1");
-  if (remainder != CryptoNote::parameters::REDENOMINATION_FACTOR - 1) FAIL("wrong max remainder");
+static void test_below_floor_not_canonical() {
+  TEST("CT floor: amounts below floor are not canonical");
+  if (CryptoNote::isCanonicalDenomination(CryptoNote::MIN_CT_DENOMINATION - 1))
+    FAIL("sub-floor must not be canonical");
+  if (CryptoNote::isCanonicalDenomination(1)) FAIL("single au must not be canonical");
   PASS();
 }
 
-static void test_redenomination_dust_below_001krb() {
-  TEST("Redenomination: dust below 0.01 KRB → zero");
-  // Anything below REDENOMINATION_FACTOR floors to 0.
-  uint64_t pre_fork = CryptoNote::parameters::REDENOMINATION_FACTOR - 1;
-  uint64_t scaled = pre_fork / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (scaled != 0) FAIL("expected 0");
+static void test_floor_multiple_decomposable() {
+  TEST("CT floor: multiples of MIN_CT_DENOMINATION decompose");
+  // 0.05 KRB = 5 * 10^10 au → must decompose
+  auto v = CryptoNote::decomposeAmount(5 * CryptoNote::MIN_CT_DENOMINATION);
+  if (v.size() != 1) FAIL("0.05 KRB should be a single denom");
+  if (v[0] != 5 * CryptoNote::MIN_CT_DENOMINATION) FAIL("wrong denom");
+  // 0.11 KRB = 11 * 10^10 → should split into 0.10 + 0.01
+  auto v2 = CryptoNote::decomposeAmount(11 * CryptoNote::MIN_CT_DENOMINATION);
+  uint64_t sum = 0;
+  for (auto x : v2) sum += x;
+  if (sum != 11 * CryptoNote::MIN_CT_DENOMINATION) FAIL("decomposition sum mismatch");
   PASS();
 }
 
-static void test_redenomination_zero_input() {
-  TEST("Redenomination: zero input → zero");
-  uint64_t scaled = UINT64_C(0) / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (scaled != 0) FAIL("expected 0");
+static void test_sub_floor_decomposition_throws() {
+  TEST("CT floor: sub-floor amounts are not decomposable");
+  bool threw = false;
+  try {
+    (void)CryptoNote::decomposeAmount(CryptoNote::MIN_CT_DENOMINATION - 1);
+  } catch (const std::invalid_argument&) {
+    threw = true;
+  }
+  if (!threw) FAIL("expected invalid_argument");
   PASS();
 }
 
-static void test_redenomination_accumulator_conversion() {
-  TEST("Redenomination: accumulator value before/after conversion");
-  // Simulate: some generated_coins in old units, divide at fork height.
-  uint64_t old_accumulator = UINT64_C(7860514000000000000); // ~7.86M KRB in old au
-  uint64_t new_accumulator = old_accumulator / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  // new_accumulator should be 786,051,400 new au = 7,860,514.00 KRB
-  if (new_accumulator != UINT64_C(786051400)) FAIL("wrong conversion");
-  // Verify no off-by-one: floor division is exact truncation.
-  uint64_t roundtrip = new_accumulator * CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (roundtrip > old_accumulator) FAIL("roundtrip exceeds original");
-  if (old_accumulator - roundtrip >= CryptoNote::parameters::REDENOMINATION_FACTOR)
-    FAIL("remainder too large");
-  PASS();
-}
-
-static void test_redenomination_coinbase_pre_fork() {
-  TEST("Redenomination: coinbase before fork → scaled down");
-  // Before fork, coinbase amount is in old units and must be scaled.
-  uint64_t coinbase_old = UINT64_C(5900000000000); // old units
-  uint32_t height = CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT - 1;
-  // resolveOutputAmount for pre-fork = amount / REDENOMINATION_FACTOR
-  uint64_t resolved = coinbase_old / CryptoNote::parameters::REDENOMINATION_FACTOR;
-  if (resolved != 590) FAIL("expected 590 new au");
-  (void)height;
-  PASS();
-}
-
-static void test_redenomination_coinbase_at_fork() {
-  TEST("Redenomination: coinbase at fork height → new units (no scaling)");
-  // At and after fork, coinbase is already in new units.
-  uint64_t coinbase_new = 590; // directly in new au
-  uint32_t height = CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
-  // resolveOutputAmount for post-fork coinbase = amount (no division)
-  // The logic: if (isCoinbase && height >= FORK_HEIGHT) return amount;
-  uint64_t resolved = coinbase_new; // post-fork path
-  if (resolved != 590) FAIL("expected 590 new au");
-  (void)height;
-  PASS();
-}
-
-static void test_redenomination_coinbase_after_fork() {
-  TEST("Redenomination: coinbase at H+1 → new units (no scaling)");
-  uint64_t coinbase_new = 588;
-  uint32_t height = CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT + 1;
-  uint64_t resolved = coinbase_new; // post-fork path
-  if (resolved != 588) FAIL("expected 588 new au");
-  (void)height;
+static void test_dust_residue_routes_to_fee() {
+  TEST("CT floor: dust residue routes to fee, no new dust output");
+  // Wallet policy: change = canonical * floor(change/floor) + residue;
+  // residue is added to fee; only canonical change becomes a CT output.
+  const uint64_t floor = CryptoNote::MIN_CT_DENOMINATION;
+  uint64_t change = 12345 + 3 * floor; // 3.00...something KRB
+  uint64_t canonical = (change / floor) * floor;
+  uint64_t residue = change - canonical;
+  if (residue >= floor) FAIL("residue must be sub-floor");
+  if (canonical % floor != 0) FAIL("canonical must be multiple of floor");
+  if (canonical + residue != change) FAIL("split must be lossless");
   PASS();
 }
 
@@ -1061,34 +1028,29 @@ static void test_mlsag_ring_size_4() {
   PASS();
 }
 
-static void test_redenomination_factor_constants() {
-  TEST("Combined: redenomination factor and display decimals");
+static void test_ct_fork_height_decoupled() {
+  TEST("Combined: CT_FORK_HEIGHT exists and display decimals stay at 12");
 
-  if (CryptoNote::parameters::REDENOMINATION_FACTOR != UINT64_C(10000000000))
-    FAIL("REDENOMINATION_FACTOR should be 10^10");
   if (CryptoNote::parameters::CRYPTONOTE_DISPLAY_DECIMAL_POINT != 12)
-    FAIL("pre-fork decimals should be 12");
-  if (CryptoNote::parameters::CRYPTONOTE_DISPLAY_DECIMAL_POINT_POST_FORK != 2)
-    FAIL("post-fork decimals should be 2");
+    FAIL("display decimals should be 12 (no redenomination)");
+  // CT_FORK_HEIGHT only gates CT activation; no chain-wide redenomination occurs.
+  (void)CryptoNote::parameters::CT_FORK_HEIGHT;
   PASS();
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
 
 int main() {
-  printf("CT + Redenomination Integration Tests\n");
+  printf("CT Integration Tests\n");
   printf("======================================\n\n");
 
-  printf("[Redenomination]\n");
-  test_redenomination_exact_division();
-  test_redenomination_remainder_1();
-  test_redenomination_max_remainder();
-  test_redenomination_dust_below_001krb();
-  test_redenomination_zero_input();
-  test_redenomination_accumulator_conversion();
-  test_redenomination_coinbase_pre_fork();
-  test_redenomination_coinbase_at_fork();
-  test_redenomination_coinbase_after_fork();
+  printf("[CT floor / dust policy]\n");
+  test_min_ct_denomination_value();
+  test_min_ct_denomination_matches_table();
+  test_below_floor_not_canonical();
+  test_floor_multiple_decomposable();
+  test_sub_floor_decomposition_throws();
+  test_dust_residue_routes_to_fee();
 
   printf("\n[GK Proof - extended]\n");
   test_gk_all_64_roundtrip();
@@ -1132,7 +1094,7 @@ int main() {
   test_ct_fee_bounds();
   test_max_denomination_gk_in_balance();
   test_mlsag_ring_size_4();
-  test_redenomination_factor_constants();
+  test_ct_fork_height_decoupled();
 
   printf("\n======================================\n");
   printf("Results: %d/%d passed\n", tests_passed, tests_run);

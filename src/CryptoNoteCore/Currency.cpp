@@ -18,6 +18,7 @@
 // along with Karbo.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "Currency.h"
+#include "Denominations.h"
 #include <cctype>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/math/special_functions/round.hpp>
@@ -153,9 +154,7 @@ namespace CryptoNote {
     }
   }
 
-  uint64_t Currency::effectiveMoneySupply(uint32_t height) const {
-    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT)
-      return m_moneySupply / CryptoNote::parameters::REDENOMINATION_FACTOR;
+  uint64_t Currency::effectiveMoneySupply(uint32_t /*height*/) const {
     return m_moneySupply;
   }
 
@@ -163,10 +162,6 @@ namespace CryptoNote {
     assert(m_emissionSpeedFactor > 0 && m_emissionSpeedFactor <= 8 * sizeof(uint64_t));
     uint64_t supply = effectiveMoneySupply(height);
     uint64_t tailReward = CryptoNote::parameters::TAIL_EMISSION_REWARD;
-    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
-      tailReward /= CryptoNote::parameters::REDENOMINATION_FACTOR;
-      if (tailReward == 0) tailReward = 1; // ensure at least 1 new atomic unit
-    }
     // Initial exponential emission curve with fallback to flat rate tail emission
     uint64_t baseRewardInitial = alreadyGeneratedCoins < supply ? (supply - alreadyGeneratedCoins) >> m_emissionSpeedFactor : tailReward;
     // Friedman's k-percent rule, inflation 2% of total coins in circulation p.a.
@@ -400,10 +395,7 @@ namespace CryptoNote {
     return Common::Format::formatAmount(amount);
   }
 
-  std::string Currency::formatAmount(uint64_t amount, uint32_t height) const {
-    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
-      return Common::Format::formatAmountPostFork(amount);
-    }
+  std::string Currency::formatAmount(uint64_t amount, uint32_t /*height*/) const {
     return Common::Format::formatAmount(amount);
   }
 
@@ -418,23 +410,20 @@ namespace CryptoNote {
     return Common::Format::parseAmount(str, amount);
   }
 
-  bool Currency::parseAmount(const std::string& str, uint64_t& amount, uint32_t height) const {
-    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
-      return Common::Format::parseAmountPostFork(str, amount);
-    }
+  bool Currency::parseAmount(const std::string& str, uint64_t& amount, uint32_t /*height*/) const {
     return parseAmount(str, amount);
   }
 
-  uint64_t Currency::resolveOutputAmount(uint64_t preForkAmount) {
-    return preForkAmount / CryptoNote::parameters::REDENOMINATION_FACTOR;
+  uint64_t Currency::resolveOutputAmount(uint64_t amount) {
+    return amount;
   }
 
-  bool Currency::isDustOutput(uint64_t preForkAmount) {
-    return preForkAmount < CryptoNote::parameters::REDENOMINATION_FACTOR;
+  bool Currency::isDustOutput(uint64_t amount) {
+    return amount < CryptoNote::MIN_CT_DENOMINATION;
   }
 
   uint64_t Currency::getMinimalFee(const uint32_t height) const {
-    if (height >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT)
+    if (height >= CryptoNote::parameters::CT_FORK_HEIGHT)
       return CryptoNote::parameters::CT_MINIMUM_FEE;
 
     if (height <= CryptoNote::parameters::UPGRADE_HEIGHT_V3_1)

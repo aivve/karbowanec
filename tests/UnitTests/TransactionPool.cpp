@@ -322,7 +322,7 @@ TEST_F(tx_pool, ct_tx_uses_explicit_fee_in_take_tx) {
 
 TEST_F(tx_pool, block_template_prioritizes_ct_by_explicit_fee) {
   TestPool<TransactionValidator, RealTimeProvider> pool(currency, logger);
-  pool.coreStub.set_blockchain_top(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT, NULL_HASH);
+  pool.coreStub.set_blockchain_top(CryptoNote::parameters::CT_FORK_HEIGHT, NULL_HASH);
 
   const uint64_t lowFee = currency.minimumFee();
   const uint64_t highFee = lowFee * 2;

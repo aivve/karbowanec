@@ -176,18 +176,17 @@ public:
 
   std::string formatAmount(uint64_t amount) const;
   std::string formatAmount(int64_t amount) const;
-  // Height-aware formatting: uses post-fork 2 decimal places after REDENOMINATION_FORK_HEIGHT
+  // Height-aware overloads kept for call-site compatibility; height is currently ignored.
   std::string formatAmount(uint64_t amount, uint32_t height) const;
   std::string formatAmount(int64_t amount, uint32_t height) const;
   bool parseAmount(const std::string& str, uint64_t& amount) const;
   bool parseAmount(const std::string& str, uint64_t& amount, uint32_t height) const;
 
-  // Resolve a pre-fork output amount to post-fork new atomic units.
-  // Returns amount / REDENOMINATION_FACTOR (floors to zero for dust).
-  static uint64_t resolveOutputAmount(uint64_t preForkAmount);
+  // Identity passthrough; kept for call-site compatibility after removing redenomination scaling.
+  static uint64_t resolveOutputAmount(uint64_t amount);
 
-  // Check if a pre-fork output is dust (would become zero after redenomination).
-  static bool isDustOutput(uint64_t preForkAmount);
+  // True if amount cannot become a CT output (i.e. < MIN_CT_DENOMINATION).
+  static bool isDustOutput(uint64_t amount);
 
   difficulty_type nextDifficulty(uint32_t height, uint8_t blockMajorVersion, std::vector<uint64_t> timestamps, std::vector<difficulty_type> Difficulties) const;
   difficulty_type nextDifficultyV1(std::vector<uint64_t> timestamps, std::vector<difficulty_type> Difficulties) const;

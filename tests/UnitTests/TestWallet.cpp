@@ -24,6 +24,7 @@
 #include <tuple>
 
 #include "Common/StringTools.h"
+#include "Denominations.h"
 #include "CryptoNoteCore/Currency.h"
 #include "CryptoNoteCore/TransactionApi.h"
 #include "CryptoNoteCore/TransactionApiExtra.h"
@@ -747,8 +748,9 @@ TEST_F(WalletApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
   bob.initialize(BOB_WALLET_PATH, "pass2");
   std::string bobAddress = bob.createAddress();
 
-  const uint64_t fundingAmount = 100;
-  const uint64_t spendAmount = 50;
+  // Amounts must be multiples of MIN_CT_DENOMINATION (0.01 KRB).
+  const uint64_t fundingAmount = 100 * CryptoNote::MIN_CT_DENOMINATION; // 1 KRB
+  const uint64_t spendAmount = 50 * CryptoNote::MIN_CT_DENOMINATION;    // 0.5 KRB
   const uint64_t fee = CryptoNote::parameters::CT_MINIMUM_FEE;
 
   setMinerTo(alice);
@@ -758,7 +760,7 @@ TEST_F(WalletApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
   size_t fundingTx;
   {
     SCOPED_TRACE("funding Bob with a CT output");
-    node.setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+    node.setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
     fundingTx = sendMoney(bobAddress, fundingAmount, fee, 0);
     node.clearLastLocalBlockHeightOverride();
     node.updateObservers();
@@ -789,7 +791,7 @@ TEST_F(WalletApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
   size_t firstSpendTx;
   {
     SCOPED_TRACE("spending rescanned CT output");
-    node.setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+    node.setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
     firstSpendTx = sendMoney(rescannedBob, RANDOM_ADDRESS, spendAmount, fee, 3);
     node.clearLastLocalBlockHeightOverride();
     node.updateObservers();
@@ -807,7 +809,7 @@ TEST_F(WalletApi, confidentialOutputCanBeRescannedReorgedAndSpentAgain) {
 
   {
     SCOPED_TRACE("spending restored CT output again");
-    node.setLastLocalBlockHeight(CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT);
+    node.setLastLocalBlockHeight(CryptoNote::parameters::CT_FORK_HEIGHT);
     size_t secondSpendTx = sendMoney(rescannedBob, RANDOM_ADDRESS, spendAmount, fee, 3);
     node.clearLastLocalBlockHeightOverride();
     node.updateObservers();

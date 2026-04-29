@@ -457,18 +457,11 @@ Hash get_tx_tree_hash(const Block& b) {
   return get_tx_tree_hash(txs_ids);
 }
 
-uint64_t resolveOutputAmount(const TransactionOutput& out, uint64_t blockHeight, bool isCoinbase) {
+uint64_t resolveOutputAmount(const TransactionOutput& out, uint64_t /*blockHeight*/, bool /*isCoinbase*/) {
   // Confidential outputs: amount is hidden in a Pedersen commitment, not in the amount field.
   // When CT output types are added, check for OUTPUT_CONFIDENTIAL here and return 0.
-  // For now, all outputs are transparent (KeyOutput).
-
-  // Post-fork coinbase: amount is already in new (redenominated) units.
-  if (isCoinbase && blockHeight >= parameters::REDENOMINATION_FORK_HEIGHT)
-    return out.amount;
-
-  // Pre-fork transparent (regular or old coinbase): scale down by the redenomination factor.
-  // The remainder (out.amount % REDENOMINATION_FACTOR) is implicitly burned.
-  return out.amount / parameters::REDENOMINATION_FACTOR;
+  // For now, all outputs are transparent (KeyOutput) and amounts are already in atomic units.
+  return out.amount;
 }
 
 bool is_valid_decomposed_amount(uint64_t amount) {

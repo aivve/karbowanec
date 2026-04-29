@@ -1618,11 +1618,33 @@ void WalletGreen::prepareTransaction(std::vector<WalletOuts>&& wallets,
   uint64_t donationAmount = pushDonationTransferIfPossible(donation, foundMoney - preparedTransaction.neededMoney, m_currency.defaultDustThreshold(), preparedTransaction.destinations);
   preparedTransaction.changeAmount = foundMoney - preparedTransaction.neededMoney - donationAmount;
 
-  // Detect post-fork: use CT transaction path with canonical denomination decomposition.
-  bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
+  // CT activation: at and above CT_FORK_HEIGHT, regular transactions must use the
+  // confidential path with canonical denomination decomposition.
+  bool useCT = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::CT_FORK_HEIGHT;
 
-  if (isPostFork) {
-    // CT path: decompose amounts into canonical denominations (Denominations.h)
+  if (useCT) {
+    // Reject non-canonical destination amounts up-front. CT denominations start at
+    // MIN_CT_DENOMINATION (0.01 KRB); sub-floor pieces cannot become CT outputs.
+    for (const auto& destination : preparedTransaction.destinations) {
+      if (destination.type == WalletTransferType::CHANGE) continue;
+      const uint64_t amt = static_cast<uint64_t>(destination.amount);
+      if (amt == 0 || amt % CryptoNote::MIN_CT_DENOMINATION != 0) {
+        m_logger(ERROR, BRIGHT_RED) << "CT destination amount " << amt
+          << " is not a multiple of MIN_CT_DENOMINATION (" << CryptoNote::MIN_CT_DENOMINATION << ")";
+        throw std::system_error(make_error_code(error::WRONG_AMOUNT),
+          "Confidential transactions require amounts to be a multiple of 0.01 KRB");
+      }
+    }
+
+    // Split change into canonical + sub-floor residue; absorb residue into fee so no
+    // new CT dust output is ever produced. This may also recover sub-floor pieces from
+    // selected transparent inputs (e.g. legacy or coinbase outputs).
+    uint64_t changeCanonical = (preparedTransaction.changeAmount / CryptoNote::MIN_CT_DENOMINATION)
+                              * CryptoNote::MIN_CT_DENOMINATION;
+    uint64_t dustResidue = preparedTransaction.changeAmount - changeCanonical;
+    uint64_t actualFee = fee + dustResidue;
+    preparedTransaction.changeAmount = changeCanonical;
+
     std::vector<ReceiverAmounts> decomposedOutputs;
     for (const auto& destination : preparedTransaction.destinations) {
       AccountPublicAddress address = parseAccountAddressString(destination.address);
@@ -1632,21 +1654,20 @@ void WalletGreen::prepareTransaction(std::vector<WalletOuts>&& wallets,
       decomposedOutputs.push_back(std::move(ra));
     }
 
-    if (preparedTransaction.changeAmount != 0) {
+    if (changeCanonical != 0) {
       WalletTransfer changeTransfer;
       changeTransfer.type = WalletTransferType::CHANGE;
       changeTransfer.address = m_currency.accountAddressAsString(changeDestination);
-      changeTransfer.amount = static_cast<int64_t>(preparedTransaction.changeAmount);
+      changeTransfer.amount = static_cast<int64_t>(changeCanonical);
       preparedTransaction.destinations.emplace_back(std::move(changeTransfer));
 
       ReceiverAmounts changeRA;
       changeRA.receiver = changeDestination;
-      changeRA.amounts = decomposeAmount(preparedTransaction.changeAmount);
+      changeRA.amounts = decomposeAmount(changeCanonical);
       decomposedOutputs.push_back(std::move(changeRA));
     }
 
-    // Build CT transaction and wrap in ITransaction
-    Transaction rawTx = makeConfidentialTransaction(decomposedOutputs, keysInfo, fee, extra, txSecretKey);
+    Transaction rawTx = makeConfidentialTransaction(decomposedOutputs, keysInfo, actualFee, extra, txSecretKey);
     preparedTransaction.transaction = createTransaction(rawTx);
   } else {
     // Pre-fork: transparent transaction path (original)
@@ -2603,9 +2624,6 @@ uint64_t WalletGreen::selectTransfers(
   std::vector<OutputToTransfer>& selectedTransfers) {
 
   uint64_t foundMoney = 0;
-  // Post-fork: skip transparent outputs whose resolved spendable value is zero.
-  // This covers pre-fork dust that became worthless after redenomination.
-  bool isPostFork = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT;
 
   struct OutputData {
     WalletRecord* wallet = nullptr;
@@ -2618,24 +2636,6 @@ uint64_t WalletGreen::selectTransfers(
   for (auto walletIt = wallets.begin(); walletIt != wallets.end(); ++walletIt) {
     for (auto outIt = walletIt->outs.begin(); outIt != walletIt->outs.end(); ++outIt) {
       uint64_t spendAmount = outIt->amount;
-
-      if (isPostFork && outIt->type == TransactionTypes::OutputType::Key) {
-        TransactionInformation txInfo;
-        const bool haveTxInfo = walletIt->wallet != nullptr &&
-          walletIt->wallet->container != nullptr &&
-          walletIt->wallet->container->getTransactionInformation(outIt->transactionHash, txInfo);
-        const bool isCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
-        const uint32_t blockHeight = haveTxInfo ? txInfo.blockHeight : 0;
-
-        TransactionOutput transparentOutput;
-        transparentOutput.amount = outIt->amount;
-        transparentOutput.target = KeyOutput();
-        spendAmount = resolveOutputAmount(transparentOutput, blockHeight, isCoinbase);
-
-        if (spendAmount == 0) {
-          continue;
-        }
-      }
 
       OutputData data;
       data.wallet = walletIt->wallet;

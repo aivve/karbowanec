@@ -52,7 +52,7 @@ namespace CryptoNote {
       }
 
       if (tx.version == TRANSACTION_VERSION_CT &&
-          height < CryptoNote::parameters::REDENOMINATION_FORK_HEIGHT) {
+          height < CryptoNote::parameters::CT_FORK_HEIGHT) {
         return false;
       }
 
