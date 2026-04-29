@@ -1969,7 +1969,11 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       body += "  </li>\n";
     }
     body += "  <li>\n";
-    body += "    Sum of outputs: " + m_core.currency().formatAmount(transactionsDetails.totalOutputsAmount) + "\n";
+    if (transactionsDetails.version == TRANSACTION_VERSION_CT) {
+      body += "    Sum of outputs: hidden (confidential)\n";
+    } else {
+      body += "    Sum of outputs: " + m_core.currency().formatAmount(transactionsDetails.totalOutputsAmount) + "\n";
+    }
     body += "  </li>\n";
     body += "  <li>\n";
     body += "    Size: " + std::to_string(transactionsDetails.size) + "\n";
@@ -2072,6 +2076,23 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
         body.pop_back();
         body += "    </td>\n";
       }
+      else if (in.type() == typeid(ConfidentialInputDetails)) {
+        ConfidentialInputDetails c = boost::get<ConfidentialInputDetails>(in);
+        body += "hidden";
+        body += "</td>\n    <td class=\"wrap\">";
+        body += Common::podToHex(c.keyImage);
+        body += "</td>\n    <td>";
+        if (c.outputs.empty()) {
+          body += "ring of " + std::to_string(c.mixin) + " (references unavailable)";
+        } else {
+          for (size_t k = 0; k < c.outputs.size(); ++k) {
+            body += "    <a href=\"/explorer/tx/" + Common::podToHex(c.outputs[k].transactionHash) + "\">";
+            body += "output No " + std::to_string(c.outputs[k].number) + "</a>";
+            if (k + 1 < c.outputs.size()) body += ", ";
+          }
+        }
+        body += "    </td>\n";
+      }
       body += "  </tr>\n";
     }
     body += "</tbody>\n";
@@ -2091,11 +2112,18 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       body += "  <tr>\n";
       body += "    <td>" + std::to_string(i) + ")</td>";
       body += "    <td>";
-      body += m_core.currency().formatAmount(o.output.amount);
+      if (o.output.target.type() == typeid(ConfidentialOutput)) {
+        body += "hidden";
+      } else {
+        body += m_core.currency().formatAmount(o.output.amount);
+      }
       body += "</td>\n    <td class=\"wrap\">";
       if (o.output.target.type() == typeid(KeyOutput)) {
         KeyOutput ko = boost::get<KeyOutput>(o.output.target);
         body += Common::podToHex(ko);
+      } else if (o.output.target.type() == typeid(ConfidentialOutput)) {
+        ConfidentialOutput co = boost::get<ConfidentialOutput>(o.output.target);
+        body += Common::podToHex(co.targetKey);
       }
       body += "</td>\n    <td>";
       body += std::to_string(o.globalIndex);

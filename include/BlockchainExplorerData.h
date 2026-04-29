@@ -137,6 +137,11 @@ struct TransactionDetails {
   std::vector<std::vector<Crypto::Signature>> signatures;
   std::vector<transactionInputDetails2> inputs;
   std::vector<transactionOutputDetails2> outputs;
+
+  // CT (v4) proof body. Empty / value-initialized for non-CT transactions.
+  std::vector<CTInputSignature> ctSignatures; // per-input MLSAG
+  std::vector<CTOutputProof>    ctProofs;     // per-output GK denomination membership
+  TransactionKernel             kernel;       // balance-equation excess + Schnorr
 };
 
 struct BlockDetails {

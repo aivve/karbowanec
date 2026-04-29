@@ -23,6 +23,7 @@
 #include <boost/variant/static_visitor.hpp>
 #include <boost/variant/apply_visitor.hpp>
 
+#include "CryptoNoteConfig.h"
 #include "CryptoNoteCore/CryptoNoteSerialization.h"
 
 #include "Serialization/SerializationOverloads.h"
@@ -185,6 +186,15 @@ void serialize(TransactionDetails& transaction, ISerializer& serializer) {
     for (const auto& signatureWithIndex : signaturesForSerialization) {
       transaction.signatures[signatureWithIndex.first].push_back(signatureWithIndex.second);
     }
+  }
+
+  // CT (v4) proof body. Serialized only when transaction is CT — the vectors and
+  // kernel are value-initialized to empty/zero for non-CT, but emitting them
+  // unconditionally would clutter every transparent-tx response and waste bytes.
+  if (transaction.version == TRANSACTION_VERSION_CT) {
+    serializer(transaction.ctSignatures, "ctSignatures");
+    serializer(transaction.ctProofs, "ctProofs");
+    serializer(transaction.kernel, "kernel");
   }
 }
 

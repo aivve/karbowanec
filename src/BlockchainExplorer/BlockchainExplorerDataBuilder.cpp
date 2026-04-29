@@ -365,6 +365,14 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
     transactionDetails.outputs.push_back(std::move(txOutDetails));
   }
 
+  // CT v4 proof body — copy through for full inspection (web wallets use raw-tx
+  // RPC, so this is for explorers / debugging / human inspection).
+  if (transaction.version == TRANSACTION_VERSION_CT) {
+    transactionDetails.ctSignatures = transaction.ctSignatures;
+    transactionDetails.ctProofs     = transaction.ctProofs;
+    transactionDetails.kernel       = transaction.kernel;
+  }
+
   return true;
 }
 
