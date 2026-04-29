@@ -76,6 +76,15 @@ static bool print_as_json(const T& obj) {
   return true;
 }
 
+uint64_t getRpcTransactionFee(const Transaction& tx) {
+  uint64_t fee = 0;
+  return get_tx_fee(tx, fee) ? fee : 0;
+}
+
+uint64_t getRpcPublicOutputAmount(const Transaction& tx) {
+  return tx.version == TRANSACTION_VERSION_CT ? 0 : getOutputAmount(tx);
+}
+
 template <typename Command>
 RpcServer::HandlerFunction binMethod(bool (RpcServer::*handler)(typename Command::request const&, typename Command::response&)) {
   return [handler](RpcServer* obj, const CryptoNote::HttpRequest& request, CryptoNote::HttpResponse& response) {
@@ -754,13 +763,10 @@ bool RpcServer::checkIncomingTransactionForFee(const BinaryArray& tx_blob) {
     return false;
   }
 
-  // always relay fusion transactions
-  uint64_t inputs_amount = 0;
-  get_inputs_money_amount(tx, inputs_amount);
-  uint64_t outputs_amount = get_outs_money_amount(tx);
-
-  const uint64_t fee = inputs_amount - outputs_amount;
-  if (fee == 0 && m_core.currency().isFusionTransaction(tx, tx_blob.size(), m_core.getCurrentBlockchainHeight() - 1)) {
+  // always relay pre-CT-fork fusion transactions
+  const uint64_t fee = getRpcTransactionFee(tx);
+  const uint32_t height = m_core.getCurrentBlockchainHeight() == 0 ? 0 : m_core.getCurrentBlockchainHeight() - 1;
+  if (fee == 0 && m_core.currency().isFusionTransaction(tx, tx_blob.size(), height)) {
     logger(Logging::DEBUGGING) << "Masternode received fusion transaction, relaying with no fee check";
     return true;
   }
@@ -1333,7 +1339,7 @@ bool RpcServer::on_get_transactions_with_output_global_indexes_by_heights(const 
           e.timestamp = blk.timestamp;
           e.transaction = *static_cast<const TransactionPrefix*>(&txi.first);
           e.output_indexes = txi.second;
-          e.fee = is_coinbase(txi.first) ? 0 : getInputAmount(txi.first) - getOutputAmount(txi.first);
+          e.fee = is_coinbase(txi.first) ? 0 : getRpcTransactionFee(txi.first);
         }
       }
 
@@ -1630,7 +1636,7 @@ bool RpcServer::on_get_explorer(const COMMAND_EXPLORER::request& req, COMMAND_EX
         body += txHashStr;
         body += "</a>";
         body += "</td>\n    <td>";
-        body += m_core.currency().formatAmount(getOutputAmount(txd.tx));
+        body += txd.tx.version == TRANSACTION_VERSION_CT ? "hidden" : m_core.currency().formatAmount(getOutputAmount(txd.tx));
         body += "</td>\n    <td>";
         body += m_core.currency().formatAmount(txd.fee);
         body += "</td>\n    <td>";
@@ -2694,7 +2700,7 @@ bool RpcServer::on_get_transactions_pool_short(const COMMAND_RPC_GET_TRANSACTION
     transaction_pool_response mempool_transaction;
     mempool_transaction.hash = Common::podToHex(txd.id);
     mempool_transaction.fee = txd.fee;
-    mempool_transaction.amount_out = getOutputAmount(txd.tx);
+    mempool_transaction.amount_out = getRpcPublicOutputAmount(txd.tx);
     mempool_transaction.size = txd.blobSize;
     mempool_transaction.receive_time = txd.receiveTime;
     res.transactions.push_back(mempool_transaction);
@@ -2757,12 +2763,10 @@ bool RpcServer::on_get_transactions_by_payment_id(const COMMAND_RPC_GET_TRANSACT
 
   for (const Transaction& tx : transactions) {
     transaction_short_response transaction_short;
-    uint64_t amount_in = 0;
-    get_inputs_money_amount(tx, amount_in);
-    uint64_t amount_out = get_outs_money_amount(tx);
+    uint64_t amount_out = getRpcPublicOutputAmount(tx);
 
     transaction_short.hash = Common::podToHex(getObjectHash(tx));
-    transaction_short.fee = amount_in - amount_out;
+    transaction_short.fee = getRpcTransactionFee(tx);
     transaction_short.amount_out = amount_out;
     transaction_short.size = getObjectBinarySize(tx);
     res.transactions.push_back(transaction_short);
