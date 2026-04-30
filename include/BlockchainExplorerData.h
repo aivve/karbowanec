@@ -124,7 +124,8 @@ struct TransactionDetails {
   uint64_t fee = 0;
   uint64_t totalInputsAmount = 0;
   uint64_t totalOutputsAmount = 0;
-  uint64_t mixin = 0;
+  uint64_t mixin = 0;     // max ring size across inputs (legacy field)
+  uint64_t minMixin = 0;  // min ring size across inputs; differs from mixin when tx mixes ring-1 coinbase shielding inputs with normal CT inputs
   uint64_t unlockTime = 0;
   uint64_t timestamp = 0;
   uint8_t version = 0;

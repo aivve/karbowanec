@@ -36,7 +36,16 @@ protocol(protocol) {
 }
 
 bool BlockchainExplorerDataBuilder::getMixin(const Transaction& transaction, uint64_t& mixin) {
-  mixin = 0;
+  uint64_t minMixin = 0;
+  return getMixinRange(transaction, minMixin, mixin);
+}
+
+bool BlockchainExplorerDataBuilder::getMixinRange(const Transaction& transaction,
+                                                   uint64_t& minMixin,
+                                                   uint64_t& maxMixin) {
+  minMixin = 0;
+  maxMixin = 0;
+  bool first = true;
   for (const TransactionInput& txin : transaction.inputs) {
     uint64_t currentMixin = 0;
     if (txin.type() == typeid(KeyInput)) {
@@ -46,8 +55,12 @@ bool BlockchainExplorerDataBuilder::getMixin(const Transaction& transaction, uin
     } else {
       continue;
     }
-    if (currentMixin > mixin) {
-      mixin = currentMixin;
+    if (first) {
+      minMixin = maxMixin = currentMixin;
+      first = false;
+    } else {
+      if (currentMixin > maxMixin) maxMixin = currentMixin;
+      if (currentMixin < minMixin) minMixin = currentMixin;
     }
   }
   return true;
@@ -264,17 +277,23 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
     //It's gen transaction
     transactionDetails.fee = 0;
     transactionDetails.mixin = 0;
+    transactionDetails.minMixin = 0;
   } else {
     uint64_t fee;
     if (!get_tx_fee(transaction, fee)) {
       return false;
     }
     transactionDetails.fee = fee;
-    uint64_t mixin;
-    if (!m_core.getMixin(transaction, mixin)) {
+    // Per-input mixin: a tx may mix ring sizes (e.g. CT shielding ring-1 coinbase
+    // inputs alongside ring-4+ normal CT inputs). Report both bounds so consumers
+    // can detect heterogeneity rather than seeing the legacy max-only field.
+    uint64_t minMixin = 0;
+    uint64_t maxMixin = 0;
+    if (!getMixinRange(transaction, minMixin, maxMixin)) {
       return false;
     }
-    transactionDetails.mixin = mixin;
+    transactionDetails.mixin = maxMixin;
+    transactionDetails.minMixin = minMixin;
   }
   Crypto::Hash paymentId;
   if (getPaymentId(transaction, paymentId)) {

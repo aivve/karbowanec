@@ -150,6 +150,7 @@ void serialize(TransactionDetails& transaction, ISerializer& serializer) {
   serializer(transaction.totalInputsAmount, "totalInputsAmount");
   serializer(transaction.totalOutputsAmount, "totalOutputsAmount");
   serializer(transaction.mixin, "mixin");
+  serializer(transaction.minMixin, "minMixin");
   serializer(transaction.unlockTime, "unlockTime");
   serializer(transaction.timestamp, "timestamp");
   serializer(transaction.version, "version");

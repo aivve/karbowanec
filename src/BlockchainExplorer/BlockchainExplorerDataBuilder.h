@@ -45,6 +45,7 @@ public:
 
 private:
   bool getMixin(const Transaction& transaction, uint64_t& mixin);
+  bool getMixinRange(const Transaction& transaction, uint64_t& minMixin, uint64_t& maxMixin);
   bool fillTxExtra(const std::vector<uint8_t>& rawExtra, TransactionExtraDetails2& extraDetails);
   size_t median(std::vector<size_t>& v);
 

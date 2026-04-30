@@ -1985,7 +1985,15 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
     body += "    Version: " + std::to_string(transactionsDetails.version) + "\n";
     body += "  </li>\n";
     body += "  <li>\n";
-    body += "    Mixin count: " + std::to_string(transactionsDetails.mixin) + "\n";
+    if (transactionsDetails.minMixin == transactionsDetails.mixin) {
+      body += "    Mixin count: " + std::to_string(transactionsDetails.mixin) + "\n";
+    } else {
+      // Mixed ring sizes (e.g. ring-1 coinbase shielding + ring-N normal CT)
+      body += "    Mixin count: "
+           + std::to_string(transactionsDetails.minMixin) + ".."
+           + std::to_string(transactionsDetails.mixin)
+           + " (varies per input — see Inputs table)\n";
+    }
     body += "  </li>\n";
     body += "  <li>\n";
     body += "    Public key: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.extra.publicKey) + "</span>\n";
