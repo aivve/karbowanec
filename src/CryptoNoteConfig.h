@@ -80,6 +80,7 @@ const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(10000000
 const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      // internal bucket for hidden-output rings
 const size_t   CT_MAX_INPUTS                                 = 256;
 const size_t   CT_MAX_OUTPUTS                                = 256;
+const size_t   CT_MAX_EXTRA_NON_CANONICAL_INPUTS             = 32;    // wallet policy: opportunistic residue cleanup per CT spend
 
 const uint64_t MAX_TRANSACTION_SIZE_LIMIT                    = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_CURRENT / 4 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
 

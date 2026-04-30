@@ -51,7 +51,7 @@ private:
   std::shared_ptr<WalletRequest> makeGetRandomOutsRequest(std::shared_ptr<SendTransactionContext> context);
   std::shared_ptr<WalletRequest> doSendTransaction(std::shared_ptr<SendTransactionContext> context, std::deque<std::shared_ptr<WalletLegacyEvent>>& events);
   void prepareInputs(const std::list<TransactionOutputInformation>& selectedTransfers, std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& outs,
-      std::vector<TxBuildInput>& inputs, uint64_t mixIn);
+      std::vector<TxBuildInput>& inputs, const std::vector<uint64_t>& inputMixins);
   void splitDestinations(TransferId firstTransferId, size_t transfersCount, const TxBuildOutput& changeDts,
     const TxDustPolicy& dustPolicy, std::vector<TxBuildOutput>& splittedDests);
   void digitSplitStrategy(TransferId firstTransferId, size_t transfersCount, const TxBuildOutput& change_dst, uint64_t dust_threshold,
@@ -67,7 +67,17 @@ private:
 
   uint64_t resolveSpendableAmount(const TransactionOutputInformation& output) const;
 
-  uint64_t selectTransfersToSend(uint64_t neededMoney, bool addUnmixable, uint64_t dust, std::list<TransactionOutputInformation>& selectedTransfers);
+  bool isCoinbaseOutput(const TransactionOutputInformation& output) const;
+  std::vector<uint64_t> chooseInputMixins(const std::list<TransactionOutputInformation>& selectedTransfers, uint64_t requestedMixin, bool useCT) const;
+  bool hasMixinInputs(const std::vector<uint64_t>& inputMixins) const;
+  uint64_t maxInputMixin(const std::vector<uint64_t>& inputMixins) const;
+  void checkIfEnoughMixins(const std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& outs,
+    const std::vector<uint64_t>& inputMixins) const;
+
+  uint64_t selectTransfersToSend(uint64_t neededMoney, bool addUnmixable, uint64_t dust,
+    std::list<TransactionOutputInformation>& selectedTransfers,
+    bool includeNonCanonical = false,
+    size_t nonCanonicalLimit = 0);
 
   const Currency& m_currency;
   AccountKeys m_keys;

@@ -97,6 +97,37 @@ using CryptoNote::ISerializer;
     };
   };
 
+  /* Command: dust_sweep */
+  struct COMMAND_RPC_DUST_SWEEP
+  {
+    struct request
+    {
+      uint64_t fee = CryptoNote::parameters::MINIMUM_FEE_V2;
+      size_t max_inputs = CryptoNote::parameters::CT_MAX_INPUTS;
+
+      void serialize(ISerializer& s)
+      {
+        KV_MEMBER(fee)
+        KV_MEMBER(max_inputs)
+      }
+    };
+    struct response
+    {
+      std::string tx_hash;
+      std::string tx_key;
+      uint64_t swept_amount;
+      size_t input_count;
+
+      void serialize(ISerializer& s)
+      {
+        KV_MEMBER(tx_hash)
+        KV_MEMBER(tx_key)
+        KV_MEMBER(swept_amount)
+        KV_MEMBER(input_count)
+      }
+    };
+  };
+
   /* Command: store */
   struct COMMAND_RPC_STORE
   {

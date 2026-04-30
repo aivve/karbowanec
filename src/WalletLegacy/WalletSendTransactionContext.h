@@ -45,6 +45,7 @@ struct SendTransactionContext
   std::list<TransactionOutputInformation> selectedTransfers;
   TxDustPolicy dustPolicy;
   uint64_t mixIn;
+  std::vector<uint64_t> inputMixins;
   Crypto::SecretKey tx_key = NULL_SECRET_KEY;
 };
 

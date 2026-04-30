@@ -34,6 +34,7 @@
 //#include "vld.h"
 
 #include <ctime>
+#include <algorithm>
 #include <fstream>
 #include <future>
 #include <iomanip>
@@ -85,6 +86,7 @@
 #include "Wallet/LegacyKeysImporter.h"
 #include "WalletLegacy/WalletHelper.h"
 #include "ITransfersContainer.h"
+#include "Denominations.h"
 
 #include "version.h"
 
@@ -678,6 +680,8 @@ simple_wallet::simple_wallet(System::Dispatcher& dispatcher, const CryptoNote::C
     "transfer <mixin_count> <addr_1> <amount_1> [<addr_2> <amount_2> ... <addr_N> <amount_N>] [-p payment_id] [-f fee]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. "
     "<mixin_count> is the number of transactions yours is indistinguishable from (from 0 to maximum available)");
+  m_consoleHandler.setHandler("dust_sweep", std::bind(&simple_wallet::dust_sweep, this, std::placeholders::_1),
+    "dust_sweep [max_inputs] - Consolidate non-aligned transparent outputs to your wallet address");
   m_consoleHandler.setHandler("prepare", std::bind(&simple_wallet::prepare_tx, this, std::placeholders::_1),
     "Prepare raw transaction in hex format but do not relay, e.g. for manual relay <addr_1> <amount_1> ... <addr_N> <amount_N> [-p payment_id] [-f fee]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. ");
@@ -2382,6 +2386,107 @@ bool simple_wallet::transfer(const std::vector<std::string> &args) {
     fail_msg_writer() << e.what();
   } catch (...) {
     fail_msg_writer() << "unknown error";
+  }
+
+  return true;
+}
+//----------------------------------------------------------------------------------------------------
+bool simple_wallet::dust_sweep(const std::vector<std::string>& args) {
+  if (m_trackingWallet) {
+    fail_msg_writer() << "This is tracking wallet. Spending is impossible.";
+    return true;
+  }
+
+  size_t maxInputs = CryptoNote::parameters::CT_MAX_INPUTS;
+  if (!args.empty() && !Common::fromString(args[0], maxInputs)) {
+    fail_msg_writer() << "max_inputs should be a non-negative integer";
+    return true;
+  }
+  maxInputs = std::min<size_t>(maxInputs, CryptoNote::parameters::CT_MAX_INPUTS);
+
+  const uint64_t fee = m_node->getMinimalFee();
+  std::vector<TransactionOutputInformation> unlockedOutputs = m_wallet->getUnlockedOutputs();
+  std::list<TransactionOutputInformation> selectedOutputs;
+  uint64_t selectedAmount = 0;
+
+  for (const auto& out : unlockedOutputs) {
+    if (selectedOutputs.size() >= maxInputs) {
+      break;
+    }
+    if (out.type == TransactionTypes::OutputType::Confidential ||
+        out.amount % CryptoNote::MIN_CT_DENOMINATION == 0) {
+      continue;
+    }
+    selectedOutputs.push_back(out);
+    selectedAmount += out.amount;
+  }
+
+  if (selectedOutputs.empty()) {
+    success_msg_writer() << "No non-aligned transparent outputs to sweep.";
+    return true;
+  }
+
+  if (selectedAmount <= fee) {
+    fail_msg_writer() << "Selected dust does not cover the fee.";
+    return true;
+  }
+
+  const uint64_t sweepAmount = ((selectedAmount - fee) / CryptoNote::MIN_CT_DENOMINATION) *
+                               CryptoNote::MIN_CT_DENOMINATION;
+  if (sweepAmount == 0) {
+    fail_msg_writer() << "Selected dust is below one CT denomination after fee.";
+    return true;
+  }
+
+  try {
+    WalletLegacyTransfer transfer;
+    transfer.address = m_wallet->getAddress();
+    transfer.amount = static_cast<int64_t>(sweepAmount);
+
+    CryptoNote::WalletHelper::SendCompleteResultObserver sent;
+    WalletHelper::IWalletRemoveObserverGuard removeGuard(*m_wallet, sent);
+
+    CryptoNote::TransactionId tx = WALLET_LEGACY_INVALID_TRANSACTION_ID;
+    std::string raw_tx;
+    if (!m_do_not_relay_tx) {
+      tx = m_wallet->sendTransaction(std::vector<WalletLegacyTransfer>{transfer}, selectedOutputs, fee, "", 0, 0);
+    } else {
+      raw_tx = m_wallet->prepareRawTransaction(tx, std::vector<WalletLegacyTransfer>{transfer}, selectedOutputs, fee, "", 0, 0);
+    }
+
+    if (tx == WALLET_LEGACY_INVALID_TRANSACTION_ID) {
+      fail_msg_writer() << "Can't sweep dust";
+      return true;
+    }
+
+    if (!m_do_not_relay_tx) {
+      std::error_code sendError = sent.wait(tx);
+      removeGuard.removeObserver();
+      if (sendError) {
+        fail_msg_writer() << sendError.message();
+        return true;
+      }
+    }
+
+    CryptoNote::WalletLegacyTransaction txInfo;
+    m_wallet->getTransaction(tx, txInfo);
+    Crypto::SecretKey tx_key = reinterpret_cast<const Crypto::SecretKey&>(txInfo.secretKey.get());
+    success_msg_writer(true) << "Dust sweep created from " << selectedOutputs.size()
+      << " input(s), transaction id: " << Common::podToHex(txInfo.hash)
+      << ", key: " << Common::podToHex(tx_key);
+
+    if (m_do_not_relay_tx) {
+      const std::string filename = "raw_tx.txt";
+      std::ofstream txFile(filename, std::ios::out | std::ios::trunc | std::ios::binary);
+      if (txFile.good()) {
+        txFile << raw_tx;
+      }
+      m_do_not_relay_tx = false;
+    }
+
+    CryptoNote::WalletHelper::storeWallet(*m_wallet, m_wallet_file);
+  } catch (const std::exception& e) {
+    fail_msg_writer() << e.what();
   }
 
   return true;

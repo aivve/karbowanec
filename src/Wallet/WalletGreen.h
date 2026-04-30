@@ -269,7 +269,8 @@ protected:
 
   size_t doTransfer(const TransactionParameters& transactionParameters, Crypto::SecretKey& txSecretKey);
 
-  void checkIfEnoughMixins(std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& mixinResult, uint64_t mixIn) const;
+  void checkIfEnoughMixins(std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& mixinResult,
+    const std::vector<uint64_t>& inputMixins) const;
   std::vector<WalletTransfer> convertOrdersToTransfers(const std::vector<WalletOrder>& orders) const;
   uint64_t countNeededMoney(const std::vector<CryptoNote::WalletTransfer>& destinations, uint64_t fee) const;
   CryptoNote::AccountPublicAddress parseAccountAddressString(const std::string& addressString) const;
@@ -281,19 +282,25 @@ protected:
   void validateTransactionParameters(const TransactionParameters& transactionParameters) const;
 
   void requestMixinOuts(const std::vector<OutputToTransfer>& selectedTransfers,
-    uint64_t mixIn,
+    const std::vector<uint64_t>& inputMixins,
     std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& mixinResult);
 
   void prepareInputs(const std::vector<OutputToTransfer>& selectedTransfers,
     std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& mixinResult,
-    uint64_t mixIn,
+    const std::vector<uint64_t>& inputMixins,
     std::vector<InputInfo>& keysInfo);
 
   uint64_t selectTransfers(uint64_t needeMoney,
     bool dust,
     uint64_t dustThreshold,
     std::vector<WalletOuts>&& wallets,
-    std::vector<OutputToTransfer>& selectedTransfers);
+    std::vector<OutputToTransfer>& selectedTransfers,
+    bool includeNonCanonical = false,
+    size_t nonCanonicalLimit = 0);
+
+  bool isCoinbaseOutput(const OutputToTransfer& output) const;
+  std::vector<uint64_t> chooseInputMixins(const std::vector<OutputToTransfer>& selectedTransfers,
+    uint64_t requestedMixin, bool useCT) const;
 
   std::vector<ReceiverAmounts> splitDestinations(const std::vector<WalletTransfer>& destinations,
     uint64_t dustThreshold, const Currency& currency);

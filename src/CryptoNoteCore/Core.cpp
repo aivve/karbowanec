@@ -293,7 +293,7 @@ bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uin
       if (txin.type() != typeid(ConfidentialInput)) continue;
       const auto& ci = boost::get<ConfidentialInput>(txin);
       size_t ringSize = ci.ringPubkeys.size();
-      if (ringSize < CryptoNote::parameters::CT_MIN_RING_SIZE) {
+      if (ringSize != 1 && ringSize < CryptoNote::parameters::CT_MIN_RING_SIZE) {
         logger(ERROR) << "CT transaction " << Common::podToHex(txHash) << " has ring size " << ringSize
                       << " below minimum " << CryptoNote::parameters::CT_MIN_RING_SIZE << ", rejected";
         return false;

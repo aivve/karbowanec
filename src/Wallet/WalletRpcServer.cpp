@@ -20,6 +20,7 @@
 
 #include <list>
 #include <limits>
+#include <algorithm>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem.hpp>
 
@@ -40,6 +41,7 @@
 #include "WalletRpcServer.h"
 #include "CryptoNoteCore/AccountNumber.h"
 #include "CryptoNoteCore/TransactionExtra.h"
+#include "Denominations.h"
 
 #undef ERROR
 
@@ -253,6 +255,7 @@ void wallet_rpc_server::processRequest(const CryptoNote::HttpRequest& request, C
     {
             { "get_balance"       , makeMemberMethod(&wallet_rpc_server::on_get_balance)       },
             { "transfer"          , makeMemberMethod(&wallet_rpc_server::on_transfer)          },
+            { "dust_sweep"        , makeMemberMethod(&wallet_rpc_server::on_dust_sweep)        },
             { "store"             , makeMemberMethod(&wallet_rpc_server::on_store)             },
             { "stop_wallet"       , makeMemberMethod(&wallet_rpc_server::on_stop_wallet)       },
             { "reset"             , makeMemberMethod(&wallet_rpc_server::on_reset)             },
@@ -435,7 +438,89 @@ bool wallet_rpc_server::on_transfer(const wallet_rpc::COMMAND_RPC_TRANSFER::requ
 
 //------------------------------------------------------------------------------------------------------------------------------
 
-bool wallet_rpc_server::on_store(const wallet_rpc::COMMAND_RPC_STORE::request& req, 
+bool wallet_rpc_server::on_dust_sweep(const wallet_rpc::COMMAND_RPC_DUST_SWEEP::request& req,
+  wallet_rpc::COMMAND_RPC_DUST_SWEEP::response& res)
+{
+  const uint64_t fee = req.fee == 0 ? m_node.getMinimalFee() : req.fee;
+  if (fee < m_node.getMinimalFee()) {
+    throw JsonRpc::JsonRpcError(WALLET_RPC_ERROR_CODE_WRONG_FEE,
+      std::string("Fee " + std::to_string(fee) + " is too low"));
+  }
+
+  const size_t maxInputs = std::min<size_t>(req.max_inputs, CryptoNote::parameters::CT_MAX_INPUTS);
+  std::vector<TransactionOutputInformation> unlockedOutputs = m_wallet.getUnlockedOutputs();
+  std::list<TransactionOutputInformation> selectedOutputs;
+  uint64_t selectedAmount = 0;
+
+  for (const auto& out : unlockedOutputs) {
+    if (selectedOutputs.size() >= maxInputs) {
+      break;
+    }
+    if (out.type == TransactionTypes::OutputType::Confidential ||
+        out.amount % CryptoNote::MIN_CT_DENOMINATION == 0) {
+      continue;
+    }
+    selectedOutputs.push_back(out);
+    selectedAmount += out.amount;
+  }
+
+  if (selectedOutputs.empty()) {
+    throw JsonRpc::JsonRpcError(WALLET_RPC_ERROR_CODE_GENERIC_TRANSFER_ERROR,
+      "No non-aligned transparent outputs to sweep");
+  }
+  if (selectedAmount <= fee) {
+    throw JsonRpc::JsonRpcError(WALLET_RPC_ERROR_CODE_GENERIC_TRANSFER_ERROR,
+      "Selected dust does not cover the fee");
+  }
+
+  const uint64_t sweptAmount = ((selectedAmount - fee) / CryptoNote::MIN_CT_DENOMINATION) *
+                               CryptoNote::MIN_CT_DENOMINATION;
+  if (sweptAmount == 0) {
+    throw JsonRpc::JsonRpcError(WALLET_RPC_ERROR_CODE_GENERIC_TRANSFER_ERROR,
+      "Selected dust is below one CT denomination after fee");
+  }
+
+  try {
+    CryptoNote::WalletLegacyTransfer transfer;
+    transfer.address = m_wallet.getAddress();
+    transfer.amount = static_cast<int64_t>(sweptAmount);
+
+    CryptoNote::WalletHelper::SendCompleteResultObserver sent;
+    WalletHelper::IWalletRemoveObserverGuard removeGuard(m_wallet, sent);
+
+    CryptoNote::TransactionId tx = m_wallet.sendTransaction(
+      std::vector<CryptoNote::WalletLegacyTransfer>{transfer},
+      selectedOutputs,
+      fee,
+      "",
+      0,
+      0);
+    if (tx == WALLET_LEGACY_INVALID_TRANSACTION_ID) {
+      throw std::runtime_error("Couldn't sweep dust");
+    }
+
+    std::error_code sendError = sent.wait(tx);
+    removeGuard.removeObserver();
+    if (sendError) {
+      throw std::system_error(sendError);
+    }
+
+    CryptoNote::WalletLegacyTransaction txInfo;
+    m_wallet.getTransaction(tx, txInfo);
+    res.tx_hash = Common::podToHex(txInfo.hash);
+    res.tx_key = Common::podToHex(txInfo.secretKey);
+    res.swept_amount = sweptAmount;
+    res.input_count = selectedOutputs.size();
+  } catch (const std::exception& e) {
+    throw JsonRpc::JsonRpcError(WALLET_RPC_ERROR_CODE_GENERIC_TRANSFER_ERROR, e.what());
+  }
+
+  return true;
+}
+
+//------------------------------------------------------------------------------------------------------------------------------
+
+bool wallet_rpc_server::on_store(const wallet_rpc::COMMAND_RPC_STORE::request& req,
   wallet_rpc::COMMAND_RPC_STORE::response& res)
 {
   try

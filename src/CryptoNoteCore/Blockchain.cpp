@@ -2309,6 +2309,16 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       logger(ERROR) << "CT validation: input " << i << " has empty ring in tx " << txHash;
       return false;
     }
+    if (ringSize != 1 && ringSize < CT_MIN_RING_SIZE) {
+      logger(ERROR) << "CT validation: input " << i << " ring size " << ringSize
+                    << " below minimum " << CT_MIN_RING_SIZE << " in tx " << txHash;
+      return false;
+    }
+    if (ringSize > CT_MAX_RING_SIZE) {
+      logger(ERROR) << "CT validation: input " << i << " ring size " << ringSize
+                    << " above maximum " << CT_MAX_RING_SIZE << " in tx " << txHash;
+      return false;
+    }
     if (ringSize != cin.ringCommitments.size() || ringSize != cin.ringOutputIndexes.size()) {
       logger(ERROR) << "CT validation: input " << i << " ring field size mismatch in tx " << txHash;
       return false;
@@ -2386,6 +2396,15 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         logger(ERROR) << "CT validation: input " << i << " ring member " << k
                       << " has unsupported output type in tx " << txHash;
         return false;
+      }
+      if (ringSize == 1) {
+        DbBlockMeta ringBlockMeta{};
+        m_db.getBlockMeta(block, ringBlockMeta);
+        if (!ringMemberIsKey || txSlot != 0 || ringBlockMeta.majorVersion < CryptoNote::BLOCK_MAJOR_VERSION_5) {
+          logger(ERROR) << "CT validation: input " << i
+                        << " uses ring size 1 but does not reference a v5+ coinbase KeyOutput in tx " << txHash;
+          return false;
+        }
       }
 
       Crypto::PublicKey referencedPubkey;
