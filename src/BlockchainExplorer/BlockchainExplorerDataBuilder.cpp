@@ -38,10 +38,14 @@ protocol(protocol) {
 bool BlockchainExplorerDataBuilder::getMixin(const Transaction& transaction, uint64_t& mixin) {
   mixin = 0;
   for (const TransactionInput& txin : transaction.inputs) {
-    if (txin.type() != typeid(KeyInput)) {
+    uint64_t currentMixin = 0;
+    if (txin.type() == typeid(KeyInput)) {
+      currentMixin = boost::get<KeyInput>(txin).outputIndexes.size();
+    } else if (txin.type() == typeid(ConfidentialInput)) {
+      currentMixin = boost::get<ConfidentialInput>(txin).ringPubkeys.size();
+    } else {
       continue;
     }
-    uint64_t currentMixin = boost::get<KeyInput>(txin).outputIndexes.size();
     if (currentMixin > mixin) {
       mixin = currentMixin;
     }
