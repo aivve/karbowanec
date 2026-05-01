@@ -250,7 +250,19 @@ namespace CryptoNote {
 
     // Phase 2: index this tx's output pubkeys so the CT validator can resolve
     // ring members that point to mempool-only outputs (zero-conf chaining).
-    addTransactionOutputsToPubkeyIndex(id, tx);
+    if (!addTransactionOutputsToPubkeyIndex(id, tx)) {
+      removeTransactionInputs(id, tx, keptByBlock);
+      auto txIt = m_transactions.find(id);
+      if (txIt != m_transactions.end()) {
+        m_paymentIdIndex.remove(txIt->tx);
+        m_timestampIndex.remove(txIt->receiveTime, txIt->id);
+        m_transactions.erase(txIt);
+      }
+      tvc.m_added_to_pool = false;
+      tvc.m_verification_failed = true;
+      logger(INFO) << "tx has duplicate output pubkey collision in mempool index, rejected";
+      return false;
+    }
 
     tvc.m_verification_failed = false;
     //succeed
@@ -895,7 +907,8 @@ namespace CryptoNote {
   }
 
   //---------------------------------------------------------------------------------
-  void tx_memory_pool::addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx) {
+  bool tx_memory_pool::addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx) {
+    std::unordered_set<Crypto::PublicKey> seenInTx;
     for (size_t o = 0; o < tx.outputs.size(); ++o) {
       Crypto::PublicKey pk;
       if (tx.outputs[o].target.type() == typeid(KeyOutput)) {
@@ -905,10 +918,22 @@ namespace CryptoNote {
       } else {
         continue;
       }
-      // Last writer wins on collision (shouldn't happen with valid txs since
-      // pubkey uniqueness is enforced at chain level via key-image rules).
-      m_pubkey_to_output[pk] = std::make_pair(id, static_cast<uint16_t>(o));
+      if (!seenInTx.insert(pk).second) {
+        logger(ERROR) << "Duplicate output pubkey inside transaction " << id
+                      << " at output index " << o;
+        return false;
+      }
+
+      auto it = m_pubkey_to_output.find(pk);
+      if (it != m_pubkey_to_output.end() && it->second.first != id) {
+        logger(ERROR) << "Output pubkey collision in mempool index for tx " << id
+                      << " collides with tx " << it->second.first;
+        return false;
+      }
+
+      m_pubkey_to_output[pk] = std::make_pair(id, static_cast<uint32_t>(o));
     }
+    return true;
   }
 
   //---------------------------------------------------------------------------------
@@ -928,7 +953,7 @@ namespace CryptoNote {
 
   //---------------------------------------------------------------------------------
   bool tx_memory_pool::findOutputByPubkey(const Crypto::PublicKey& pubkey,
-                                            Crypto::Hash& txHash, uint16_t& outIdx) const {
+                                            Crypto::Hash& txHash, uint32_t& outIdx) const {
     std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
     auto it = m_pubkey_to_output.find(pubkey);
     if (it == m_pubkey_to_output.end()) {

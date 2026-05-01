@@ -2364,6 +2364,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       uint32_t block = 0;
       uint16_t txSlot = 0;
       uint16_t outIdx = 0;
+      uint32_t mempoolOutIdx = 0;
       bool fromMempool = false;
       Transaction mempoolTx;  // populated only when fromMempool
 
@@ -2374,7 +2375,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
           return false;
         }
         Crypto::Hash mempoolTxHash;
-        if (!m_tx_pool.findOutputByPubkey(cin.ringPubkeys[k], mempoolTxHash, outIdx)) {
+        if (!m_tx_pool.findOutputByPubkey(cin.ringPubkeys[k], mempoolTxHash, mempoolOutIdx)) {
           logger(ERROR) << "CT validation: input " << i << " failed to resolve ring member " << k
                         << " by pubkey (chain or mempool) in tx " << txHash;
           return false;
@@ -2385,7 +2386,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
                         << " gone between resolve and fetch (race), in tx " << txHash;
           return false;
         }
-        if (outIdx >= mempoolTx.outputs.size()) {
+        if (mempoolOutIdx >= mempoolTx.outputs.size()) {
           logger(ERROR) << "CT validation: input " << i << " resolved mempool ring member " << k
                         << " with invalid output index in tx " << txHash;
           return false;
@@ -2414,7 +2415,9 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         return false;
       }
 
-      const auto& referencedOutput = sourceTx->outputs[outIdx];
+      const size_t resolvedOutIdx = fromMempool ? static_cast<size_t>(mempoolOutIdx)
+                                                : static_cast<size_t>(outIdx);
+      const auto& referencedOutput = sourceTx->outputs[resolvedOutIdx];
       const bool ringMemberIsKey = referencedOutput.target.type() == typeid(KeyOutput);
       const bool ringMemberIsConfidential = referencedOutput.target.type() == typeid(ConfidentialOutput);
       if (!ringMemberIsKey && !ringMemberIsConfidential) {
