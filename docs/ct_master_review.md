@@ -1,96 +1,81 @@
 # Confidential Transactions (Pubkey-Referenced Rings) Review vs Master
 
 Date: 2026-05-01
-Branch under review: `work`
-Head reviewed: `89b1950` (feature) + `154c2bb` (review artifact)
-Master baseline used: merge point `80c2bac` (explicit `Merge branch 'master' into dev/ct_15` in history).
+Branch under review: `work` (used as `dev/ct_17` equivalent in this checkout)
+Head reviewed: `f8c1b80`
+Master baseline used: `8fce081` (master parent in merge `80c2bac`)
 
 ## Executive summary
 
-- **Architecture direction is correct**: ring-member references by output pubkey are significantly more reorg-robust than global index references.
-- **Consensus safety posture is good**: block validation is chain-only (`allowMempool=false`), so mempool state cannot alter consensus decisions.
-- **Critical hardening needed (now implemented in this branch)**:
-  1. reject mempool pubkey-index collisions instead of silently overwriting,
-  2. widen mempool output index type from `uint16_t` to `uint32_t`.
-- **Remaining requirement before production**: targeted regression/integration tests for mempool chaining, cascade eviction, reorg transitions, and collision handling.
+- **Core direction is sound**: hidden amounts + Pedersen commitments + MLSAG + per-output GK membership proofs is a coherent CT design for a CryptoNote-derived chain.
+- **Primary privacy goal is met by design**: counterparties can no longer observe sender wallet wealth from transparent transfer amounts.
+- **Denomination-set tradeoff is intentional and accepted**: the project explicitly prefers simpler cryptography/math and implementation over Bulletproof-style full-range machinery.
+- **Dust exclusion from CT is intentional**: sub-floor residue is expected to be absorbed as miner fee rather than represented as confidential dust outputs.
+- **Production readiness focus should now be robustness/testing**, not redesign of denomination model.
 
-## Review method and coverage
+## Scope and method
 
-The following implementation areas were reviewed end-to-end:
+Compared `8fce081..f8c1b80` with focus on:
 
-1. **Transaction model and serialization**
-   - `ConfidentialInput` schema and wire encoding for pubkey-based ring members.
-2. **Core/consensus validation**
-   - ring invariants, binding of pubkey/commitment pairs, and signature sizing checks.
-3. **Blockchain storage/indexing**
-   - LMDB pubkey index lifecycle: insert, lookup, rollback/remove.
-4. **Mempool policy and dependency handling**
-   - pubkey fallback resolution, ancestor handling, and cascade removals.
-5. **Wallet construction/signing path**
-   - ring sorting and `realIndex` remapping before CT signing.
-6. **Explorer/RPC-facing CT fields**
-   - mixin and CT visibility touchpoints impacted by ring representation changes.
+1. CT transaction format/serialization and validation plumbing.
+2. Commitment/proof model for hidden amounts.
+3. Pubkey-referenced ring member resolution across chain + mempool.
+4. Wallet construction path and denomination decomposition behavior.
+5. Reorg/mempool safety properties.
 
-## Findings
+## What is strong
 
-### A) Consensus and chain validation: strong
+### 1) Consensus validation separation is correct
 
-- `ConfidentialInput` ring members are now pubkey-referenced and commitments are aligned by index.
-- Consensus checks validate ring non-emptiness, size consistency, and strict lexicographic ordering of pubkeys.
-- Signature vector sizing is validated against ring size.
-- Block-path CT validation remains chain-only (no mempool fallback), preserving deterministic consensus behavior.
+- Chain/block verification is deterministic and does not depend on mempool-only state.
+- CT ring member references by output pubkey avoid fragile global-index coupling and are better under reorg churn.
 
-### B) Storage/indexing: strong with clear rollback model
+### 2) Commitment and membership construction is internally consistent
 
-- LMDB pubkey index (`output_pubkey_idx`) provides stable output identity independent of global positional indexes.
-- Connect/disconnect paths include insertion/removal hooks for pubkey index entries.
+- Outputs carry Pedersen commitments and masked amounts.
+- GK proofs bind each commitment to one of exactly 64 canonical denominations (`GK_N = 64`), and prover-side checks enforce index/value consistency.
+- Fixed-denomination membership proofs provide a tractable and auditable anti-inflation path.
 
-### C) Mempool fallback/chaining: good design, two concrete hardening issues were present
+### 3) Recent mempool hardening addresses concrete safety classes
 
-#### C1) Collision policy in mempool pubkey index (**fixed in this branch**)
+- Duplicate pubkey collisions in mempool index are rejected (instead of silent overwrite).
+- Mempool CT output index widened to `uint32_t`, removing `uint16_t` truncation risk for resolver paths.
 
-Previous behavior: “last writer wins” overwrite in `m_pubkey_to_output`.
+## Denomination-set model: accepted design constraints
 
-Risk: if duplicate output pubkeys appear in pool state, a dependent tx could resolve to wrong parent output.
+The project intentionally uses an allowed denomination set instead of full-range Bulletproofs.
 
-Fix implemented:
-- Duplicate pubkey inside same tx => reject.
-- Duplicate pubkey already indexed by different tx => reject.
-- On rejection, pool insertion is rolled back (spent-key-image insertions and tx indices removed).
+### A) Cryptographic complexity tradeoff (accepted)
 
-#### C2) `uint16_t` output index in mempool lookup (**fixed in this branch**)
+- Simpler proving/verification and lower implementation complexity.
+- Smaller cryptographic surface area to audit compared with a new full range-proof stack.
+- Better fit for current project goals and engineering capacity.
 
-Previous behavior: mempool output index was stored and returned as `uint16_t`.
+### B) Privacy objective in scope
 
-Risk: potential truncation boundary at >65535 outputs.
+- Goal in scope: receiver should not learn sender wallet wealth from visible tx amounts.
+- CT commitments + MLSAG + masked amounts deliver that core improvement over transparent-value CryptoNote behavior.
 
-Fix implemented:
-- Mempool pubkey index now stores `uint32_t` output index.
-- Lookup APIs updated accordingly.
-- CT resolver uses separate mempool index variable (`uint32_t`) and safe size checks.
+### C) Dust policy is explicit and intentional
 
-## Files changed for fixes
+- `MIN_CT_DENOMINATION = 0.01 KRB` (10^10 au) sets a hard floor for confidential outputs.
+- Amount residue below floor is intentionally converted into additional miner fee (no confidential dust outputs).
+- This should be kept deterministic across wallet/node paths so tx construction behavior is predictable.
 
-- `src/CryptoNoteCore/TransactionPool.h`
-- `src/CryptoNoteCore/TransactionPool.cpp`
-- `src/CryptoNoteCore/Blockchain.cpp`
+## Required robustness gates before production
 
-## Production readiness
-
-Current status after fixes:
-- **Consensus path**: acceptable.
-- **Mempool chaining policy**: materially improved and safer.
-- **Not yet production-ready until tests below pass**.
-
-## Required test plan before production
-
-1. **Mempool chain resolution**: A->B where B references A outputs via ring pubkeys.
-2. **Cascade eviction**: remove A and ensure B/C descendants are evicted in dependency order.
-3. **Parent mined transition**: mine A while B remains in pool; B revalidates via chain index.
-4. **Reorg cycle**: A mined -> reorg out -> back in; ensure resolver/index remains consistent.
-5. **Collision rejection**: inject or craft duplicate output pubkey attempts; verify deterministic rejection and rollback.
-6. **Boundary index test**: stress output indexing behavior with large output counts (policy/limits permitting).
+1. **Denomination decomposition invariants**
+   - Representable amounts round-trip exactly.
+   - Non-representable sub-floor components are handled by deterministic fee absorption.
+2. **Adversarial mempool/reorg integration tests**
+   - A->B->C dependency chains, parent mined/unmined transitions, cascade eviction, duplicate pubkey rejection.
+3. **Wallet/node consistency checks**
+   - Ensure identical tx-building decisions for denomination decomposition and fee handling across supported backends.
+4. **Capacity/performance validation**
+   - Verify CT verification/serialization behavior under high-output transactions and realistic mempool pressure.
 
 ## Final verdict
 
-The CT pubkey-referenced ring migration is directionally sound and addresses the core reorg fragility of index-referenced rings. With the implemented mempool collision/type fixes and the required regression suite, this implementation can move from integration-hardening to production candidacy.
+For the stated goals (hide transfer amounts and prevent counterparties from inferring sender wealth from transparent amounts, while keeping cryptography simpler than Bulletproof-based designs), the implementation direction is correct and near production-candidate.
+
+Remaining work is primarily engineering hardening (test depth, determinism, and stress validation), not a change in cryptographic approach.
