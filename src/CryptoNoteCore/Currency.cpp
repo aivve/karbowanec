@@ -422,10 +422,6 @@ namespace CryptoNote {
     return parseAmount(str, amount);
   }
 
-  uint64_t Currency::resolveOutputAmount(uint64_t amount) {
-    return amount;
-  }
-
   bool Currency::isDustOutput(uint64_t amount) {
     return amount < CryptoNote::MIN_CT_DENOMINATION;
   }
