@@ -1074,8 +1074,10 @@ bool TransfersContainer::isSpendTimeUnlocked(uint64_t unlockTime) const {
 
 bool TransfersContainer::isIncluded(const TransactionOutputInformationEx& info, uint32_t flags) const {
   uint32_t state;
-  if (info.blockHeight == WALLET_LEGACY_UNCONFIRMED_TRANSACTION_HEIGHT || !isSpendTimeUnlocked(info.unlockTime)) {
+  if (!isSpendTimeUnlocked(info.unlockTime)) {
     state = IncludeStateLocked;
+  } else if (info.blockHeight == WALLET_LEGACY_UNCONFIRMED_TRANSACTION_HEIGHT) {
+    state = IncludeStateSoftLocked;
   } else if (m_currentHeight < info.blockHeight + m_transactionSpendableAge) {
     state = IncludeStateSoftLocked;
   } else {

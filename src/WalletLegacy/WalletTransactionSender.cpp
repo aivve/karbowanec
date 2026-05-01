@@ -646,7 +646,7 @@ void WalletTransactionSender::notifyBalanceChanged(std::deque<std::shared_ptr<Wa
   uint64_t change = unconfirmedOutsAmount - m_transactionsCache.unconfirmedTransactionsAmount();
 
   uint64_t actualBalance = m_transferDetails.balance(ITransfersContainer::IncludeDefault) - unconfirmedOutsAmount;
-  uint64_t pendingBalance = m_transferDetails.balance(ITransfersContainer::IncludeAllLocked) + change;
+  uint64_t pendingBalance = m_transferDetails.balance(ITransfersContainer::IncludeAllHardLocked) + change;
 
   events.push_back(std::make_shared<WalletActualBalanceUpdatedEvent>(actualBalance));
   events.push_back(std::make_shared<WalletPendingBalanceUpdatedEvent>(pendingBalance));
