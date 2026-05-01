@@ -130,7 +130,7 @@ namespace CryptoNote {
     // outputs (zero-conf chaining). Returns false if no mempool tx contributes
     // an output with the requested target pubkey.
     bool findOutputByPubkey(const Crypto::PublicKey& pubkey,
-                            Crypto::Hash& txHash, uint16_t& outIdx) const;
+                            Crypto::Hash& txHash, uint32_t& outIdx) const;
 
     template<class t_ids_container, class t_tx_container, class t_missed_container>
     void getTransactions(const t_ids_container& txsIds, t_tx_container& txs, t_missed_container& missedTxs) {
@@ -203,7 +203,7 @@ namespace CryptoNote {
     bool removeTransactionInputs(const Crypto::Hash& id, const Transaction& tx, bool keptByBlock);
 
     // Phase 2: track output pubkeys of mempool txs for zero-conf ring resolution.
-    void addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx);
+    bool addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx);
     void removeTransactionOutputsFromPubkeyIndex(const Transaction& tx);
 
     // Phase 2: walk a candidate tx's CT input ring members; for each member that
@@ -248,7 +248,7 @@ namespace CryptoNote {
     // Phase 2: maps a target pubkey of a mempool tx output to (txHash, outIdx).
     // Used by the CT validator to resolve ring members that reference outputs
     // not yet committed to chain. Protected by m_transactions_lock.
-    std::unordered_map<Crypto::PublicKey, std::pair<Crypto::Hash, uint16_t>> m_pubkey_to_output;
+    std::unordered_map<Crypto::PublicKey, std::pair<Crypto::Hash, uint32_t>> m_pubkey_to_output;
 
     Logging::LoggerRef logger;
 
@@ -256,4 +256,3 @@ namespace CryptoNote {
     TimestampTransactionsIndex m_timestampIndex;
   };
 }
-
