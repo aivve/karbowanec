@@ -182,9 +182,6 @@ public:
   bool parseAmount(const std::string& str, uint64_t& amount) const;
   bool parseAmount(const std::string& str, uint64_t& amount, uint32_t height) const;
 
-  // Identity passthrough; kept for call-site compatibility after removing redenomination scaling.
-  static uint64_t resolveOutputAmount(uint64_t amount);
-
   // True if amount cannot become a CT output (i.e. < MIN_CT_DENOMINATION).
   static bool isDustOutput(uint64_t amount);
 

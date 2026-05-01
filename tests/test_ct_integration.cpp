@@ -1,5 +1,5 @@
-// Comprehensive integration tests for CT + redenomination hard fork.
-// Covers: redenomination arithmetic, GK proof full sweep, denomination table,
+// Comprehensive integration tests for CT.
+// Covers: denomination arithmetic, GK proof full sweep, denomination table,
 //         balance equation edge cases, subgroup checks, ECDH scanning,
 //         key image reuse, mixed transparent→CT, and combined scenarios.
 //
@@ -81,7 +81,7 @@ static int tests_passed = 0;
 // =====================================================================
 // SECTION 1: CT FLOOR / DUST POLICY TESTS
 // =====================================================================
-// Redenomination was removed: CT denominations sit on top of the existing
+// CT denominations sit on top of the existing
 // 12-decimal atomic precision, with MIN_CT_DENOMINATION = 0.01 KRB = 10^10 au.
 
 static void test_min_ct_denomination_value() {
@@ -1048,8 +1048,8 @@ static void test_ct_fork_height_decoupled() {
   TEST("Combined: CT_FORK_HEIGHT exists and display decimals stay at 12");
 
   if (CryptoNote::parameters::CRYPTONOTE_DISPLAY_DECIMAL_POINT != 12)
-    FAIL("display decimals should be 12 (no redenomination)");
-  // CT_FORK_HEIGHT only gates CT activation; no chain-wide redenomination occurs.
+    FAIL("display decimals should be 12");
+  // CT_FORK_HEIGHT only gates CT activation.
   (void)CryptoNote::parameters::CT_FORK_HEIGHT;
   PASS();
 }

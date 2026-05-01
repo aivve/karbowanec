@@ -446,9 +446,7 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
           if (ki.outputs[k].isConfidential) {
             ringCommit = ki.outputs[k].commitment;
           } else {
-            const uint64_t resolvedAmount = resolveOutputAmount(
-              ringMemberOutput, ki.outputs[k].blockHeight, ki.outputs[k].isCoinbase);
-            if (!Crypto::transparent_amount_to_commitment(resolvedAmount, ringCommit)) {
+            if (!Crypto::transparent_amount_to_commitment(ringMemberOutput.amount, ringCommit)) {
               throw std::runtime_error("Failed to compute CT ring commitment for input " + std::to_string(ctInputs.size()));
             }
           }
@@ -633,7 +631,7 @@ void WalletTransactionSender::prepareInputs(
       TransactionOutput transparentOutput;
       transparentOutput.amount = td.amount;
       transparentOutput.target = KeyOutput();
-      inp.keyInfo.realOutputAmount = resolveOutputAmount(transparentOutput, realBlockHeight, realIsCoinbase);
+      inp.keyInfo.realOutputAmount = transparentOutput.amount;
       std::memset(&inp.keyInfo.realOutputBlinding, 0, sizeof(inp.keyInfo.realOutputBlinding));
     }
     inp.keyInfo.realOutputIsConfidential = realIsConfidential;
