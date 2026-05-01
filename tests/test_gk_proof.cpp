@@ -262,6 +262,27 @@ static void test_out_of_range() {
   PASS();
 }
 
+static void test_identity_commitment_rejected() {
+  TEST("Identity commitment rejected in prove");
+
+  Crypto::EllipticCurvePoint C;
+  memset(&C, 0, sizeof(C));
+  C.data[0] = 0x01;
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (Crypto::gk_prove(C, CryptoNote::DENOMINATIONS[0], r, 0, tx_hash, proof)) {
+    FAIL("should have rejected"); return;
+  }
+
+  PASS();
+}
+
 static void test_proof_layout_constants() {
   TEST("Proof layout constants (18 points + 7 scalars = 800 bytes)");
 
@@ -307,6 +328,7 @@ int main() {
   test_noncanonical_scalar_rejected();
   test_wrong_index();
   test_out_of_range();
+  test_identity_commitment_rejected();
   test_proof_layout_constants();
 
   // Test all 64 denominations

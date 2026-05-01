@@ -271,6 +271,11 @@ bool gk_prove(const EllipticCurvePoint& C,
   ge_p3 D[GK_N];
   ge_p3 C_p3;
   if (!compute_derived_ring(C, D, C_p3)) return false;
+  if (!point_valid_for_pedersen(C)) return false;
+  if (!subgroup_check_p3(C_p3)) return false;
+  for (size_t k = 0; k < GK_N; ++k) {
+    if (!subgroup_check_p3(D[k])) return false;
+  }
 
   // Step 1: Decompose denomination_index into 6 bits
   int bits[GK_n];
