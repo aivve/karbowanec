@@ -96,10 +96,11 @@ public:
     IncludeConfidentialNotUnlocked = IncludeTypeConfidential | IncludeStateLocked | IncludeStateSoftLocked,
 
     IncludeAllLocked = IncludeTypeAll | IncludeStateLocked | IncludeStateSoftLocked,
+    IncludeAllHardLocked = IncludeTypeAll | IncludeStateLocked,
     IncludeAllUnlocked = IncludeTypeAll | IncludeStateUnlocked,
     IncludeAll = IncludeTypeAll | IncludeStateAll,
 
-    IncludeDefault = IncludeKeyUnlocked | IncludeConfidentialUnlocked
+    IncludeDefault = IncludeTypeAll | IncludeStateUnlocked | IncludeStateSoftLocked
   };
 
   virtual size_t transfersCount() const = 0;

@@ -567,7 +567,7 @@ uint64_t WalletLegacy::pendingBalance() {
   throwIfNotInitialised();
 
   uint64_t change = m_transactionsCache.unconfrimedOutsAmount() - m_transactionsCache.unconfirmedTransactionsAmount();
-  return m_transferDetails->balance(ITransfersContainer::IncludeAllLocked) + change;
+  return m_transferDetails->balance(ITransfersContainer::IncludeAllHardLocked) + change;
 }
 
 uint64_t WalletLegacy::unmixableBalance() {
@@ -640,13 +640,13 @@ std::vector<TransactionOutputInformation> WalletLegacy::getOutputs() {
 
 std::vector<TransactionOutputInformation> WalletLegacy::getLockedOutputs() {
   std::vector<TransactionOutputInformation> outputs;
-  m_transferDetails->getOutputs(outputs, ITransfersContainer::IncludeAllLocked);
+  m_transferDetails->getOutputs(outputs, ITransfersContainer::IncludeAllHardLocked);
   return outputs;
 }
 
 std::vector<TransactionOutputInformation> WalletLegacy::getUnlockedOutputs() {
   std::vector<TransactionOutputInformation> outputs;
-  m_transferDetails->getOutputs(outputs, ITransfersContainer::IncludeAllUnlocked);
+  m_transferDetails->getOutputs(outputs, ITransfersContainer::IncludeDefault);
   return outputs;
 }
 
