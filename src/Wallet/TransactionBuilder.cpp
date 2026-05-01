@@ -146,11 +146,17 @@ Transaction buildConfidentialTransaction(
     if (inputs[i].ringPubkeys.size() != inputs[i].ringCommitments.size()) {
       throw std::invalid_argument("CT input ring pubkeys/commitments size mismatch at index " + std::to_string(i));
     }
-    if (inputs[i].ringPubkeys.size() != inputs[i].ringOutputIndexes.size()) {
-      throw std::invalid_argument("CT input ring pubkeys/indexes size mismatch at index " + std::to_string(i));
-    }
     if (inputs[i].realIndex >= inputs[i].ringPubkeys.size()) {
       throw std::invalid_argument("CT input real index out of range at index " + std::to_string(i));
+    }
+    // Phase 1: ring members are referenced by pubkey, which must be sorted
+    // strictly ascending lexicographically (consensus rule).
+    for (size_t k = 1; k < inputs[i].ringPubkeys.size(); ++k) {
+      if (std::memcmp(&inputs[i].ringPubkeys[k - 1],
+                      &inputs[i].ringPubkeys[k],
+                      sizeof(Crypto::PublicKey)) >= 0) {
+        throw std::invalid_argument("CT input ring pubkeys not sorted ascending at index " + std::to_string(i));
+      }
     }
   }
 
@@ -191,7 +197,6 @@ Transaction buildConfidentialTransaction(
   for (size_t i = 0; i < inputs.size(); ++i) {
     ConfidentialInput cin;
     cin.ringAmount = inputs[i].ringAmount;
-    cin.ringOutputIndexes = absolute_output_offsets_to_relative(inputs[i].ringOutputIndexes);
     cin.ringPubkeys = inputs[i].ringPubkeys;
     cin.ringCommitments = inputs[i].ringCommitments;
     cin.pseudoCommitment = pseudoCommitments[i];

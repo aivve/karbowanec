@@ -21,6 +21,7 @@
 #include "WalletGreen.h"
 
 #include <algorithm>
+#include <cstring>
 #include <ctime>
 #include <cassert>
 #include <fstream>
@@ -2471,10 +2472,10 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
     const auto& ki = input.keyInfo;
     cti.ringAmount = ki.amount;
 
-    // Ring pubkeys from the mixin outputs
+    // Ring pubkeys from the mixin outputs (already sorted ascending by pubkey
+    // in prepareInputs — Phase 1 canonical order).
     for (const auto& gout : ki.outputs) {
       cti.ringPubkeys.push_back(gout.targetKey);
-      cti.ringOutputIndexes.push_back(gout.outputIndex);
     }
 
     // Ring commitments must be computed exactly as core validation does:
@@ -2870,12 +2871,26 @@ void WalletGreen::prepareInputs(
     const bool realIsCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
     const uint32_t realBlockHeight = haveTxInfo ? txInfo.blockHeight : 0;
 
+    // Phase 1: ring members are referenced by their target pubkey on-chain,
+    // and the canonical order is strictly ascending pubkey lexicographic.
+    // Sort decoys + real by pubkey; the real input's position in that sorted
+    // ring is captured below via std::find_if.
+    const PublicKey realPubkey = reinterpret_cast<const PublicKey&>(input.out.outputKey);
+
+    auto pubkeyLess = [](const PublicKey& a, const PublicKey& b) {
+      return std::memcmp(&a, &b, sizeof(PublicKey)) < 0;
+    };
+
     if(inputMixin != 0 && mixinResult.size()) {
       std::sort(mixinResult[i].outs.begin(), mixinResult[i].outs.end(),
-        [] (const out_entry& a, const out_entry& b) { return a.global_amount_index < b.global_amount_index; });
+        [&pubkeyLess] (const out_entry& a, const out_entry& b) {
+          return pubkeyLess(reinterpret_cast<const PublicKey&>(a.out_key),
+                            reinterpret_cast<const PublicKey&>(b.out_key));
+        });
       for (auto& fakeOut: mixinResult[i].outs) {
 
-        if (input.out.globalOutputIndex == fakeOut.global_amount_index) {
+        // Skip if the decoy collides with our own real pubkey
+        if (std::memcmp(&fakeOut.out_key, &realPubkey, sizeof(PublicKey)) == 0) {
           continue;
         }
 
@@ -2892,14 +2907,14 @@ void WalletGreen::prepareInputs(
       }
     }
 
-    //paste real transaction to the random index
+    //paste real transaction at the pubkey-sorted position
     auto insertIn = std::find_if(keyInfo.outputs.begin(), keyInfo.outputs.end(), [&](const TransactionTypes::GlobalOutput& a) {
-      return a.outputIndex >= input.out.globalOutputIndex;
+      return !pubkeyLess(a.targetKey, realPubkey); // first decoy whose key is >= real
     });
 
     TransactionTypes::GlobalOutput realOutput;
     realOutput.outputIndex = input.out.globalOutputIndex;
-    realOutput.targetKey = reinterpret_cast<const PublicKey&>(input.out.outputKey);
+    realOutput.targetKey = realPubkey;
     realOutput.commitment = input.out.commitment;
     realOutput.blockHeight = realBlockHeight;
     realOutput.isCoinbase = realIsCoinbase;

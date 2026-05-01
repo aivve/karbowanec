@@ -387,12 +387,17 @@ namespace CryptoNote {
                          uint32_t* pmax_related_block_height = nullptr);
     bool checkTransactionInputs(const Transaction& tx, const Crypto::Hash& tx_prefix_hash,
                                  uint32_t* pmax_used_block_height = nullptr);
-    bool checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height = nullptr);
+    bool checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height = nullptr,
+                                 bool allowMempool = true);
 
     // Confidential transaction validation pipeline (spec Section 15).
     // Executes all 10 checks in order; returns false on first failure.
+    // allowMempool: if true (mempool admission), unresolved ring members fall
+    // back to the mempool's pubkey index (zero-conf chaining). If false (block
+    // validation), only chain state is consulted.
     bool checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash,
-                                      uint32_t* pmax_used_block_height);
+                                      uint32_t* pmax_used_block_height,
+                                      bool allowMempool = true);
 
     // Returns by value (deserialized from tx_entries)
     TransactionEntry transactionByIndex(TransactionIndex index);

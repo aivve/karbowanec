@@ -125,6 +125,13 @@ namespace CryptoNote {
     bool getTransactionIdsByTimestamp(uint64_t timestampBegin, uint64_t timestampEnd, uint32_t transactionsNumberLimit, std::vector<Crypto::Hash>& hashes, uint64_t& transactionsNumberWithinTimestamps);
     bool getTransaction(const Crypto::Hash& id, Transaction& tx);
 
+    // Phase 2: pubkey-based lookup for outputs of mempool transactions.
+    // Lets the CT validator resolve ring members that point to unconfirmed
+    // outputs (zero-conf chaining). Returns false if no mempool tx contributes
+    // an output with the requested target pubkey.
+    bool findOutputByPubkey(const Crypto::PublicKey& pubkey,
+                            Crypto::Hash& txHash, uint16_t& outIdx) const;
+
     template<class t_ids_container, class t_tx_container, class t_missed_container>
     void getTransactions(const t_ids_container& txsIds, t_tx_container& txs, t_missed_container& missedTxs) {
       std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
@@ -195,7 +202,29 @@ namespace CryptoNote {
     bool haveSpentInputs(const Transaction& tx) const;
     bool removeTransactionInputs(const Crypto::Hash& id, const Transaction& tx, bool keptByBlock);
 
+    // Phase 2: track output pubkeys of mempool txs for zero-conf ring resolution.
+    void addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx);
+    void removeTransactionOutputsFromPubkeyIndex(const Transaction& tx);
+
+    // Phase 2: walk a candidate tx's CT input ring members; for each member that
+    // resolves only to a mempool tx (not chain), recursively collect that mempool
+    // tx's ancestors. Returns ancestors in topological order (deepest first).
+    // Returns false if any required ancestor is missing from BOTH chain and pool
+    // (the candidate isn't valid for inclusion right now), or if the chain depth
+    // exceeds CT_MEMPOOL_MAX_ANCESTORS (DoS bound).
+    bool collectMempoolAncestors(const Transaction& tx,
+                                 const std::unordered_set<Crypto::Hash>& alreadyIncluded,
+                                 std::unordered_set<Crypto::Hash>& visited,
+                                 std::vector<Crypto::Hash>& outOrder,
+                                 size_t depth) const;
+
     tx_container_t::iterator removeTransaction(tx_container_t::iterator i);
+    // Phase 2: cascade-evict any mempool tx that references the removed tx's
+    // output pubkeys via a CT input ring. Used at permanent-eviction sites
+    // (expired, version-incompatible). NOT used by take_tx (children remain
+    // valid because the parent's outputs move into the chain index).
+    // Returns the number of transactions removed (parent + descendants).
+    size_t removeTransactionAndDescendants(tx_container_t::iterator i);
     bool removeExpiredTransactions();
     bool is_transaction_ready_to_go(const Transaction& tx, TransactionCheckInfo& txd) const;
 
@@ -212,9 +241,14 @@ namespace CryptoNote {
     CryptoNote::ITransactionValidator& m_validator;
     CryptoNote::ITimeProvider& m_timeProvider;
 
-    tx_container_t m_transactions;  
+    tx_container_t m_transactions;
     tx_container_t::nth_index<1>::type& m_fee_index;
     std::unordered_map<Crypto::Hash, uint64_t> m_recentlyDeletedTransactions;
+
+    // Phase 2: maps a target pubkey of a mempool tx output to (txHash, outIdx).
+    // Used by the CT validator to resolve ring members that reference outputs
+    // not yet committed to chain. Protected by m_transactions_lock.
+    std::unordered_map<Crypto::PublicKey, std::pair<Crypto::Hash, uint16_t>> m_pubkey_to_output;
 
     Logging::LoggerRef logger;
 

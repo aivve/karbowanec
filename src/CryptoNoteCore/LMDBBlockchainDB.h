@@ -132,6 +132,17 @@ public:
   uint32_t getKeyOutputCount(uint64_t amount) const;
   bool removeLastKeyOutput(uint64_t amount);
 
+  // ── output_pubkey_idx ─────────────────────────────────────────────────────
+  // Reverse lookup: 32-byte target pubkey -> (block, txSlot, outIdx).
+  // Phase 1 of moving CT input rings off positional indexes onto stable pubkey
+  // references (reorg-robust). Each tx output (KeyOutput or ConfidentialOutput)
+  // contributes one entry on push, removed on pop.
+  bool putOutputPubkey(const Crypto::PublicKey& pubkey,
+                       uint32_t block, uint16_t txSlot, uint16_t outIdx);
+  bool getOutputPubkey(const Crypto::PublicKey& pubkey,
+                       uint32_t& block, uint16_t& txSlot, uint16_t& outIdx) const;
+  bool removeOutputPubkey(const Crypto::PublicKey& pubkey);
+
   // ── payment_id_idx (DUPSORT) ──────────────────────────────────────────────
   bool putPaymentId(const Crypto::Hash& paymentId, const Crypto::Hash& txHash);
   bool getPaymentIdTxHashes(const Crypto::Hash& paymentId,
@@ -213,6 +224,7 @@ private:
   MDB_dbi m_dbiTxIndices;
   MDB_dbi m_dbiKeyOutputs;
   MDB_dbi m_dbiKeyOutputCounts;
+  MDB_dbi m_dbiOutputPubkeyIdx;
   MDB_dbi m_dbiPaymentIdIdx;
   MDB_dbi m_dbiTimestampIdx;
   MDB_dbi m_dbiGenTxIdx;

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <deque>
 #include <set>
 #include <vector>
 #include <unordered_set>
@@ -247,6 +248,10 @@ namespace CryptoNote {
     if (!addTransactionInputs(id, tx, keptByBlock))
       return false;
 
+    // Phase 2: index this tx's output pubkeys so the CT validator can resolve
+    // ring members that point to mempool-only outputs (zero-conf chaining).
+    addTransactionOutputsToPubkeyIndex(id, tx);
+
     tvc.m_verification_failed = false;
     //succeed
     return true;
@@ -364,13 +369,17 @@ namespace CryptoNote {
     const uint32_t validationHeight = static_cast<uint32_t>(new_block_height);
     const uint8_t blockMajorVersion = m_core.getBlockMajorVersionForHeight(validationHeight);
     size_t removedByVersion = 0;
-    for (auto it = m_transactions.begin(); it != m_transactions.end();) {
-      if (!isTxVersionAllowedForHeight(it->tx, validationHeight, blockMajorVersion)) {
-        it = removeTransaction(it);
-        ++removedByVersion;
-      } else {
-        ++it;
+    // Collect first, cascade later (iterator invalidation safe).
+    std::vector<Crypto::Hash> incompatible;
+    for (const auto& td : m_transactions) {
+      if (!isTxVersionAllowedForHeight(td.tx, validationHeight, blockMajorVersion)) {
+        incompatible.push_back(td.id);
       }
+    }
+    for (const auto& h : incompatible) {
+      auto it = m_transactions.find(h);
+      if (it == m_transactions.end()) continue;
+      removedByVersion += removeTransactionAndDescendants(it);
     }
     if (removedByVersion != 0) {
       logger(DEBUGGING) << "MemPool - Pruned " << removedByVersion
@@ -452,6 +461,43 @@ namespace CryptoNote {
     return ss.str();
   }
   //---------------------------------------------------------------------------------
+  bool tx_memory_pool::collectMempoolAncestors(const Transaction& tx,
+                                                 const std::unordered_set<Crypto::Hash>& alreadyIncluded,
+                                                 std::unordered_set<Crypto::Hash>& visited,
+                                                 std::vector<Crypto::Hash>& outOrder,
+                                                 size_t depth) const {
+    if (depth > CryptoNote::parameters::CT_MEMPOOL_MAX_ANCESTORS) {
+      return false;
+    }
+    for (const auto& in : tx.inputs) {
+      if (in.type() != typeid(ConfidentialInput)) continue;
+      const auto& ci = boost::get<ConfidentialInput>(in);
+      for (const auto& pk : ci.ringPubkeys) {
+        auto poolIt = m_pubkey_to_output.find(pk);
+        if (poolIt == m_pubkey_to_output.end()) {
+          // Not in mempool — assume chain (validator will catch a true miss).
+          continue;
+        }
+        const Crypto::Hash& parentId = poolIt->second.first;
+        if (alreadyIncluded.count(parentId) || visited.count(parentId)) continue;
+        visited.insert(parentId);
+
+        auto parentIt = m_transactions.find(parentId);
+        if (parentIt == m_transactions.end()) {
+          // Race: index pointed at a tx that's no longer here.
+          return false;
+        }
+
+        // DFS into the parent first so grandparents land before parents in outOrder.
+        if (!collectMempoolAncestors(parentIt->tx, alreadyIncluded, visited, outOrder, depth + 1)) {
+          return false;
+        }
+        outOrder.push_back(parentId);
+      }
+    }
+    return true;
+  }
+
   bool tx_memory_pool::fill_block_template(Block& bl, size_t median_size, size_t maxCumulativeSize,
                                            uint64_t already_generated_coins, size_t& total_size, uint64_t& fee) {
     std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
@@ -465,9 +511,17 @@ namespace CryptoNote {
     max_total_size = std::min(max_total_size, maxCumulativeSize) - m_currency.minerTxBlobReservedSize();
 
     BlockTemplate blockTemplate;
+    // Track which txs are already committed to this block — used to skip them
+    // when iterating fee_index again (a high-fee child may pull in a low-fee
+    // parent first; subsequent fee_index iteration should not re-include them).
+    std::unordered_set<Crypto::Hash> includedSet;
 
     for (auto i = m_fee_index.begin(); i != m_fee_index.end(); ++i) {
       const auto& txd = *i;
+
+      if (includedSet.count(txd.id)) {
+        continue;  // already pulled in as someone's ancestor
+      }
 
       if (!isTxVersionAllowedForHeight(txd.tx, blockHeight, blockMajorVersion)) {
         logger(DEBUGGING) << "Transaction " << txd.id
@@ -476,7 +530,39 @@ namespace CryptoNote {
       }
 
       size_t blockSizeLimit = (txd.fee == 0) ? median_size : max_total_size;
-      if (blockSizeLimit < total_size + txd.blobSize) {
+
+      // Phase 2: build the package = (mempool ancestors not yet in block) + (this tx).
+      // The block-validation path is chain-only, so any CT input ring member that
+      // resolves only to mempool MUST also be present in this block, placed BEFORE
+      // this tx so its outputs are committed to the chain index by the time the
+      // validator gets to the child.
+      std::vector<Crypto::Hash> ancestorOrder;
+      std::unordered_set<Crypto::Hash> visited;
+      if (!collectMempoolAncestors(txd.tx, includedSet, visited, ancestorOrder, 0)) {
+        logger(DEBUGGING) << "Transaction " << txd.id
+                          << " not included to block template (ancestor missing or chain too deep)";
+        continue;
+      }
+
+      // Compute total package size (ancestors + this tx)
+      size_t pkgSize = txd.blobSize;
+      uint64_t pkgFee = txd.fee;
+      bool packageOk = true;
+      for (const auto& aHash : ancestorOrder) {
+        auto aIt = m_transactions.find(aHash);
+        if (aIt == m_transactions.end()) { packageOk = false; break; }
+        if (!isTxVersionAllowedForHeight(aIt->tx, blockHeight, blockMajorVersion)) {
+          packageOk = false; break;
+        }
+        pkgSize += aIt->blobSize;
+        pkgFee += aIt->fee;
+      }
+      if (!packageOk) {
+        logger(DEBUGGING) << "Transaction " << txd.id
+                          << " not included to block template (ancestor package invalid)";
+        continue;
+      }
+      if (blockSizeLimit < total_size + pkgSize) {
         continue;
       }
 
@@ -503,9 +589,33 @@ namespace CryptoNote {
         item = checkInfo;
       });
 
-      if (ready && blockTemplate.addTransaction(txd.id, txd.tx)) {
+      if (!ready) {
+        logger(DEBUGGING) << "Transaction " << txd.id << " is failed to include to block template";
+        continue;
+      }
+
+      // Add ancestors first (deepest already at front of ancestorOrder), then candidate.
+      bool addedAll = true;
+      for (const auto& aHash : ancestorOrder) {
+        auto aIt = m_transactions.find(aHash);
+        if (!blockTemplate.addTransaction(aHash, aIt->tx)) {
+          addedAll = false;
+          break;
+        }
+        total_size += aIt->blobSize;
+        fee += aIt->fee;
+        includedSet.insert(aHash);
+        logger(DEBUGGING) << "Transaction " << aHash << " included to block template (ancestor of " << txd.id << ")";
+      }
+      if (!addedAll) {
+        logger(DEBUGGING) << "Failed to add ancestor of " << txd.id << " to block template";
+        // Note: we don't roll back ancestors that DID make it in — they remain valid on their own.
+        continue;
+      }
+      if (blockTemplate.addTransaction(txd.id, txd.tx)) {
         total_size += txd.blobSize;
         fee += txd.fee;
+        includedSet.insert(txd.id);
         logger(DEBUGGING) << "Transaction " << txd.id << " included to block template";
       } else {
         logger(DEBUGGING) << "Transaction " << txd.id << " is failed to include to block template";
@@ -622,18 +732,26 @@ namespace CryptoNote {
         }
       }
 
-      for (auto it = m_transactions.begin(); it != m_transactions.end();) {
-        uint64_t txAge = now - it->receiveTime;
-        bool remove = txAge > (it->keptByBlock ? m_currency.mempoolTxFromAltBlockLiveTime() : m_currency.mempoolTxLiveTime());
-
+      // Cascade-evict expired txs and their CT-input descendants. Iterate by hash
+      // since cascade may invalidate iterators.
+      std::vector<Crypto::Hash> expiredHashes;
+      for (const auto& td : m_transactions) {
+        uint64_t txAge = now - td.receiveTime;
+        bool remove = txAge > (td.keptByBlock ? m_currency.mempoolTxFromAltBlockLiveTime() : m_currency.mempoolTxLiveTime());
         if (remove) {
-          logger(TRACE) << "Tx " << it->id << " removed from tx pool due to outdated, age: " << txAge;
-          m_recentlyDeletedTransactions.emplace(it->id, now);
-          it = removeTransaction(it);
-          somethingRemoved = true;
-        } else {
-          ++it;
+          expiredHashes.push_back(td.id);
         }
+      }
+      for (const auto& h : expiredHashes) {
+        auto it = m_transactions.find(h);
+        if (it == m_transactions.end()) continue;  // already cascade-evicted as a child
+        logger(TRACE) << "Tx " << h << " removed from tx pool due to outdated";
+        m_recentlyDeletedTransactions.emplace(h, now);
+        size_t removed = removeTransactionAndDescendants(it);
+        if (removed > 1) {
+          logger(DEBUGGING) << "Cascaded eviction of " << (removed - 1) << " descendant tx(s) from tx pool";
+        }
+        somethingRemoved = true;
       }
     }
 
@@ -644,8 +762,67 @@ namespace CryptoNote {
     return true;
   }
 
+  size_t tx_memory_pool::removeTransactionAndDescendants(tx_memory_pool::tx_container_t::iterator i) {
+    // BFS: collect parent + all transitive children, then remove in reverse
+    // (deepest first) so each removal sees a stable state.
+    std::vector<Crypto::Hash> orderedRemoval;
+    std::unordered_set<Crypto::Hash> visited;
+    std::deque<Crypto::Hash> queue;
+
+    queue.push_back(i->id);
+    visited.insert(i->id);
+
+    while (!queue.empty()) {
+      Crypto::Hash current = queue.front();
+      queue.pop_front();
+      orderedRemoval.push_back(current);
+
+      // Collect this tx's output pubkeys
+      auto txIt = m_transactions.find(current);
+      if (txIt == m_transactions.end()) continue;
+      std::unordered_set<Crypto::PublicKey> outPubkeys;
+      for (const auto& out : txIt->tx.outputs) {
+        if (out.target.type() == typeid(KeyOutput)) {
+          outPubkeys.insert(boost::get<KeyOutput>(out.target).key);
+        } else if (out.target.type() == typeid(ConfidentialOutput)) {
+          outPubkeys.insert(boost::get<ConfidentialOutput>(out.target).targetKey);
+        }
+      }
+      if (outPubkeys.empty()) continue;
+
+      // Find children: any other tx with a CT input ringPubkey in our outPubkeys.
+      // O(N) per parent — acceptable for typical mempool sizes; can be indexed later.
+      for (const auto& other : m_transactions) {
+        if (visited.count(other.id)) continue;
+        bool isChild = false;
+        for (const auto& in : other.tx.inputs) {
+          if (in.type() != typeid(ConfidentialInput)) continue;
+          const auto& ci = boost::get<ConfidentialInput>(in);
+          for (const auto& rpk : ci.ringPubkeys) {
+            if (outPubkeys.count(rpk)) { isChild = true; break; }
+          }
+          if (isChild) break;
+        }
+        if (isChild) {
+          visited.insert(other.id);
+          queue.push_back(other.id);
+        }
+      }
+    }
+
+    // Remove deepest first so cascade is bottom-up and clean.
+    for (auto it = orderedRemoval.rbegin(); it != orderedRemoval.rend(); ++it) {
+      auto txIt = m_transactions.find(*it);
+      if (txIt != m_transactions.end()) {
+        removeTransaction(txIt);
+      }
+    }
+    return orderedRemoval.size();
+  }
+
   tx_memory_pool::tx_container_t::iterator tx_memory_pool::removeTransaction(tx_memory_pool::tx_container_t::iterator i) {
     removeTransactionInputs(i->id, i->tx, i->keptByBlock);
+    removeTransactionOutputsFromPubkeyIndex(i->tx);
     m_paymentIdIndex.remove(i->tx);
     m_timestampIndex.remove(i->receiveTime, i->id);
     if (m_validated_transactions.find(i->id) != m_validated_transactions.end()) {
@@ -714,6 +891,51 @@ namespace CryptoNote {
       }
     }
 
+    return true;
+  }
+
+  //---------------------------------------------------------------------------------
+  void tx_memory_pool::addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx) {
+    for (size_t o = 0; o < tx.outputs.size(); ++o) {
+      Crypto::PublicKey pk;
+      if (tx.outputs[o].target.type() == typeid(KeyOutput)) {
+        pk = boost::get<KeyOutput>(tx.outputs[o].target).key;
+      } else if (tx.outputs[o].target.type() == typeid(ConfidentialOutput)) {
+        pk = boost::get<ConfidentialOutput>(tx.outputs[o].target).targetKey;
+      } else {
+        continue;
+      }
+      // Last writer wins on collision (shouldn't happen with valid txs since
+      // pubkey uniqueness is enforced at chain level via key-image rules).
+      m_pubkey_to_output[pk] = std::make_pair(id, static_cast<uint16_t>(o));
+    }
+  }
+
+  //---------------------------------------------------------------------------------
+  void tx_memory_pool::removeTransactionOutputsFromPubkeyIndex(const Transaction& tx) {
+    for (const auto& out : tx.outputs) {
+      Crypto::PublicKey pk;
+      if (out.target.type() == typeid(KeyOutput)) {
+        pk = boost::get<KeyOutput>(out.target).key;
+      } else if (out.target.type() == typeid(ConfidentialOutput)) {
+        pk = boost::get<ConfidentialOutput>(out.target).targetKey;
+      } else {
+        continue;
+      }
+      m_pubkey_to_output.erase(pk);
+    }
+  }
+
+  //---------------------------------------------------------------------------------
+  bool tx_memory_pool::findOutputByPubkey(const Crypto::PublicKey& pubkey,
+                                            Crypto::Hash& txHash, uint16_t& outIdx) const {
+    std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
+    auto it = m_pubkey_to_output.find(pubkey);
+    if (it == m_pubkey_to_output.end()) {
+      return false;
+    }
+    txHash = it->second.first;
+    outIdx = it->second.second;
     return true;
   }
 

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <future>
 #include "crypto/crypto.h"
 #include "crypto/random.h"
@@ -431,9 +432,10 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
         CTBuildInput cti;
         const auto& ki = inp.keyInfo;
         cti.ringAmount = ki.amount;
+        // Ring members already sorted ascending by pubkey in prepareInputs
+        // (Phase 1 canonical order — consensus enforces).
         for (const auto& gout : ki.outputs) {
           cti.ringPubkeys.push_back(gout.targetKey);
-          cti.ringOutputIndexes.push_back(gout.outputIndex);
         }
         // Ring commitments must be computed exactly as core validation does.
         TransactionOutput ringMemberOutput;
@@ -578,12 +580,21 @@ void WalletTransactionSender::prepareInputs(
     const bool realIsCoinbase = haveTxInfo && txInfo.totalAmountIn == 0;
     const uint32_t realBlockHeight = haveTxInfo ? txInfo.blockHeight : 0;
 
-    //paste mixin transaction
+    // Phase 1: ring members ordered by target pubkey (strictly ascending)
+    // — the canonical on-chain ordering enforced by consensus.
+    auto pubkeyLess = [](const Crypto::PublicKey& a, const Crypto::PublicKey& b) {
+      return std::memcmp(&a, &b, sizeof(Crypto::PublicKey)) < 0;
+    };
+
     if (inputMixin != 0 && outs.size()) {
       std::sort(outs[i].outs.begin(), outs[i].outs.end(),
-        [](const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry& a, const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry& b){ return a.global_amount_index < b.global_amount_index; });
+        [&pubkeyLess](const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry& a,
+                       const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::out_entry& b){
+          return pubkeyLess(a.out_key, b.out_key);
+        });
       for (auto& daemon_oe: outs[i].outs) {
-        if (td.globalOutputIndex == daemon_oe.global_amount_index)
+        // Skip if the decoy collides with our own real pubkey
+        if (std::memcmp(&daemon_oe.out_key, &td.outputKey, sizeof(Crypto::PublicKey)) == 0)
           continue;
         TransactionTypes::GlobalOutput go;
         go.outputIndex = static_cast<uint32_t>(daemon_oe.global_amount_index);
@@ -598,9 +609,9 @@ void WalletTransactionSender::prepareInputs(
       }
     }
 
-    //paste real transaction to the random index
+    //paste real transaction at its pubkey-sorted position
     auto it_to_insert = std::find_if(inp.keyInfo.outputs.begin(), inp.keyInfo.outputs.end(),
-      [&](const TransactionTypes::GlobalOutput& a) { return a.outputIndex >= td.globalOutputIndex; });
+      [&](const TransactionTypes::GlobalOutput& a) { return !pubkeyLess(a.targetKey, td.outputKey); });
 
     TransactionTypes::GlobalOutput real_go;
     real_go.outputIndex = td.globalOutputIndex;

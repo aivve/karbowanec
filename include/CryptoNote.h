@@ -40,13 +40,16 @@ struct KeyInput {
 };
 
 // Confidential transaction input (version 4) — prefix portion only.
+// Ring members are referenced by their target public keys, which act as stable
+// chain-state-independent identifiers (reorg-robust, unlike positional indexes).
 // Contains the ring of public keys and commitments, a pseudo-output commitment,
 // and key image. MLSAG signatures are stored separately in Transaction body.
+// Canonical ordering: ringPubkeys MUST be strictly increasing lexicographically
+// (consensus-enforced); ringCommitments are aligned with ringPubkeys by index.
 struct ConfidentialInput {
-  uint64_t                                  ringAmount;      // transparent amount bucket of referenced ring members
-  std::vector<uint32_t>                     ringOutputIndexes; // relative offsets in the ringAmount bucket
-  std::vector<Crypto::PublicKey>           ringPubkeys;   // one-time public keys of ring members
-  std::vector<Crypto::EllipticCurvePoint>  ringCommitments; // Pedersen commitments of ring members
+  uint64_t                                  ringAmount;      // amount bucket (transparent value or CT_CONFIDENTIAL_OUTPUT_AMOUNT)
+  std::vector<Crypto::PublicKey>           ringPubkeys;     // one-time public keys of ring members (sorted ascending)
+  std::vector<Crypto::EllipticCurvePoint>  ringCommitments; // Pedersen commitments of ring members (aligned with ringPubkeys)
   Crypto::EllipticCurvePoint               pseudoCommitment; // C' = v*H + r'*G
   Crypto::KeyImage                         keyImage;       // I = x * Hp(P)
 };

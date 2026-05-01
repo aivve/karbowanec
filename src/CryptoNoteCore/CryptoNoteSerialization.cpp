@@ -339,9 +339,8 @@ void serialize(KeyOutput& key, ISerializer& serializer) {
 
 void serialize(ConfidentialInput& input, ISerializer& serializer) {
   serializer(input.ringAmount, "ring_amount");
-  serializeVarintVector(input.ringOutputIndexes, serializer, "ring_offsets");
 
-  // Ring public keys (variable length)
+  // Ring public keys (variable length, sorted ascending — primary on-chain reference)
   size_t ringSize = input.ringPubkeys.size();
   serializer.beginArray(ringSize, "ring_pubkeys");
   if (serializer.type() == ISerializer::INPUT) {
@@ -352,7 +351,7 @@ void serialize(ConfidentialInput& input, ISerializer& serializer) {
   }
   serializer.endArray();
 
-  // Ring commitments
+  // Ring commitments (aligned by index with ringPubkeys)
   if (serializer.type() == ISerializer::INPUT) {
     input.ringCommitments.resize(ringSize);
   }

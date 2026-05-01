@@ -58,14 +58,14 @@ std::unique_ptr<ITransaction> buildTransaction(
 // ── Confidential (v2 CT) transaction builder types ──────────────────────────
 
 // CT input: a spent output with its ring members and the sender's secret keys.
-// For pre-fork transparent inputs spent into CT, realBlinding is zero scalar
-// and realAmount is the scaled (redenominated) amount.
+// Phase 1: ring members are referenced by their target pubkeys (stable across
+// reorgs). The wallet sorts pubkeys ascending and aligns ringCommitments by
+// the same sort; consensus enforces strict ascending order.
 struct CTBuildInput {
-  uint64_t                                  ringAmount;       // transparent amount bucket of ring members
-  std::vector<uint32_t>                     ringOutputIndexes; // absolute indexes in ringAmount bucket
-  std::vector<Crypto::PublicKey>          ringPubkeys;      // one-time keys of ring members
-  std::vector<Crypto::EllipticCurvePoint> ringCommitments;  // Pedersen commitments of ring members
-  size_t  realIndex;          // index of the real input in the ring
+  uint64_t                                  ringAmount;       // amount bucket of ring members
+  std::vector<Crypto::PublicKey>          ringPubkeys;      // one-time keys of ring members (sorted ascending)
+  std::vector<Crypto::EllipticCurvePoint> ringCommitments;  // Pedersen commitments aligned with ringPubkeys
+  size_t  realIndex;          // index of the real input in the (sorted) ring
   Crypto::SecretKey spendPrivkey;  // ephemeral spend key for real input: P_real = x*G
   Crypto::EllipticCurveScalar realBlinding; // blinding factor of real input's commitment (0 for transparent)
   uint64_t amount;            // plaintext amount in new atomic units

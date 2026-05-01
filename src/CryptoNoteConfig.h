@@ -81,6 +81,7 @@ const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      
 const size_t   CT_MAX_INPUTS                                 = 256;
 const size_t   CT_MAX_OUTPUTS                                = 256;
 const size_t   CT_MAX_EXTRA_NON_CANONICAL_INPUTS             = 32;    // wallet policy: opportunistic residue cleanup per CT spend
+const size_t   CT_MEMPOOL_MAX_ANCESTORS                      = 16;    // miner policy: max chain depth of zero-conf parents pulled into one block
 
 const uint64_t MAX_TRANSACTION_SIZE_LIMIT                    = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_CURRENT / 4 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
 

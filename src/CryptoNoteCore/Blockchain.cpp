@@ -2059,14 +2059,15 @@ bool Blockchain::haveTransactionKeyImagesAsSpent(const Transaction& tx) {
   return false;
 }
 
-bool Blockchain::checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height) {
+bool Blockchain::checkTransactionInputs(const Transaction& tx, uint32_t* pmax_used_block_height,
+                                         bool allowMempool) {
   // CT transactions use a dedicated validation pipeline
   if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
     if (pmax_used_block_height) *pmax_used_block_height = 0;
     Crypto::Hash transactionHash = getObjectHash(tx);
     if (isInCheckpointZone(getCurrentBlockchainHeight()))
       return true;
-    return checkConfidentialTransaction(tx, transactionHash, pmax_used_block_height);
+    return checkConfidentialTransaction(tx, transactionHash, pmax_used_block_height, allowMempool);
   }
 
   Crypto::Hash tx_prefix_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
@@ -2209,7 +2210,8 @@ bool Blockchain::check_tx_input(const KeyInput& txin, const Crypto::Hash& tx_pre
 // ─── Confidential Transaction Validation Pipeline (spec Section 15) ──────────
 
 bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypto::Hash& txHash,
-                                              uint32_t* pmax_used_block_height) {
+                                              uint32_t* pmax_used_block_height,
+                                              bool allowMempool) {
   using namespace CryptoNote::parameters;
   std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
 
@@ -2319,7 +2321,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
                     << " above maximum " << CT_MAX_RING_SIZE << " in tx " << txHash;
       return false;
     }
-    if (ringSize != cin.ringCommitments.size() || ringSize != cin.ringOutputIndexes.size()) {
+    if (ringSize != cin.ringCommitments.size()) {
       logger(ERROR) << "CT validation: input " << i << " ring field size mismatch in tx " << txHash;
       return false;
     }
@@ -2337,28 +2339,15 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       return false;
     }
 
-    // Convert ring offsets to absolute indexes and ensure canonical strictly increasing order.
-    const std::vector<uint32_t> absoluteOffsets = relative_output_offsets_to_absolute(cin.ringOutputIndexes);
-    if (absoluteOffsets.empty()) {
-      logger(ERROR) << "CT validation: input " << i << " has empty absolute ring offsets in tx " << txHash;
-      return false;
-    }
-    for (size_t k = 1; k < absoluteOffsets.size(); ++k) {
-      if (absoluteOffsets[k] <= absoluteOffsets[k - 1]) {
-        logger(ERROR) << "CT validation: input " << i << " has non-canonical ring offsets at member " << k
+    // Canonical ordering: ringPubkeys must be strictly increasing lexicographically.
+    // This prevents wallet-fingerprinting via ring member order and gives deterministic
+    // tx hashing. Compare 32-byte pubkeys as raw byte sequences.
+    for (size_t k = 1; k < ringSize; ++k) {
+      if (std::memcmp(&cin.ringPubkeys[k - 1], &cin.ringPubkeys[k], sizeof(Crypto::PublicKey)) >= 0) {
+        logger(ERROR) << "CT validation: input " << i << " ring pubkeys not in strictly ascending order at member " << k
                       << " in tx " << txHash;
         return false;
       }
-    }
-
-    const uint32_t outputCount = m_db.getKeyOutputCount(cin.ringAmount);
-    if (outputCount == 0) {
-      logger(ERROR) << "CT validation: input " << i << " ring amount bucket has no outputs in tx " << txHash;
-      return false;
-    }
-    if (absoluteOffsets.back() >= outputCount) {
-      logger(ERROR) << "CT validation: input " << i << " ring offset out of range in tx " << txHash;
-      return false;
     }
 
     auto& boundPubkeys = verifiedRingPubkeys[i];
@@ -2367,29 +2356,65 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     boundCommitments.reserve(ringSize);
 
     for (size_t k = 0; k < ringSize; ++k) {
+      // Phase 1: resolve ring member by its target pubkey (stable, reorg-robust).
+      // Phase 2: if the chain index doesn't have it AND allowMempool is set
+      // (mempool admission path), fall back to the mempool's pubkey index for
+      // zero-conf chained spends. Block validation passes allowMempool=false
+      // so the chain remains the sole authority for confirmed-block consensus.
       uint32_t block = 0;
       uint16_t txSlot = 0;
       uint16_t outIdx = 0;
-      if (!m_db.getKeyOutput(cin.ringAmount, absoluteOffsets[k], block, txSlot, outIdx)) {
-        logger(ERROR) << "CT validation: input " << i << " failed to resolve ring member " << k
-                      << " (amount=" << cin.ringAmount << ", index=" << absoluteOffsets[k] << ") in tx " << txHash;
-        return false;
+      bool fromMempool = false;
+      Transaction mempoolTx;  // populated only when fromMempool
+
+      if (!m_db.getOutputPubkey(cin.ringPubkeys[k], block, txSlot, outIdx)) {
+        if (!allowMempool) {
+          logger(ERROR) << "CT validation: input " << i << " ring member " << k
+                        << " not found on chain (block-mode) in tx " << txHash;
+          return false;
+        }
+        Crypto::Hash mempoolTxHash;
+        if (!m_tx_pool.findOutputByPubkey(cin.ringPubkeys[k], mempoolTxHash, outIdx)) {
+          logger(ERROR) << "CT validation: input " << i << " failed to resolve ring member " << k
+                        << " by pubkey (chain or mempool) in tx " << txHash;
+          return false;
+        }
+        if (!m_tx_pool.getTransaction(mempoolTxHash, mempoolTx)) {
+          // Race: parent tx was just evicted between index lookup and fetch.
+          logger(ERROR) << "CT validation: input " << i << " mempool parent " << mempoolTxHash
+                        << " gone between resolve and fetch (race), in tx " << txHash;
+          return false;
+        }
+        if (outIdx >= mempoolTx.outputs.size()) {
+          logger(ERROR) << "CT validation: input " << i << " resolved mempool ring member " << k
+                        << " with invalid output index in tx " << txHash;
+          return false;
+        }
+        fromMempool = true;
       }
 
-      TransactionEntry te = transactionByIndex({block, txSlot});
-      if (outIdx >= te.tx.outputs.size()) {
-        logger(ERROR) << "CT validation: input " << i << " resolved ring member " << k
-                      << " with invalid output index in tx " << txHash;
-        return false;
+      // Pick the source tx: chain entry or mempool tx
+      const Transaction* sourceTx = nullptr;
+      TransactionEntry te;
+      if (fromMempool) {
+        sourceTx = &mempoolTx;
+      } else {
+        te = transactionByIndex({block, txSlot});
+        if (outIdx >= te.tx.outputs.size()) {
+          logger(ERROR) << "CT validation: input " << i << " resolved ring member " << k
+                        << " with invalid output index in tx " << txHash;
+          return false;
+        }
+        sourceTx = &te.tx;
       }
 
-      if (!is_tx_spendtime_unlocked(te.tx.unlockTime)) {
+      if (!is_tx_spendtime_unlocked(sourceTx->unlockTime)) {
         logger(ERROR) << "CT validation: input " << i << " references locked output at ring member " << k
                       << " in tx " << txHash;
         return false;
       }
 
-      const auto& referencedOutput = te.tx.outputs[outIdx];
+      const auto& referencedOutput = sourceTx->outputs[outIdx];
       const bool ringMemberIsKey = referencedOutput.target.type() == typeid(KeyOutput);
       const bool ringMemberIsConfidential = referencedOutput.target.type() == typeid(ConfidentialOutput);
       if (!ringMemberIsKey && !ringMemberIsConfidential) {
@@ -2397,7 +2422,37 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
                       << " has unsupported output type in tx " << txHash;
         return false;
       }
+
+      // Mempool txs are never coinbase (coinbase only exists in blocks).
+      const bool sourceIsCoinbase = !fromMempool && (txSlot == 0);
+
+      // Verify the ring member belongs to the bucket claimed by cin.ringAmount.
+      // For ConfidentialOutput, the bucket is always CT_CONFIDENTIAL_OUTPUT_AMOUNT.
+      // For transparent KeyOutput, it must equal the resolved on-chain amount.
+      if (ringMemberIsConfidential) {
+        if (cin.ringAmount != CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT) {
+          logger(ERROR) << "CT validation: input " << i << " ring member " << k
+                        << " is confidential but ringAmount != CT_CONFIDENTIAL_OUTPUT_AMOUNT in tx " << txHash;
+          return false;
+        }
+      } else {
+        const uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, sourceIsCoinbase);
+        if (cin.ringAmount != resolvedAmount) {
+          logger(ERROR) << "CT validation: input " << i << " ring member " << k
+                        << " amount " << resolvedAmount << " does not match ringAmount " << cin.ringAmount
+                        << " in tx " << txHash;
+          return false;
+        }
+      }
+
       if (ringSize == 1) {
+        // Ring-1 coinbase shielding exception: requires confirmed v5+ coinbase.
+        // Mempool ring-1 is impossible (no coinbase in mempool) — reject.
+        if (fromMempool) {
+          logger(ERROR) << "CT validation: input " << i
+                        << " uses ring size 1 with mempool ring member (not a confirmed coinbase) in tx " << txHash;
+          return false;
+        }
         DbBlockMeta ringBlockMeta{};
         m_db.getBlockMeta(block, ringBlockMeta);
         if (!ringMemberIsKey || txSlot != 0 || ringBlockMeta.majorVersion < CryptoNote::BLOCK_MAJOR_VERSION_5) {
@@ -2411,7 +2466,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       Crypto::EllipticCurvePoint expectedCommitment;
       if (ringMemberIsKey) {
         referencedPubkey = boost::get<KeyOutput>(referencedOutput.target).key;
-        uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, txSlot == 0);
+        uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, sourceIsCoinbase);
         if (!Crypto::transparent_amount_to_commitment(resolvedAmount, expectedCommitment)) {
           logger(ERROR) << "CT validation: input " << i << " failed to build expected commitment for ring member " << k
                         << " in tx " << txHash;
@@ -2427,6 +2482,8 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k << " invalid on-chain in tx " << txHash;
         return false;
       }
+      // pubkey-index lookup guarantees referencedPubkey == cin.ringPubkeys[k].
+      // Defense-in-depth equality check kept; if it ever fires, the index is corrupt.
       if (!(referencedPubkey == cin.ringPubkeys[k])) {
         logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k
                       << " does not match referenced output in tx " << txHash;
@@ -2584,21 +2641,15 @@ bool Blockchain::scanCtInputRingForIndexes(const ConfidentialInput& cin,
                                             std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) {
   std::lock_guard<decltype(m_blockchain_lock)> bcLock(m_blockchain_lock);
 
-  const std::vector<uint32_t> absoluteOffsets = relative_output_offsets_to_absolute(cin.ringOutputIndexes);
-  if (absoluteOffsets.empty()) {
+  if (cin.ringPubkeys.empty()) {
     return false;
   }
 
-  const uint32_t outputCount = m_db.getKeyOutputCount(cin.ringAmount);
-  if (outputCount == 0 || absoluteOffsets.back() >= outputCount) {
-    return false;
-  }
-
-  for (uint32_t absIdx : absoluteOffsets) {
+  for (const auto& pubkey : cin.ringPubkeys) {
     uint32_t block = 0;
     uint16_t txSlot = 0;
     uint16_t outIdx = 0;
-    if (!m_db.getKeyOutput(cin.ringAmount, absIdx, block, txSlot, outIdx)) {
+    if (!m_db.getOutputPubkey(pubkey, block, txSlot, outIdx)) {
       return false;
     }
     TransactionEntry te = transactionByIndex({block, txSlot});
@@ -2822,7 +2873,12 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
       // Under a confirmed checkpoint the block hash has already been verified by
       // the network. Skip the expensive per-input validation (key-image domain
       // check, output-key LMDB scans) - pushTransaction still records everything.
-      if (!inCheckpoint && !checkTransactionInputs(block.transactions.back().tx)) {
+      // Block-mode validation: chain-only resolution, no mempool fallback. This
+      // keeps consensus deterministic and avoids the deadlock that would arise
+      // if pushBlock (under m_blockchain_lock) called back into the mempool.
+      if (!inCheckpoint && !checkTransactionInputs(block.transactions.back().tx,
+                                                    /*pmax_used_block_height=*/nullptr,
+                                                    /*allowMempool=*/false)) {
         logger(INFO, BRIGHT_WHITE) << "Block " << blockHash
           << " has at least one transaction with wrong inputs: " << tx_id;
         bvc.m_verification_failed = true;
@@ -3049,11 +3105,16 @@ bool Blockchain::pushTransaction(BlockEntry& block, const Crypto::Hash& transact
       uint32_t globalIdx = m_db.getKeyOutputCount(tx.outputs[o].amount);
       m_db.putKeyOutput(tx.outputs[o].amount, globalIdx,
                         block.height, transactionIndex.transaction, o);
+      // Phase 1 pubkey index: stable reference for CT input rings.
+      m_db.putOutputPubkey(boost::get<KeyOutput>(tx.outputs[o].target).key,
+                           block.height, transactionIndex.transaction, o);
       gidx[o] = globalIdx;
     } else if (tx.outputs[o].target.type() == typeid(ConfidentialOutput)) {
       uint32_t globalIdx = m_db.getKeyOutputCount(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT);
       m_db.putKeyOutput(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT, globalIdx,
                         block.height, transactionIndex.transaction, o);
+      m_db.putOutputPubkey(boost::get<ConfidentialOutput>(tx.outputs[o].target).targetKey,
+                           block.height, transactionIndex.transaction, o);
       gidx[o] = globalIdx;
     }
   }
@@ -3110,10 +3171,12 @@ void Blockchain::popTransaction(const Transaction& transaction,
       if (!m_db.removeLastKeyOutput(out.amount)) {
         logger(ERROR, BRIGHT_RED) << "Blockchain consistency broken - removeLastKeyOutput failed for amount=" << out.amount;
       }
+      m_db.removeOutputPubkey(boost::get<KeyOutput>(out.target).key);
     } else if (out.target.type() == typeid(ConfidentialOutput)) {
       if (!m_db.removeLastKeyOutput(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT)) {
         logger(ERROR, BRIGHT_RED) << "Blockchain consistency broken - removeLastKeyOutput failed for confidential output bucket";
       }
+      m_db.removeOutputPubkey(boost::get<ConfidentialOutput>(out.target).targetKey);
     }
   }
 

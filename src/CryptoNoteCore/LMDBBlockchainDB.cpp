@@ -156,6 +156,7 @@ bool LMDBBlockchainDB::open(const std::string& path) {
     openDb(setupTxn, "tx_indices",        0,                         m_dbiTxIndices);
     openDb(setupTxn, "key_outputs",       0,                         m_dbiKeyOutputs);
     openDb(setupTxn, "key_output_counts", 0,                         m_dbiKeyOutputCounts);
+    openDb(setupTxn, "output_pubkey_idx", 0,                         m_dbiOutputPubkeyIdx);
     openDb(setupTxn, "payment_id_idx",    MDB_DUPSORT | MDB_DUPFIXED, m_dbiPaymentIdIdx);
     openDb(setupTxn, "timestamp_idx",     0,                         m_dbiTimestampIdx);
     openDb(setupTxn, "gen_tx_idx",        0,                         m_dbiGenTxIdx);
@@ -725,6 +726,53 @@ bool LMDBBlockchainDB::removeLastKeyOutput(uint64_t amount) {
     rc = mdb_put(m_writeTxn, m_dbiKeyOutputCounts, &ck, &nv, 0);
     checkRc(rc, "removeLastKeyOutput:updateCount");
   }
+  return true;
+}
+
+// ─── output_pubkey_idx ────────────────────────────────────────────────────
+// Key:   32-byte target pubkey
+// Value: {block_BE(4), txSlot_BE(2), outIdx_BE(2)} = 8 bytes
+// Same value layout as m_dbiKeyOutputs so lookups produce a directly-comparable
+// (block, txSlot, outIdx) triple.
+
+bool LMDBBlockchainDB::putOutputPubkey(const Crypto::PublicKey& pubkey,
+                                        uint32_t block, uint16_t txSlot, uint16_t outIdx) {
+  assert(m_writeTxn);
+  MDB_val k = {sizeof(pubkey), const_cast<Crypto::PublicKey*>(&pubkey)};
+
+  uint8_t valBuf[8];
+  encBE32(valBuf,   block);
+  valBuf[4] = (txSlot >> 8) & 0xFF;
+  valBuf[5] =  txSlot       & 0xFF;
+  valBuf[6] = (outIdx >> 8) & 0xFF;
+  valBuf[7] =  outIdx       & 0xFF;
+  MDB_val v = {8, valBuf};
+
+  int rc = mdb_put(m_writeTxn, m_dbiOutputPubkeyIdx, &k, &v, 0);
+  checkRc(rc, "putOutputPubkey");
+  return true;
+}
+
+bool LMDBBlockchainDB::getOutputPubkey(const Crypto::PublicKey& pubkey,
+                                        uint32_t& block, uint16_t& txSlot, uint16_t& outIdx) const {
+  auto guard = readTxn();
+  MDB_val k = {sizeof(pubkey), const_cast<Crypto::PublicKey*>(&pubkey)}, v{};
+  int rc = mdb_get(guard.txn, m_dbiOutputPubkeyIdx, &k, &v);
+  if (rc == MDB_NOTFOUND) return false;
+  checkRc(rc, "getOutputPubkey");
+  const uint8_t* b = static_cast<const uint8_t*>(v.mv_data);
+  block  = decBE32(b);
+  txSlot = (uint16_t(b[4]) << 8) | b[5];
+  outIdx = (uint16_t(b[6]) << 8) | b[7];
+  return true;
+}
+
+bool LMDBBlockchainDB::removeOutputPubkey(const Crypto::PublicKey& pubkey) {
+  assert(m_writeTxn);
+  MDB_val k = {sizeof(pubkey), const_cast<Crypto::PublicKey*>(&pubkey)};
+  int rc = mdb_del(m_writeTxn, m_dbiOutputPubkeyIdx, &k, nullptr);
+  if (rc == MDB_NOTFOUND) return false;
+  checkRc(rc, "removeOutputPubkey");
   return true;
 }
 
