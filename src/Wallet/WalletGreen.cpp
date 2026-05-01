@@ -3593,7 +3593,7 @@ void WalletGreen::updateBalance(CryptoNote::ITransfersContainer* container) {
   }
 
   uint64_t actual = container->balance(ITransfersContainer::IncludeAllUnlocked);
-  uint64_t pending = container->balance(ITransfersContainer::IncludeAllLocked);
+  uint64_t pending = container->balance(ITransfersContainer::IncludeAllHardLocked);
 
   bool updated = false;
 
