@@ -1806,7 +1806,7 @@ bool Blockchain::add_out_to_get_random_outs(uint64_t amount, size_t globalIdx,
   oen.global_amount_index = static_cast<uint32_t>(globalIdx);
   if (isKeyOutput) {
     oen.out_key = boost::get<KeyOutput>(target).key;
-    Crypto::transparent_amount_to_commitment(resolveOutputAmount(te.tx.outputs[outIdx], block, txSlot == 0), oen.commitment);
+    Crypto::transparent_amount_to_commitment(te.tx.outputs[outIdx].amount, oen.commitment);
     oen.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Key);
   } else {
     const auto& cout = boost::get<ConfidentialOutput>(target);
@@ -2404,6 +2404,25 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
                       << " has unsupported output type in tx " << txHash;
         return false;
       }
+
+      // Verify the ring member belongs to the bucket claimed by cin.ringAmount.
+      // For ConfidentialOutput, the bucket is always CT_CONFIDENTIAL_OUTPUT_AMOUNT.
+      // For transparent KeyOutput, it must equal the resolved on-chain amount.
+      if (ringMemberIsConfidential) {
+        if (cin.ringAmount != CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT) {
+          logger(ERROR) << "CT validation: input " << i << " ring member " << k
+                        << " is confidential but ringAmount != CT_CONFIDENTIAL_OUTPUT_AMOUNT in tx " << txHash;
+          return false;
+        }
+      } else {
+        if (cin.ringAmount != referencedOutput.amount) {
+          logger(ERROR) << "CT validation: input " << i << " ring member " << k
+                        << " amount " << referencedOutput.amount << " does not match ringAmount " << cin.ringAmount
+                        << " in tx " << txHash;
+          return false;
+        }
+      }
+
       if (ringSize == 1) {
         DbBlockMeta ringBlockMeta{};
         m_db.getBlockMeta(block, ringBlockMeta);
@@ -2418,8 +2437,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       Crypto::EllipticCurvePoint expectedCommitment;
       if (ringMemberIsKey) {
         referencedPubkey = boost::get<KeyOutput>(referencedOutput.target).key;
-        uint64_t resolvedAmount = resolveOutputAmount(referencedOutput, block, txSlot == 0);
-        if (!Crypto::transparent_amount_to_commitment(resolvedAmount, expectedCommitment)) {
+        if (!Crypto::transparent_amount_to_commitment(referencedOutput.amount, expectedCommitment)) {
           logger(ERROR) << "CT validation: input " << i << " failed to build expected commitment for ring member " << k
                         << " in tx " << txHash;
           return false;

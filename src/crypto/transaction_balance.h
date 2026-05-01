@@ -10,7 +10,7 @@
 //
 // Mixed transparent/CT balance (spec Section 3.3):
 //   For pre-fork transparent inputs spent into CT outputs, transparent amounts
-//   are scaled via resolveOutputAmount() and converted to implicit commitments
+//   are converted to implicit commitments
 //   amount*H (with zero blinding factor).
 
 #pragma once
@@ -88,7 +88,7 @@ bool sign_transaction_kernel(
 //
 // For transparent inputs with known plaintext amount, the implicit commitment
 // is amount*H + 0*G = amount*H (zero blinding factor).
-// The amount should already be scaled by resolveOutputAmount().
+// The amount must be in atomic units.
 //
 // Returns false if the point computation fails.
 bool transparent_amount_to_commitment(
