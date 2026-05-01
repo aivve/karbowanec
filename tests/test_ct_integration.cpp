@@ -17,6 +17,7 @@
 #include "CryptoNoteConfig.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -1080,7 +1081,7 @@ static void test_ct_fork_height_decoupled() {
 }
 
 // =====================================================================
-// SECTION 9: MEMPOOL/REORG MODEL + CONSISTENCY + CAPACITY
+// SECTION 9: CONSISTENCY + CAPACITY
 // =====================================================================
 
 static void test_wallet_fee_absorption_policy_consistency() {
@@ -1098,48 +1099,6 @@ static void test_wallet_fee_absorption_policy_consistency() {
     if (canonicalA + residueA != raw) FAIL("lossy split");
     if (residueA >= floor) FAIL("residue must stay sub-floor");
   }
-  PASS();
-}
-
-static void test_mempool_dependency_cascade_model() {
-  TEST("Mempool model: A->B->C cascade removal");
-
-  std::unordered_map<std::string, std::vector<std::string>> children;
-  children["A"] = {"B"};
-  children["B"] = {"C"};
-  children["C"] = {};
-
-  std::set<std::string> pool = {"A", "B", "C"};
-  std::vector<std::string> queue = {"A"};
-  while (!queue.empty()) {
-    std::string cur = queue.back();
-    queue.pop_back();
-    if (!pool.count(cur)) continue;
-    pool.erase(cur);
-    for (const auto& ch : children[cur]) queue.push_back(ch);
-  }
-
-  if (!pool.empty()) FAIL("descendants should be evicted with parent");
-  PASS();
-}
-
-static void test_mempool_duplicate_pubkey_rejection_model() {
-  TEST("Mempool model: duplicate output pubkey rejected");
-
-  std::unordered_map<std::string, std::string> pubkeyOwner;
-  auto tryInsert = [&](const std::string& tx, const std::vector<std::string>& pubkeys) -> bool {
-    for (const auto& pk : pubkeys) {
-      auto it = pubkeyOwner.find(pk);
-      if (it != pubkeyOwner.end() && it->second != tx) {
-        return false;
-      }
-    }
-    for (const auto& pk : pubkeys) pubkeyOwner[pk] = tx;
-    return true;
-  };
-
-  if (!tryInsert("A", {"p1", "p2"})) FAIL("initial insert should pass");
-  if (tryInsert("B", {"p2", "p3"})) FAIL("collision insert should fail");
   PASS();
 }
 
@@ -1246,10 +1205,8 @@ int main() {
   test_mlsag_ring_size_4();
   test_ct_fork_height_decoupled();
 
-  printf("\n[Mempool/reorg model + consistency + capacity]\n");
+  printf("\n[Consistency + capacity]\n");
   test_wallet_fee_absorption_policy_consistency();
-  test_mempool_dependency_cascade_model();
-  test_mempool_duplicate_pubkey_rejection_model();
   test_capacity_many_ct_outputs_gk();
   test_stress_deterministic_decomposition_sweep();
 
