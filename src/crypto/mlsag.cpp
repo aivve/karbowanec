@@ -3,6 +3,7 @@
 // MLSAG ring signature implementation for confidential transactions.
 
 #include "mlsag.h"
+#include "crypto.h"
 #include "hash.h"
 #include "pedersen.h"
 #include "random.h"
