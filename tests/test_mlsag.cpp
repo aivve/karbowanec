@@ -248,6 +248,36 @@ static void test_wrong_key_image() {
   PASS();
 }
 
+static void test_identity_key_image_rejected() {
+  TEST("Identity key image rejected");
+
+  TestRing ring;
+  if (!build_test_ring(4, 1, ring)) { FAIL("build_ring"); return; }
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  Crypto::KeyImage key_image;
+  Crypto::MLSAGSignature sig;
+  if (!Crypto::mlsag_sign(msg,
+        ring.pubkeys.data(), ring.commits.data(), ring.pseudo_commit,
+        4, 1, ring.spend_key, ring.real_blinding, ring.pseudo_blinding,
+        key_image, sig)) {
+    FAIL("sign"); return;
+  }
+
+  memset(&key_image, 0, sizeof(key_image));
+  key_image.data[0] = 0x01;
+
+  if (Crypto::mlsag_verify(msg,
+        ring.pubkeys.data(), ring.commits.data(), ring.pseudo_commit,
+        4, key_image, sig)) {
+    FAIL("should have failed"); return;
+  }
+
+  PASS();
+}
+
 static void test_ring_size_1() {
   TEST("Ring size 1 (trivial ring)");
 
@@ -343,6 +373,7 @@ int main() {
   test_tampered_response();
   test_wrong_pseudo_commit();
   test_wrong_key_image();
+  test_identity_key_image_rejected();
 
   printf("\nKey image tests:\n");
   test_key_image_consistency();
