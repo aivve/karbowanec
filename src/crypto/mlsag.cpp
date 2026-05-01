@@ -37,19 +37,13 @@ static void mlsag_random_scalar(EllipticCurveScalar& res) {
   memcpy(&res, tmp, 32);
 }
 
-// Compute MLSAG round challenge: c = Hs(message || L1 || R1 || L2)
+// Compute MLSAG round challenge: c = Hs(domain || message || L1 || R1 || L2)
 // where Hs is hash-to-scalar (Keccak then reduce mod l).
-enum class MlsagTranscriptVersion : uint8_t {
-  Legacy = 0,
-  V1DomainSeparated = 1
-};
-
 static void mlsag_round_hash(
   const Hash& message,
   const unsigned char L1[32],
   const unsigned char R1[32],
   const unsigned char L2[32],
-  MlsagTranscriptVersion version,
   EllipticCurveScalar& c_out)
 {
   static const char domain[] = "MLSAG-KarboCT-v1";
@@ -58,10 +52,8 @@ static void mlsag_round_hash(
   unsigned char buf[domain_len + payload_len];
 
   unsigned char* ptr = buf;
-  if (version == MlsagTranscriptVersion::V1DomainSeparated) {
-    memcpy(ptr, domain, domain_len);
-    ptr += domain_len;
-  }
+  memcpy(ptr, domain, domain_len);
+  ptr += domain_len;
 
   memcpy(ptr, &message, 32);
   ptr += 32;
@@ -174,7 +166,6 @@ bool mlsag_sign(
 
   // c_{l+1} = Hs(message || L1 || R1 || L2)
   mlsag_round_hash(message, L1_bytes, R1_bytes, L2_bytes,
-                   MlsagTranscriptVersion::V1DomainSeparated,
                    c[(true_index + 1) % ring_size]);
 
   // --- Walk the ring: l+1 → l+2 → ... → l-1, computing decoy responses ---
@@ -217,7 +208,6 @@ bool mlsag_sign(
 
     // c_{i+1 mod n}
     mlsag_round_hash(message, L1_bytes, R1_bytes, L2_bytes,
-                     MlsagTranscriptVersion::V1DomainSeparated,
                      c[(i + 1) % ring_size]);
   }
 
@@ -241,15 +231,14 @@ bool mlsag_sign(
   return true;
 }
 
-static bool verify_with_transcript_version(
+static bool verify_ring(
   const Hash& message,
   const PublicKey ring_pubkeys[],
   const EllipticCurvePoint ring_commits[],
   const ge_cached& pseudo_cached,
   size_t ring_size,
   const ge_dsmp& image_pre,
-  const MLSAGSignature& sig,
-  MlsagTranscriptVersion version)
+  const MLSAGSignature& sig)
 {
   unsigned char L1_bytes[32], R1_bytes[32], L2_bytes[32];
   ge_p2 tmp_p2;
@@ -283,7 +272,7 @@ static bool verify_with_transcript_version(
       reinterpret_cast<const unsigned char*>(&sig.ss[i][1]));
     ge_tobytes(L2_bytes, &tmp_p2);
 
-    mlsag_round_hash(message, L1_bytes, R1_bytes, L2_bytes, version, c_cur);
+    mlsag_round_hash(message, L1_bytes, R1_bytes, L2_bytes, c_cur);
   }
 
   EllipticCurveScalar diff;
@@ -335,16 +324,8 @@ bool mlsag_verify(
   ge_cached pseudo_cached;
   ge_p3_to_cached(&pseudo_cached, &pseudo_p3);
 
-  // Fork migration plan:
-  // 1) Upgraded nodes sign using domain-separated v1 transcript.
-  // 2) Verifiers accept v1 and legacy transcripts during migration window.
-  // 3) Consensus validation can switch to v1-only at the configured fork height.
-  return verify_with_transcript_version(message, ring_pubkeys, ring_commits, pseudo_cached,
-                                        ring_size, image_pre, sig,
-                                        MlsagTranscriptVersion::V1DomainSeparated) ||
-         verify_with_transcript_version(message, ring_pubkeys, ring_commits, pseudo_cached,
-                                        ring_size, image_pre, sig,
-                                        MlsagTranscriptVersion::Legacy);
+  return verify_ring(message, ring_pubkeys, ring_commits, pseudo_cached,
+                     ring_size, image_pre, sig);
 }
 
 } // namespace Crypto
