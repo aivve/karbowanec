@@ -48,9 +48,8 @@ const EllipticCurvePoint& pedersen_get_H() {
 //
 // A point P is valid for Pedersen commitments iff:
 //   1. It decodes to a valid curve point (ge_frombytes_vartime succeeds)
-//   2. P is not the identity (all-zero encoding, or the canonical
-//      encoding of the neutral element)
-//   3. 8*P is not the identity (P is in the prime-order subgroup)
+//   2. P is not the identity
+//   3. l*P is the identity, where l is the Ed25519 prime subgroup order
 
 static bool is_identity(const unsigned char* bytes) {
   // The identity point in Ed25519 encodes as (x=0, y=1):
@@ -62,6 +61,24 @@ static bool is_identity(const unsigned char* bytes) {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
   };
   return memcmp(bytes, identity, 32) == 0;
+}
+
+static bool point_in_prime_order_subgroup(const ge_p3& point) {
+  // Ed25519 prime subgroup order:
+  // 2^252 + 27742317777372353535851937790883648493, little-endian.
+  static const unsigned char group_order[32] = {
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+    0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10
+  };
+
+  ge_p2 lP;
+  ge_scalarmult(&lP, group_order, &point);
+
+  unsigned char lP_bytes[32];
+  ge_tobytes(lP_bytes, &lP);
+  return is_identity(lP_bytes);
 }
 
 bool point_valid_for_pedersen(const EllipticCurvePoint& P) {
@@ -79,16 +96,7 @@ bool point_valid_for_pedersen(const EllipticCurvePoint& P) {
     return false;
   }
 
-  // 8*P must not be the identity (ensures prime-order subgroup)
-  ge_p2 p2;
-  ge_p1p1 p1p1;
-  ge_p3_to_p2(&p2, &point);
-  ge_mul8(&p1p1, &p2);
-  ge_p1p1_to_p2(&p2, &p1p1);
-
-  unsigned char eightP[32];
-  ge_tobytes(eightP, &p2);
-  if (is_identity(eightP)) {
+  if (!point_in_prime_order_subgroup(point)) {
     return false;
   }
 

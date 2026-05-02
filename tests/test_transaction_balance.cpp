@@ -42,6 +42,37 @@ static void random_hash(Crypto::Hash& h) {
   Random::randomBytes(32, h.data);
 }
 
+static bool make_basepoint_plus_order2(Crypto::EllipticCurvePoint& result) {
+  static const unsigned char order2[32] = {
+    0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f
+  };
+
+  unsigned char one[32] = {0};
+  one[0] = 1;
+
+  ge_p3 base;
+  ge_scalarmult_base(&base, one);
+
+  ge_p3 torsion;
+  if (ge_frombytes_vartime(&torsion, order2) != 0) {
+    return false;
+  }
+
+  ge_cached torsion_cached;
+  ge_p3_to_cached(&torsion_cached, &torsion);
+
+  ge_p1p1 sum;
+  ge_add(&sum, &base, &torsion_cached);
+
+  ge_p3 sum_p3;
+  ge_p1p1_to_p3(&sum_p3, &sum);
+  ge_p3_tobytes(reinterpret_cast<unsigned char*>(&result), &sum_p3);
+  return true;
+}
+
 static int tests_run = 0;
 static int tests_passed = 0;
 
@@ -531,6 +562,67 @@ static void test_kernel_sig_binding() {
   PASS();
 }
 
+static void test_subgroup_identity_rejected() {
+  TEST("Subgroup: identity point rejected");
+
+  Crypto::EllipticCurvePoint identity;
+  memset(&identity, 0, 32);
+  identity.data[0] = 0x01;
+
+  if (Crypto::point_valid_for_pedersen(identity))
+    FAIL("identity should be rejected");
+
+  PASS();
+}
+
+static void test_subgroup_low_order_rejected() {
+  TEST("Subgroup: pure low-order point rejected");
+
+  static const unsigned char order2[32] = {
+    0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f
+  };
+
+  Crypto::EllipticCurvePoint p;
+  memcpy(&p, order2, 32);
+  if (Crypto::point_valid_for_pedersen(p))
+    FAIL("order-2 point should be rejected");
+
+  PASS();
+}
+
+static void test_subgroup_torsion_coset_rejected() {
+  TEST("Subgroup: basepoint plus torsion rejected");
+
+  Crypto::EllipticCurvePoint p;
+  if (!make_basepoint_plus_order2(p))
+    FAIL("torsion-coset construction failed");
+
+  if (Crypto::point_valid_for_pedersen(p))
+    FAIL("prime-order point plus torsion should be rejected");
+
+  PASS();
+}
+
+static void test_subgroup_valid_commitment_accepted() {
+  TEST("Subgroup: valid Pedersen commitment accepted");
+
+  Crypto::EllipticCurveScalar r, v;
+  test_random_scalar(r);
+  uint64_to_scalar(42, v);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v, r, C))
+    FAIL("pedersen_commit failed");
+
+  if (!Crypto::point_valid_for_pedersen(C))
+    FAIL("valid commitment should be accepted");
+
+  PASS();
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 int main() {
@@ -558,6 +650,12 @@ int main() {
 
   printf("\n[Kernel signature properties]\n");
   test_kernel_sig_binding();
+
+  printf("\n[Subgroup validation]\n");
+  test_subgroup_identity_rejected();
+  test_subgroup_low_order_rejected();
+  test_subgroup_torsion_coset_rejected();
+  test_subgroup_valid_commitment_accepted();
 
   printf("\n=====================================================\n");
   printf("Results: %d/%d passed\n", tests_passed, tests_run);
