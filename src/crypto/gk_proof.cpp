@@ -8,8 +8,8 @@
 // Secret:  Index l and blinding r such that D[l] = r*G
 //
 // Round 1: Prover commits to bit decomposition of l and polynomial coefficients
-// Round 2: Fiat-Shamir challenge x = H(domain || tx_hash || D[] || A[] || B[] || Q[])
-// Round 3: Prover computes response scalars z[j] and f
+// Round 2: Fiat-Shamir challenge x = H(domain || tx_hash || D[] || I[] || A[] || B[] || Q[])
+// Round 3: Prover computes response scalars z[j], za[j], zb[j], and f
 //
 // Selector polynomial for index k:
 //   p_k(x) = product_{j=0}^{5} (bit_j(k)==1 ? z[j] : x-z[j])
@@ -87,6 +87,13 @@ static void point_sub(ge_p3* out, const ge_p3* a, const ge_p3* b) {
   ge_p1p1_to_p3(out, &r);
 }
 
+static bool point_equal(const ge_p3& a, const ge_p3& b) {
+  unsigned char a_bytes[32], b_bytes[32];
+  p3_to_bytes(a_bytes, &a);
+  p3_to_bytes(b_bytes, &b);
+  return memcmp(a_bytes, b_bytes, 32) == 0;
+}
+
 static bool scalarmult(ge_p3* out, const unsigned char s[32], const ge_p3* P) {
   ge_p2 r;
   ge_scalarmult(&r, s, P);
@@ -140,15 +147,16 @@ static bool compute_derived_ring(const EllipticCurvePoint& C,
 
 static void compute_challenge(const Hash& tx_hash,
                               const ge_p3 D[GK_N],
+                              const ge_p3 I[GK_n],
                               const ge_p3 A[GK_n],
                               const ge_p3 B[GK_n],
                               const ge_p3 Q[GK_n],
                               EllipticCurveScalar& x) {
-  static const char domain[] = "GK-KarboCT-v1";
+  static const char domain[] = "GK-KarboCT-v2";
   const size_t domain_len = sizeof(domain) - 1;
 
-  // 64 + 6 + 6 + 6 = 82 points
-  const size_t n_points = GK_N + GK_n + GK_n + GK_n;
+  // 64 + 6 + 6 + 6 + 6 = 88 points
+  const size_t n_points = GK_N + GK_n + GK_n + GK_n + GK_n;
   const size_t buf_size = domain_len + 32 + n_points * 32;
 
   std::vector<unsigned char> buf(buf_size);
@@ -159,6 +167,11 @@ static void compute_challenge(const Hash& tx_hash,
 
   for (size_t k = 0; k < GK_N; ++k) {
     p3_to_bytes(ptr, &D[k]);
+    ptr += 32;
+  }
+
+  for (size_t j = 0; j < GK_n; ++j) {
+    p3_to_bytes(ptr, &I[j]);
     ptr += 32;
   }
 
@@ -284,14 +297,17 @@ bool gk_prove(const EllipticCurvePoint& C,
   }
 
   // Generate random blinding scalars for bit commitments
-  EllipticCurveScalar a[GK_n], s[GK_n], t[GK_n];
+  EllipticCurveScalar rj[GK_n], a[GK_n], s[GK_n], t[GK_n];
   for (size_t j = 0; j < GK_n; ++j) {
+    random_scalar(rj[j]);
     random_scalar(a[j]);
     random_scalar(s[j]);
     random_scalar(t[j]);
   }
 
-  // Compute A[j] = s[j]*G + a[j]*H and B[j] = t[j]*G + (l_j*a[j])*H
+  // Compute I[j] = rj[j]*G + l_j*H,
+  // A[j] = s[j]*G + a[j]*H,
+  // B[j] = t[j]*G + (l_j*a[j])*H.
   ge_p3 H_p3;
   if (ge_frombytes_vartime(&H_p3,
       reinterpret_cast<const unsigned char*>(&pedersen_get_H())) != 0) {
@@ -299,6 +315,14 @@ bool gk_prove(const EllipticCurvePoint& C,
   }
 
   for (size_t j = 0; j < GK_n; ++j) {
+    ge_p3 rG;
+    ge_scalarmult_base(&rG, rj[j].data);
+    if (bits[j]) {
+      point_add(&proof.I[j], &rG, &H_p3);
+    } else {
+      proof.I[j] = rG;
+    }
+
     ge_p3 sG, aH;
     ge_scalarmult_base(&sG, s[j].data);
     if (!scalarmult(&aH, a[j].data, &H_p3)) return false;
@@ -339,7 +363,7 @@ bool gk_prove(const EllipticCurvePoint& C,
 
   // Step 4: Fiat-Shamir challenge
   EllipticCurveScalar x;
-  compute_challenge(tx_hash, D, proof.A, proof.B, proof.Q, x);
+  compute_challenge(tx_hash, D, proof.I, proof.A, proof.B, proof.Q, x);
 
   // Step 5: Response scalars
   // z[j] = l_j * x + a[j]
@@ -349,6 +373,17 @@ bool gk_prove(const EllipticCurvePoint& C,
     } else {
       memcpy(proof.z[j].data, a[j].data, 32);
     }
+
+    // za[j] = rj[j] * x + s[j]
+    unsigned char term[32];
+    sc_mul(term, rj[j].data, x.data);
+    sc_add(proof.za[j].data, term, s[j].data);
+
+    // zb[j] = rj[j] * (x - z[j]) + t[j]
+    unsigned char x_minus_z[32];
+    sc_sub(x_minus_z, x.data, proof.z[j].data);
+    sc_mul(term, rj[j].data, x_minus_z);
+    sc_add(proof.zb[j].data, term, t[j].data);
   }
 
   // f = r * x^6 - sum_{m=0}^{5} rho[m] * x^m
@@ -369,6 +404,7 @@ bool gk_prove(const EllipticCurvePoint& C,
   }
 
   // Secure cleanup
+  sodium_memzero(rj, sizeof(rj));
   sodium_memzero(a, sizeof(a));
   sodium_memzero(s, sizeof(s));
   sodium_memzero(t, sizeof(t));
@@ -387,6 +423,15 @@ bool gk_verify(const EllipticCurvePoint& C,
   }
   for (size_t j = 0; j < GK_n; ++j) {
     if (sc_check(proof.z[j].data) != 0) {
+      return false;
+    }
+    if (sc_check(proof.za[j].data) != 0) {
+      return false;
+    }
+    if (sc_check(proof.zb[j].data) != 0) {
+      return false;
+    }
+    if (!subgroup_check_p3(proof.I[j])) {
       return false;
     }
     if (!subgroup_check_p3(proof.A[j])) {
@@ -412,9 +457,50 @@ bool gk_verify(const EllipticCurvePoint& C,
 
   // Step 1: Recompute challenge
   EllipticCurveScalar x;
-  compute_challenge(tx_hash, D, proof.A, proof.B, proof.Q, x);
+  compute_challenge(tx_hash, D, proof.I, proof.A, proof.B, proof.Q, x);
 
-  // Step 2: Compute p_k(x) for each k
+  ge_p3 H_p3;
+  if (ge_frombytes_vartime(&H_p3,
+      reinterpret_cast<const unsigned char*>(&pedersen_get_H())) != 0) {
+    return false;
+  }
+
+  // Step 2: Verify bit-commitment response equations.
+  //
+  // I[j] = rj*G + l_j*H
+  // A[j] = s_j*G + a_j*H
+  // B[j] = t_j*G + l_j*a_j*H
+  // z[j]  = l_j*x + a_j
+  // za[j] = rj*x + s_j
+  // zb[j] = rj*(x-z[j]) + t_j
+  //
+  // x*I[j] + A[j]       == za[j]*G + z[j]*H
+  // (x-z[j])*I[j] + B[j] == zb[j]*G
+  for (size_t j = 0; j < GK_n; ++j) {
+    ge_p3 lhs, rhs, term;
+
+    if (!scalarmult(&lhs, x.data, &proof.I[j])) return false;
+    point_add(&lhs, &lhs, &proof.A[j]);
+
+    ge_scalarmult_base(&rhs, proof.za[j].data);
+    if (!scalarmult(&term, proof.z[j].data, &H_p3)) return false;
+    point_add(&rhs, &rhs, &term);
+    if (!point_equal(lhs, rhs)) {
+      return false;
+    }
+
+    unsigned char x_minus_z[32];
+    sc_sub(x_minus_z, x.data, proof.z[j].data);
+    if (!scalarmult(&lhs, x_minus_z, &proof.I[j])) return false;
+    point_add(&lhs, &lhs, &proof.B[j]);
+
+    ge_scalarmult_base(&rhs, proof.zb[j].data);
+    if (!point_equal(lhs, rhs)) {
+      return false;
+    }
+  }
+
+  // Step 3: Compute p_k(x) for each k
   // p_k(x) = product_{j=0}^{5} (bit_j(k)==1 ? z[j] : x-z[j])
   EllipticCurveScalar pk[GK_N];
   for (size_t k = 0; k < GK_N; ++k) {
@@ -438,7 +524,7 @@ bool gk_verify(const EllipticCurvePoint& C,
     memcpy(pk[k].data, product, 32);
   }
 
-  // Step 3: LHS = sum_{k=0}^{63} p_k(x) * D[k]
+  // Step 4: LHS = sum_{k=0}^{63} p_k(x) * D[k]
   ge_p3 lhs;
   point_identity(&lhs);
 
@@ -450,7 +536,7 @@ bool gk_verify(const EllipticCurvePoint& C,
     point_add(&lhs, &lhs, &term);
   }
 
-  // Step 4: RHS = f*G + sum_{m=0}^{5} x^m * Q[m]
+  // Step 5: RHS = f*G + sum_{m=0}^{5} x^m * Q[m]
   ge_p3 rhs;
   ge_scalarmult_base(&rhs, proof.f.data);
 
@@ -468,12 +554,8 @@ bool gk_verify(const EllipticCurvePoint& C,
     point_add(&rhs, &rhs, &term);
   }
 
-  // Step 5: Check LHS == RHS
-  unsigned char lhs_bytes[32], rhs_bytes[32];
-  p3_to_bytes(lhs_bytes, &lhs);
-  p3_to_bytes(rhs_bytes, &rhs);
-
-  return memcmp(lhs_bytes, rhs_bytes, 32) == 0;
+  // Step 6: Check LHS == RHS
+  return point_equal(lhs, rhs);
 }
 
 } // namespace Crypto

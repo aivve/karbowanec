@@ -302,10 +302,13 @@ Transaction buildConfidentialTransaction(
     // Copy proof into transaction body
     auto& gkp = tx.ctProofs[i];
     for (size_t j = 0; j < 6; ++j) {
+      ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.I[j]), &proof.I[j]);
       ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.A[j]), &proof.A[j]);
       ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.B[j]), &proof.B[j]);
       ge_p3_tobytes(reinterpret_cast<unsigned char*>(&gkp.Q[j]), &proof.Q[j]);
       gkp.z[j] = proof.z[j];
+      gkp.za[j] = proof.za[j];
+      gkp.zb[j] = proof.zb[j];
     }
     gkp.f = proof.f;
   }

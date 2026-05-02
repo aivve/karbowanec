@@ -146,6 +146,58 @@ TEST(GKProof, TamperedScalarFails) {
   ASSERT_FALSE(Crypto::gk_verify(C, proof, tx_hash));
 }
 
+TEST(GKProof, TamperedBitCommitmentResponseFails) {
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  size_t idx = 13;
+  uint64_t v = CryptoNote::DENOMINATIONS[idx];
+
+  Crypto::EllipticCurveScalar v_scalar;
+  test_uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  ASSERT_TRUE(Crypto::pedersen_commit(v_scalar, r, C));
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  ASSERT_TRUE(Crypto::gk_prove(C, v, r, idx, tx_hash, proof));
+
+  proof.za[0].data[0] ^= 0x01;
+  ASSERT_FALSE(Crypto::gk_verify(C, proof, tx_hash));
+
+  ASSERT_TRUE(Crypto::gk_prove(C, v, r, idx, tx_hash, proof));
+  proof.zb[0].data[0] ^= 0x01;
+  ASSERT_FALSE(Crypto::gk_verify(C, proof, tx_hash));
+}
+
+TEST(GKProof, TamperedBitCommitmentPointFails) {
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  size_t idx = 8;
+  uint64_t v = CryptoNote::DENOMINATIONS[idx];
+
+  Crypto::EllipticCurveScalar v_scalar;
+  test_uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  ASSERT_TRUE(Crypto::pedersen_commit(v_scalar, r, C));
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  ASSERT_TRUE(Crypto::gk_prove(C, v, r, idx, tx_hash, proof));
+
+  unsigned char identity[32] = {0};
+  identity[0] = 1;
+  ASSERT_EQ(ge_frombytes_vartime(&proof.I[0], identity), 0);
+  ASSERT_FALSE(Crypto::gk_verify(C, proof, tx_hash));
+}
+
 // Wrong denomination index should fail at prove time
 TEST(GKProof, WrongDenominationIndexFails) {
   Crypto::EllipticCurveScalar r;

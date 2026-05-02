@@ -91,13 +91,17 @@ struct CTInputSignature {
 
 // Per-output GK denomination membership proof.
 // Proves the committed value is one of the 64 canonical denominations.
-//   6 points A + 6 points B + 6 points Q = 576 bytes
-//   6 scalars z + 1 scalar f = 224 bytes   Total = 800 bytes.
+//   6 points I + 6 points A + 6 points B + 6 points Q = 768 bytes
+//   6 scalars z + 6 scalars za + 6 scalars zb + 1 scalar f = 608 bytes
+//   Total = 1376 bytes.
 struct CTOutputProof {
+  Crypto::EllipticCurvePoint  I[6];  // commitments to secret index bits
   Crypto::EllipticCurvePoint  A[6];  // bit randomness commitments
   Crypto::EllipticCurvePoint  B[6];  // bit value commitments
   Crypto::EllipticCurvePoint  Q[6];  // polynomial coefficient commitments
   Crypto::EllipticCurveScalar z[6];  // per-bit response scalars
+  Crypto::EllipticCurveScalar za[6]; // opening responses for I^x * A
+  Crypto::EllipticCurveScalar zb[6]; // opening responses for I^(x-z) * B
   Crypto::EllipticCurveScalar f;     // final evaluation scalar
 };
 

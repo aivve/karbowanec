@@ -396,6 +396,9 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
 
 void serialize(CTOutputProof& proof, ISerializer& serializer) {
   for (size_t i = 0; i < 6; ++i) {
+    serializePod(proof.I[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
     serializePod(proof.A[i], "", serializer);
   }
   for (size_t i = 0; i < 6; ++i) {
@@ -406,6 +409,12 @@ void serialize(CTOutputProof& proof, ISerializer& serializer) {
   }
   for (size_t i = 0; i < 6; ++i) {
     serializePod(proof.z[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(proof.za[i], "", serializer);
+  }
+  for (size_t i = 0; i < 6; ++i) {
+    serializePod(proof.zb[i], "", serializer);
   }
   serializePod(proof.f, "", serializer);
 }
