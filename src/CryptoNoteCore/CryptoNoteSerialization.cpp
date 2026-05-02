@@ -142,6 +142,98 @@ bool serializeVarintVector(std::vector<uint32_t>& vector, CryptoNote::ISerialize
   return true;
 }
 
+void checkArraySizeLimit(size_t size, size_t maxSize, const char* field) {
+  if (size > maxSize) {
+    throw std::runtime_error(std::string("Serialization error: ") + field + " count exceeds limit");
+  }
+}
+
+bool beginBoundedArray(CryptoNote::ISerializer& serializer, size_t& size, Common::StringView name,
+                       size_t maxSize, const char* field) {
+  if (serializer.type() == CryptoNote::ISerializer::OUTPUT) {
+    checkArraySizeLimit(size, maxSize, field);
+  }
+
+  if (!serializer.beginArray(size, name)) {
+    return false;
+  }
+
+  if (serializer.type() == CryptoNote::ISerializer::INPUT) {
+    checkArraySizeLimit(size, maxSize, field);
+  }
+
+  return true;
+}
+
+void checkArraySizeExact(size_t size, size_t expectedSize, const char* field) {
+  if (size != expectedSize) {
+    throw std::runtime_error(std::string("Serialization error: ") + field + " count mismatch");
+  }
+}
+
+template <typename T>
+bool serializeBoundedVector(std::vector<T>& vector, CryptoNote::ISerializer& serializer, Common::StringView name,
+                            size_t maxSize, const char* field) {
+  size_t size = vector.size();
+
+  if (!beginBoundedArray(serializer, size, name, maxSize, field)) {
+    if (serializer.type() == CryptoNote::ISerializer::INPUT) {
+      vector.clear();
+    }
+
+    return false;
+  }
+
+  if (serializer.type() == CryptoNote::ISerializer::INPUT) {
+    vector.resize(size);
+  }
+
+  for (size_t i = 0; i < size; ++i) {
+    serializer(vector[i], "");
+  }
+
+  serializer.endArray();
+  return true;
+}
+
+size_t getCtInputRingSize(const CryptoNote::TransactionInput& input) {
+  if (input.type() != typeid(CryptoNote::ConfidentialInput)) {
+    throw std::runtime_error("Serialization error: CT transaction input must be ConfidentialInput");
+  }
+
+  return boost::get<CryptoNote::ConfidentialInput>(input).ringPubkeys.size();
+}
+
+void serializeCtInputSignature(CryptoNote::CTInputSignature& sig, CryptoNote::ISerializer& serializer,
+                               size_t expectedRingSize, bool requireExpectedRingSize) {
+  serializePod(sig.c0, "c0", serializer);
+
+  size_t ringSize = sig.ss.size();
+  if (requireExpectedRingSize && serializer.type() == CryptoNote::ISerializer::OUTPUT) {
+    checkArraySizeExact(ringSize, expectedRingSize, "CT MLSAG ring");
+  }
+  if (!beginBoundedArray(serializer, ringSize, "ss", CryptoNote::parameters::CT_MAX_RING_SIZE, "CT MLSAG ring")) {
+    if (serializer.type() == CryptoNote::ISerializer::INPUT) {
+      sig.ss.clear();
+    }
+    return;
+  }
+
+  if (requireExpectedRingSize && serializer.type() == CryptoNote::ISerializer::INPUT) {
+    checkArraySizeExact(ringSize, expectedRingSize, "CT MLSAG ring");
+  }
+
+  if (serializer.type() == CryptoNote::ISerializer::INPUT) {
+    sig.ss.resize(ringSize);
+  }
+
+  for (size_t i = 0; i < ringSize; ++i) {
+    serializePod(sig.ss[i][0], "", serializer);
+    serializePod(sig.ss[i][1], "", serializer);
+  }
+  serializer.endArray();
+}
+
 }
 
 namespace Crypto {
@@ -193,8 +285,8 @@ void serialize(TransactionPrefix& txP, ISerializer& serializer) {
     // Version 4 (CT): fee is plaintext, unlockTime must be 0
     txP.unlockTime = 0;
     serializer(txP.fee, "fee");
-    serializer(txP.inputs, "vin");
-    serializer(txP.outputs, "vout");
+    serializeBoundedVector(txP.inputs, serializer, "vin", parameters::CT_MAX_INPUTS, "CT input");
+    serializeBoundedVector(txP.outputs, serializer, "vout", parameters::CT_MAX_OUTPUTS, "CT output");
     serializeAsBinary(txP.extra, "extra", serializer);
   } else {
     // Version 1 (transparent)
@@ -214,18 +306,40 @@ void serialize(Transaction& tx, ISerializer& serializer) {
 
     // Per-input MLSAG signatures
     size_t sigCount = tx.ctSignatures.size();
-    serializer.beginArray(sigCount, "ct_signatures");
+    if (serializer.type() == ISerializer::OUTPUT) {
+      checkArraySizeExact(sigCount, tx.inputs.size(), "CT signature");
+    }
+    if (!beginBoundedArray(serializer, sigCount, "ct_signatures", parameters::CT_MAX_INPUTS, "CT signature")) {
+      if (serializer.type() == ISerializer::INPUT) {
+        tx.ctSignatures.clear();
+      }
+      return;
+    }
+    if (serializer.type() == ISerializer::INPUT) {
+      checkArraySizeExact(sigCount, tx.inputs.size(), "CT signature");
+    }
     if (serializer.type() == ISerializer::INPUT) {
       tx.ctSignatures.resize(sigCount);
     }
     for (size_t i = 0; i < sigCount; ++i) {
-      serialize(tx.ctSignatures[i], serializer);
+      serializeCtInputSignature(tx.ctSignatures[i], serializer, getCtInputRingSize(tx.inputs[i]), true);
     }
     serializer.endArray();
 
     // Per-output GK denomination proofs
     size_t proofCount = tx.ctProofs.size();
-    serializer.beginArray(proofCount, "ct_proofs");
+    if (serializer.type() == ISerializer::OUTPUT) {
+      checkArraySizeExact(proofCount, tx.outputs.size(), "CT proof");
+    }
+    if (!beginBoundedArray(serializer, proofCount, "ct_proofs", parameters::CT_MAX_OUTPUTS, "CT proof")) {
+      if (serializer.type() == ISerializer::INPUT) {
+        tx.ctProofs.clear();
+      }
+      return;
+    }
+    if (serializer.type() == ISerializer::INPUT) {
+      checkArraySizeExact(proofCount, tx.outputs.size(), "CT proof");
+    }
     if (serializer.type() == ISerializer::INPUT) {
       tx.ctProofs.resize(proofCount);
     }
@@ -342,7 +456,12 @@ void serialize(ConfidentialInput& input, ISerializer& serializer) {
 
   // Ring public keys (variable length, sorted ascending — primary on-chain reference)
   size_t ringSize = input.ringPubkeys.size();
-  serializer.beginArray(ringSize, "ring_pubkeys");
+  if (!beginBoundedArray(serializer, ringSize, "ring_pubkeys", parameters::CT_MAX_RING_SIZE, "CT ring pubkey")) {
+    if (serializer.type() == ISerializer::INPUT) {
+      input.ringPubkeys.clear();
+    }
+    return;
+  }
   if (serializer.type() == ISerializer::INPUT) {
     input.ringPubkeys.resize(ringSize);
   }
@@ -352,11 +471,21 @@ void serialize(ConfidentialInput& input, ISerializer& serializer) {
   serializer.endArray();
 
   // Ring commitments (aligned by index with ringPubkeys)
-  if (serializer.type() == ISerializer::INPUT) {
-    input.ringCommitments.resize(ringSize);
+  size_t commitmentCount = input.ringCommitments.size();
+  if (serializer.type() == ISerializer::OUTPUT) {
+    checkArraySizeExact(commitmentCount, ringSize, "CT ring commitment");
   }
-  serializer.beginArray(ringSize, "ring_commits");
-  for (size_t i = 0; i < ringSize; ++i) {
+  if (!beginBoundedArray(serializer, commitmentCount, "ring_commits", parameters::CT_MAX_RING_SIZE, "CT ring commitment")) {
+    if (serializer.type() == ISerializer::INPUT) {
+      input.ringCommitments.clear();
+    }
+    return;
+  }
+  checkArraySizeExact(commitmentCount, ringSize, "CT ring commitment");
+  if (serializer.type() == ISerializer::INPUT) {
+    input.ringCommitments.resize(commitmentCount);
+  }
+  for (size_t i = 0; i < commitmentCount; ++i) {
     serializePod(input.ringCommitments[i], "", serializer);
   }
   serializer.endArray();
@@ -380,17 +509,7 @@ void serialize(ConfidentialOutput& output, ISerializer& serializer) {
 }
 
 void serialize(CTInputSignature& sig, ISerializer& serializer) {
-  serializePod(sig.c0, "c0", serializer);
-  size_t ringSize = sig.ss.size();
-  serializer.beginArray(ringSize, "ss");
-  if (serializer.type() == ISerializer::INPUT) {
-    sig.ss.resize(ringSize);
-  }
-  for (size_t i = 0; i < ringSize; ++i) {
-    serializePod(sig.ss[i][0], "", serializer);
-    serializePod(sig.ss[i][1], "", serializer);
-  }
-  serializer.endArray();
+  serializeCtInputSignature(sig, serializer, 0, false);
 }
 
 void serialize(CTOutputProof& proof, ISerializer& serializer) {

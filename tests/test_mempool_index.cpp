@@ -80,6 +80,10 @@ CryptoNote::Transaction makeConfidentialPoolTransaction(const Crypto::PublicKey&
   txOutput.target = output;
   tx.outputs.push_back(txOutput);
 
+  tx.ctSignatures.resize(tx.inputs.size());
+  tx.ctSignatures[0].ss.resize(input.ringPubkeys.size());
+  tx.ctProofs.resize(tx.outputs.size());
+
   return tx;
 }
 
