@@ -350,6 +350,7 @@ bool BlockchainExplorerDataBuilder::fillTransactionDetails(const Transaction& tr
       ctInDetails.keyImage = cin.keyImage;
       ctInDetails.pseudoCommitment = cin.pseudoCommitment;
       ctInDetails.mixin = cin.ringPubkeys.size();
+      ctInDetails.ringOutputIndexes = cin.ringOutputIndexes;
       std::list<std::pair<Crypto::Hash, size_t>> outputReferences;
       if (m_core.scanCtInputRingForIndices(cin, outputReferences)) {
         for (const auto& r : outputReferences) {

@@ -111,6 +111,7 @@ void serialize(ConfidentialInputDetails& ctIn, ISerializer& serializer) {
   serializePod(ctIn.keyImage, "keyImage", serializer);
   serializePod(ctIn.pseudoCommitment, "pseudoCommitment", serializer);
   serializer(ctIn.mixin, "mixin");
+  serializer(ctIn.ringOutputIndexes, "ringOutputIndexes");
   serializer(ctIn.outputs, "outputs");
 }
 

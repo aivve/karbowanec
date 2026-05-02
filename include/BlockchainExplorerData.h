@@ -105,6 +105,7 @@ struct ConfidentialInputDetails {
   Crypto::KeyImage keyImage;
   Crypto::EllipticCurvePoint pseudoCommitment;
   uint64_t mixin;
+  std::vector<uint32_t> ringOutputIndexes;
   std::vector<TransactionOutputReferenceDetails> outputs;
 };
 

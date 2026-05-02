@@ -22,6 +22,8 @@
 #include "RpcServer.h"
 #include "version.h"
 
+#include <algorithm>
+#include <array>
 #include <future>
 #include <limits>
 #include <unordered_map>
@@ -47,6 +49,7 @@
 #include "CryptoNoteCore/TransactionExtra.h"
 #include "CryptoNoteCore/AccountNumber.h"
 #include "CryptoNoteCore/CryptoNoteBasicImpl.h"
+#include "CryptoNoteConfig.h"
 #include "CryptoNoteProtocol/ICryptoNoteProtocolQuery.h"
 #include "P2p/ConnectionContext.h"
 #include "P2p/NetNode.h"
@@ -83,6 +86,31 @@ uint64_t getRpcTransactionFee(const Transaction& tx) {
 
 uint64_t getRpcPublicOutputAmount(const Transaction& tx) {
   return tx.version == TRANSACTION_VERSION_CT ? 0 : getOutputAmount(tx);
+}
+
+std::string formatExplorerAmount(const Currency& currency, uint64_t amount) {
+  return amount == parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT ? "hidden" : currency.formatAmount(amount);
+}
+
+bool hasConfidentialOutput(const TransactionDetails& tx) {
+  return std::any_of(tx.outputs.begin(), tx.outputs.end(), [](const transactionOutputDetails2& out) {
+    return out.output.target.type() == typeid(ConfidentialOutput);
+  });
+}
+
+std::string maskedAmountToHex(const std::array<uint8_t, 8>& amount) {
+  return Common::toHex(amount.data(), amount.size());
+}
+
+template <typename T, size_t N>
+void appendPodArray(std::string& body, const std::string& label, const T (&values)[N]) {
+  body += "  <li>" + label + "\n";
+  body += "    <ol>\n";
+  for (size_t i = 0; i < N; ++i) {
+    body += "      <li class=\"wrap\">" + Common::podToHex(values[i]) + "</li>\n";
+  }
+  body += "    </ol>\n";
+  body += "  </li>\n";
 }
 
 template <typename Command>
@@ -1969,11 +1997,18 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       body += "  </li>\n";
     }
     body += "  <li>\n";
-    if (transactionsDetails.version == TRANSACTION_VERSION_CT) {
+    const bool txHasConfidentialOutput = hasConfidentialOutput(transactionsDetails);
+    if (txHasConfidentialOutput && transactionsDetails.totalOutputsAmount == 0) {
       body += "    Sum of outputs: hidden (confidential)\n";
+    } else if (txHasConfidentialOutput) {
+      body += "    Public output amount: " + m_core.currency().formatAmount(transactionsDetails.totalOutputsAmount)
+        + " (confidential outputs hidden)\n";
     } else {
       body += "    Sum of outputs: " + m_core.currency().formatAmount(transactionsDetails.totalOutputsAmount) + "\n";
     }
+    body += "  </li>\n";
+    body += "  <li>\n";
+    body += "    Fee: " + m_core.currency().formatAmount(transactionsDetails.fee) + "\n";
     body += "  </li>\n";
     body += "  <li>\n";
     body += "    Size: " + std::to_string(transactionsDetails.size) + "\n";
@@ -1992,7 +2027,7 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       body += "    Mixin count: "
            + std::to_string(transactionsDetails.minMixin) + ".."
            + std::to_string(transactionsDetails.mixin)
-           + " (varies per input — see Inputs table)\n";
+           + " (varies per input - see Inputs table)\n";
     }
     body += "  </li>\n";
     body += "  <li>\n";
@@ -2001,6 +2036,14 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
     if (transactionsDetails.hasPaymentId) {
       body += "  <li>\n";
       body += "    Payment ID: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.paymentId) + "</span>\n";
+      body += "  </li>\n";
+    }
+    body += "  <li>\n";
+    body += "    Extra size: " + std::to_string(transactionsDetails.extra.size) + "\n";
+    body += "  </li>\n";
+    if (!transactionsDetails.extra.raw.empty()) {
+      body += "  <li>\n";
+      body += "    Extra raw: <span class=\"wrap\">" + Common::toHex(transactionsDetails.extra.raw) + "</span>\n";
       body += "  </li>\n";
     }
     // Check for account registration in tx extra
@@ -2054,7 +2097,7 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
     body += "<table class=\"counter\" cellpadding=\"10px\">\n";
     body += "  <thead>\n";
     body += "  <tr>\n";
-    body += "    <th>No</th><th>Amount</th><th>Key image</th><th>Output indexes (references)</th>\n";
+    body += "    <th>No</th><th>Amount</th><th>Key image</th><th>Pseudo commitment</th><th>Output indexes (references)</th>\n";
     body += "  </tr>\n";
     body += "</thead>\n";
     body += "<tbody>\n";
@@ -2066,36 +2109,44 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       if (in.type() == typeid(BaseInputDetails)) {
         BaseInputDetails c = boost::get<BaseInputDetails>(in);
         body += m_core.currency().formatAmount(c.amount);
-        body += "</td>\n    <td colspan=\"2\">coinbase</td>\n";
+        body += "</td>\n    <td colspan=\"3\">coinbase</td>\n";
       }
       else if (in.type() == typeid(KeyInputDetails)) {
         KeyInputDetails k = boost::get<KeyInputDetails>(in);
         body += m_core.currency().formatAmount(k.input.amount);
         body += "</td>\n    <td class=\"wrap\">";
         body += Common::podToHex(k.input.keyImage);
+        body += "</td>\n    <td>-";
         body += "</td>\n    <td>";
-        for (size_t i = 0; i < k.input.outputIndexes.size(); ++i) {
-          body += "    <a href=\"/explorer/tx/" + Common::podToHex(k.outputs[i].transactionHash) + "\">";
-          body += std::to_string(k.input.outputIndexes[i]); // key_offset
-          body += " (output No " + std::to_string(k.outputs[i].number) +")</a>"; // tx output reference
-          body += ", ";
+        if (k.outputs.empty()) {
+          body += "references unavailable";
+        } else {
+          for (size_t n = 0; n < k.outputs.size(); ++n) {
+            body += "    <a href=\"/explorer/tx/" + Common::podToHex(k.outputs[n].transactionHash) + "\">";
+            body += (n < k.input.outputIndexes.size() ? std::to_string(k.input.outputIndexes[n]) : "?"); // key_offset
+            body += " (Output No " + std::to_string(k.outputs[n].number) +")</a>"; // tx output reference
+            if (n + 1 < k.outputs.size()) body += ", ";
+          }
         }
-        body.pop_back();
-        body.pop_back();
         body += "    </td>\n";
       }
       else if (in.type() == typeid(ConfidentialInputDetails)) {
         ConfidentialInputDetails c = boost::get<ConfidentialInputDetails>(in);
-        body += "hidden";
+        body += formatExplorerAmount(m_core.currency(), c.ringAmount);
         body += "</td>\n    <td class=\"wrap\">";
         body += Common::podToHex(c.keyImage);
+        body += "</td>\n    <td class=\"wrap\">";
+        body += Common::podToHex(c.pseudoCommitment);
         body += "</td>\n    <td>";
         if (c.outputs.empty()) {
           body += "ring of " + std::to_string(c.mixin) + " (references unavailable)";
         } else {
           for (size_t k = 0; k < c.outputs.size(); ++k) {
             body += "    <a href=\"/explorer/tx/" + Common::podToHex(c.outputs[k].transactionHash) + "\">";
-            body += "output No " + std::to_string(c.outputs[k].number) + "</a>";
+            if (k < c.ringOutputIndexes.size()) {
+              body += std::to_string(c.ringOutputIndexes[k]) + " ";
+            }
+            body += "Output No " + std::to_string(c.outputs[k].number) + "</a>";
             if (k + 1 < c.outputs.size()) body += ", ";
           }
         }
@@ -2111,7 +2162,7 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
     body += "<table class=\"counter\" cellpadding=\"10px\">\n";
     body += "  <thead>\n";
     body += "  <tr>\n";
-    body += "    <th>No</th><th>Amount</th><th>Public key (stealth address)</th><th>Global index</th>\n";
+    body += "    <th>No</th><th>Type</th><th>Amount</th><th>Public key (stealth address)</th><th>Commitment</th><th>Masked amount</th><th>Global index</th>\n";
     body += "  </tr>\n";
     body += "</thead>\n";
     body += "<tbody>\n";
@@ -2121,6 +2172,12 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       body += "    <td>" + std::to_string(i) + ")</td>";
       body += "    <td>";
       if (o.output.target.type() == typeid(ConfidentialOutput)) {
+        body += "Confidential";
+      } else {
+        body += "Key";
+      }
+      body += "</td>\n    <td>";
+      if (o.output.target.type() == typeid(ConfidentialOutput)) {
         body += "hidden";
       } else {
         body += m_core.currency().formatAmount(o.output.amount);
@@ -2128,10 +2185,16 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
       body += "</td>\n    <td class=\"wrap\">";
       if (o.output.target.type() == typeid(KeyOutput)) {
         KeyOutput ko = boost::get<KeyOutput>(o.output.target);
-        body += Common::podToHex(ko);
+        body += Common::podToHex(ko.key);
+        body += "</td>\n    <td>-";
+        body += "</td>\n    <td>-";
       } else if (o.output.target.type() == typeid(ConfidentialOutput)) {
         ConfidentialOutput co = boost::get<ConfidentialOutput>(o.output.target);
         body += Common::podToHex(co.targetKey);
+        body += "</td>\n    <td class=\"wrap\">";
+        body += Common::podToHex(co.commitment);
+        body += "</td>\n    <td class=\"wrap\">";
+        body += maskedAmountToHex(co.maskedAmount);
       }
       body += "</td>\n    <td>";
       body += std::to_string(o.globalIndex);
@@ -2158,6 +2221,64 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
         body += "  </li>\n";
       }
       body += "</ol>\n";
+    }
+
+    if (transactionsDetails.version == TRANSACTION_VERSION_CT) {
+      body += "<h3>CT kernel</h3>\n";
+      body += "<ul>\n";
+      body += "  <li>Excess commitment: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.excessCommitment) + "</span></li>\n";
+      body += "  <li>Signature e: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.sigE) + "</span></li>\n";
+      body += "  <li>Signature s: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.sigS) + "</span></li>\n";
+      body += "</ul>\n";
+
+      if (!transactionsDetails.ctSignatures.empty()) {
+        body += "<h3>CT input signatures</h3>\n";
+        body += "<ol>\n";
+        for (size_t i = 0; i < transactionsDetails.ctSignatures.size(); ++i) {
+          const auto& signature = transactionsDetails.ctSignatures[i];
+          body += "  <li>\n";
+          body += "    <details open>\n";
+          body += "      <summary>Input " + std::to_string(i) + " MLSAG signature (" + std::to_string(signature.ss.size()) + " ring members)</summary>\n";
+          body += "      <ul>\n";
+          body += "        <li>c0: <span class=\"wrap\">" + Common::podToHex(signature.c0) + "</span></li>\n";
+          body += "        <li>ss\n";
+          body += "          <ol>\n";
+          for (const auto& row : signature.ss) {
+            body += "            <li>spend: <span class=\"wrap\">" + Common::podToHex(row[0]) + "</span><br/>"
+              "commitment: <span class=\"wrap\">" + Common::podToHex(row[1]) + "</span></li>\n";
+          }
+          body += "          </ol>\n";
+          body += "        </li>\n";
+          body += "      </ul>\n";
+          body += "    </details>\n";
+          body += "  </li>\n";
+        }
+        body += "</ol>\n";
+      }
+
+      if (!transactionsDetails.ctProofs.empty()) {
+        body += "<h3>CT output proofs</h3>\n";
+        body += "<ol>\n";
+        for (size_t i = 0; i < transactionsDetails.ctProofs.size(); ++i) {
+          const auto& proof = transactionsDetails.ctProofs[i];
+          body += "  <li>\n";
+          body += "    <details>\n";
+          body += "      <summary>Output " + std::to_string(i) + " GK denomination proof</summary>\n";
+          body += "      <ul>\n";
+          appendPodArray(body, "I", proof.I);
+          appendPodArray(body, "A", proof.A);
+          appendPodArray(body, "B", proof.B);
+          appendPodArray(body, "Q", proof.Q);
+          appendPodArray(body, "z", proof.z);
+          appendPodArray(body, "za", proof.za);
+          appendPodArray(body, "zb", proof.zb);
+          body += "        <li>f: <span class=\"wrap\">" + Common::podToHex(proof.f) + "</span></li>\n";
+          body += "      </ul>\n";
+          body += "    </details>\n";
+          body += "  </li>\n";
+        }
+        body += "</ol>\n";
+      }
     }
     
     body += index_finish;
