@@ -323,6 +323,10 @@ bool ICoreStub::scanOutputkeysForIndices(const CryptoNote::KeyInput& txInToKey, 
   return true;
 }
 
+bool ICoreStub::scanCtInputRingForIndices(const CryptoNote::ConfidentialInput& cin, std::list<std::pair<Crypto::Hash, size_t>>& outputReferences) {
+  return false;
+}
+
 bool ICoreStub::getBlockDifficulty(uint32_t height, CryptoNote::difficulty_type& difficulty) {
   if (blockHashByHeightIndex.count(height) == 0) {
     return false;

@@ -653,6 +653,7 @@ namespace CryptoNote {
 
       m_transactions.clear();
       m_spent_key_images.clear();
+      m_pubkey_to_output.clear();
       m_paymentIdIndex.clear();
       m_timestampIndex.clear();
     } else {
@@ -834,7 +835,7 @@ namespace CryptoNote {
 
   tx_memory_pool::tx_container_t::iterator tx_memory_pool::removeTransaction(tx_memory_pool::tx_container_t::iterator i) {
     removeTransactionInputs(i->id, i->tx, i->keptByBlock);
-    removeTransactionOutputsFromPubkeyIndex(i->tx);
+    removeTransactionOutputsFromPubkeyIndex(i->id, i->tx);
     m_paymentIdIndex.remove(i->tx);
     m_timestampIndex.remove(i->receiveTime, i->id);
     if (m_validated_transactions.find(i->id) != m_validated_transactions.end()) {
@@ -937,7 +938,7 @@ namespace CryptoNote {
   }
 
   //---------------------------------------------------------------------------------
-  void tx_memory_pool::removeTransactionOutputsFromPubkeyIndex(const Transaction& tx) {
+  void tx_memory_pool::removeTransactionOutputsFromPubkeyIndex(const Crypto::Hash& id, const Transaction& tx) {
     for (const auto& out : tx.outputs) {
       Crypto::PublicKey pk;
       if (out.target.type() == typeid(KeyOutput)) {
@@ -947,7 +948,10 @@ namespace CryptoNote {
       } else {
         continue;
       }
-      m_pubkey_to_output.erase(pk);
+      auto it = m_pubkey_to_output.find(pk);
+      if (it != m_pubkey_to_output.end() && it->second.first == id) {
+        m_pubkey_to_output.erase(it);
+      }
     }
   }
 
@@ -990,9 +994,25 @@ namespace CryptoNote {
 
   void tx_memory_pool::buildIndices() {
     std::lock_guard<std::recursive_mutex> lock(m_transactions_lock);
-    for (auto it = m_transactions.begin(); it != m_transactions.end(); it++) {
+    m_paymentIdIndex.clear();
+    m_timestampIndex.clear();
+    m_spent_key_images.clear();
+    m_pubkey_to_output.clear();
+
+    for (auto it = m_transactions.begin(); it != m_transactions.end();) {
+      if (!addTransactionInputs(it->id, it->tx, it->keptByBlock) ||
+          !addTransactionOutputsToPubkeyIndex(it->id, it->tx)) {
+        logger(ERROR) << "Dropping persisted mempool transaction " << it->id
+                      << " while rebuilding indexes";
+        removeTransactionInputs(it->id, it->tx, it->keptByBlock);
+        removeTransactionOutputsFromPubkeyIndex(it->id, it->tx);
+        it = m_transactions.erase(it);
+        continue;
+      }
+
       m_paymentIdIndex.add(it->tx);
       m_timestampIndex.add(it->receiveTime, it->id);
+      ++it;
     }
   }
 

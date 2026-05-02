@@ -40,6 +40,7 @@ add_executable(GKProofTests test_gk_proof.cpp)
 add_executable(MLSAGTests test_mlsag.cpp)
 add_executable(TxBalanceTests test_transaction_balance.cpp)
 add_executable(CTIntegrationTests test_ct_integration.cpp)
+add_executable(MempoolIndexTests test_mempool_index.cpp UnitTests/ICoreStub.cpp)
 
 target_link_libraries(CoreTests TestGenerator Wallet CryptoNoteCore Serialization System Logging Common Crypto BlockchainExplorer ${Boost_LIBRARIES})
 target_link_libraries(IntegrationTests IntegrationTestLibrary Wallet NodeRpcProxy InProcessNode P2P Rpc Http Transfers Serialization System CryptoNoteCore Logging Common Crypto BlockchainExplorer gtest Mnemonics upnpc-static ${Boost_LIBRARIES})
@@ -57,6 +58,7 @@ target_link_libraries(GKProofTests Crypto Common ${Boost_LIBRARIES})
 target_link_libraries(MLSAGTests Crypto Common ${Boost_LIBRARIES})
 target_link_libraries(TxBalanceTests Crypto Common ${Boost_LIBRARIES})
 target_link_libraries(CTIntegrationTests Crypto Common ${Boost_LIBRARIES})
+target_link_libraries(MempoolIndexTests CryptoNoteCore Serialization System Logging Common Crypto BlockchainExplorer ${Boost_LIBRARIES})
 
 if(MSVC)
   target_link_libraries(SystemTests ws2_32)
@@ -67,6 +69,8 @@ if(MSVC)
   target_link_libraries(UnitTests legacy_stdio_definitions.lib)
   target_link_libraries(LMDBReorgTests ws2_32)
   target_link_libraries(LMDBReorgTests legacy_stdio_definitions.lib)
+  target_link_libraries(MempoolIndexTests ws2_32)
+  target_link_libraries(MempoolIndexTests legacy_stdio_definitions.lib)
 endif()
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux" OR APPLE AND NOT ANDROID)
@@ -105,6 +109,7 @@ set_property(TARGET
   MLSAGTests
   TxBalanceTests
   CTIntegrationTests
+  MempoolIndexTests
 PROPERTY FOLDER "tests")
 
 add_dependencies(IntegrationTestLibrary version)
@@ -125,6 +130,7 @@ set_property(TARGET GKProofTests PROPERTY OUTPUT_NAME "gk_proof_tests")
 set_property(TARGET MLSAGTests PROPERTY OUTPUT_NAME "mlsag_tests")
 set_property(TARGET TxBalanceTests PROPERTY OUTPUT_NAME "tx_balance_tests")
 set_property(TARGET CTIntegrationTests PROPERTY OUTPUT_NAME "ct_integration_tests")
+set_property(TARGET MempoolIndexTests PROPERTY OUTPUT_NAME "mempool_index_tests")
 
 add_test(CoreTests core_tests --generate_and_play_test_data)
 add_test(CryptoTests crypto_tests ${CMAKE_CURRENT_SOURCE_DIR}/crypto/tests.txt)
@@ -140,4 +146,5 @@ add_test(MLSAGTests mlsag_tests)
 add_test(TxBalanceTests tx_balance_tests)
 add_test(CTIntegrationTests ct_integration_tests)
 add_test(LMDBReorgTests lmdb_reorg_tests)
+add_test(MempoolIndexTests mempool_index_tests)
 

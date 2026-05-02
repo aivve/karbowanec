@@ -204,7 +204,7 @@ namespace CryptoNote {
 
     // Phase 2: track output pubkeys of mempool txs for zero-conf ring resolution.
     bool addTransactionOutputsToPubkeyIndex(const Crypto::Hash& id, const Transaction& tx);
-    void removeTransactionOutputsFromPubkeyIndex(const Transaction& tx);
+    void removeTransactionOutputsFromPubkeyIndex(const Crypto::Hash& id, const Transaction& tx);
 
     // Phase 2: walk a candidate tx's CT input ring members; for each member that
     // resolves only to a mempool tx (not chain), recursively collect that mempool
