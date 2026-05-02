@@ -140,6 +140,33 @@ static void test_tampered_a_point() {
   PASS();
 }
 
+static void test_tampered_i_point() {
+  TEST("Tampered I point fails");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[8];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 8, tx_hash, proof)) { FAIL("prove"); return; }
+
+  unsigned char identity[32] = {0};
+  identity[0] = 1;
+  if (ge_frombytes_vartime(&proof.I[0], identity) != 0) { FAIL("identity decode"); return; }
+  if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
 static void test_tampered_b_point() {
   TEST("Tampered B point fails");
 
@@ -162,6 +189,56 @@ static void test_tampered_b_point() {
   unsigned char identity[32] = {0};
   identity[0] = 1;
   if (ge_frombytes_vartime(&proof.B[0], identity) != 0) { FAIL("identity decode"); return; }
+  if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
+static void test_tampered_za_scalar() {
+  TEST("Tampered za scalar fails");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[13];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 13, tx_hash, proof)) { FAIL("prove"); return; }
+
+  proof.za[0].data[0] ^= 0x01;
+  if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
+
+  PASS();
+}
+
+static void test_tampered_zb_scalar() {
+  TEST("Tampered zb scalar fails");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+
+  uint64_t v = CryptoNote::DENOMINATIONS[14];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+
+  Crypto::EllipticCurvePoint C;
+  if (!Crypto::pedersen_commit(v_scalar, r, C)) { FAIL("commit"); return; }
+
+  Crypto::Hash tx_hash;
+  Random::randomBytes(32, tx_hash.data);
+
+  Crypto::GKProof proof;
+  if (!Crypto::gk_prove(C, v, r, 14, tx_hash, proof)) { FAIL("prove"); return; }
+
+  proof.zb[0].data[0] ^= 0x01;
   if (Crypto::gk_verify(C, proof, tx_hash)) { FAIL("should have failed"); return; }
 
   PASS();
@@ -284,7 +361,7 @@ static void test_identity_commitment_rejected() {
 }
 
 static void test_proof_layout_constants() {
-  TEST("Proof layout constants (18 points + 7 scalars = 800 bytes)");
+  TEST("Proof layout constants (24 points + 19 scalars = 1376 bytes)");
 
   const size_t pointSize = sizeof(Crypto::EllipticCurvePoint);
   const size_t scalarSize = sizeof(Crypto::EllipticCurveScalar);
@@ -294,8 +371,8 @@ static void test_proof_layout_constants() {
     return;
   }
 
-  const size_t expectedWireBytes = (18 * pointSize) + (7 * scalarSize);
-  if (expectedWireBytes != 800) {
+  const size_t expectedWireBytes = (24 * pointSize) + (19 * scalarSize);
+  if (expectedWireBytes != 1376) {
     FAIL("unexpected GK wire proof size");
     return;
   }
@@ -322,9 +399,12 @@ int main() {
   // Negative tests
   test_wrong_txhash();
   test_tampered_f();
+  test_tampered_i_point();
   test_tampered_a_point();
   test_tampered_b_point();
   test_tampered_q_point();
+  test_tampered_za_scalar();
+  test_tampered_zb_scalar();
   test_noncanonical_scalar_rejected();
   test_wrong_index();
   test_out_of_range();

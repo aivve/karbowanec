@@ -203,6 +203,31 @@ static void test_gk_tampered_z_scalar() {
   PASS();
 }
 
+static void test_gk_tampered_bit_responses() {
+  TEST("GK proof: tampered za/zb bit responses fail");
+
+  Crypto::EllipticCurveScalar r;
+  test_random_scalar(r);
+  uint64_t v = CryptoNote::DENOMINATIONS[21];
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(v, v_scalar);
+  Crypto::EllipticCurvePoint C;
+  Crypto::pedersen_commit(v_scalar, r, C);
+  Crypto::Hash tx_hash;
+  random_hash(tx_hash);
+
+  Crypto::GKProof proof;
+  Crypto::gk_prove(C, v, r, 21, tx_hash, proof);
+  proof.za[0].data[0] ^= 0x01;
+  if (Crypto::gk_verify(C, proof, tx_hash)) FAIL("tampered za should fail");
+
+  Crypto::gk_prove(C, v, r, 21, tx_hash, proof);
+  proof.zb[0].data[0] ^= 0x01;
+  if (Crypto::gk_verify(C, proof, tx_hash)) FAIL("tampered zb should fail");
+
+  PASS();
+}
+
 static void test_gk_tampered_A_point() {
   TEST("GK proof: tampered A[0] point fails");
 
@@ -1178,6 +1203,7 @@ int main() {
   printf("\n[GK Proof - extended]\n");
   test_gk_all_64_roundtrip();
   test_gk_tampered_z_scalar();
+  test_gk_tampered_bit_responses();
   test_gk_tampered_A_point();
   test_gk_max_denomination();
 

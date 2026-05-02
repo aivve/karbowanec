@@ -2267,6 +2267,11 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     // Reconstruct GKProof from body proof fields
     Crypto::GKProof proof;
     for (size_t j = 0; j < 6; ++j) {
+      if (ge_frombytes_vartime(&proof.I[j],
+          reinterpret_cast<const unsigned char*>(&gkp.I[j])) != 0) {
+        logger(ERROR) << "CT validation: output " << i << " GK proof I[" << j << "] invalid point in tx " << txHash;
+        return false;
+      }
       if (ge_frombytes_vartime(&proof.A[j],
           reinterpret_cast<const unsigned char*>(&gkp.A[j])) != 0) {
         logger(ERROR) << "CT validation: output " << i << " GK proof A[" << j << "] invalid point in tx " << txHash;
@@ -2283,6 +2288,8 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         return false;
       }
       proof.z[j] = gkp.z[j];
+      proof.za[j] = gkp.za[j];
+      proof.zb[j] = gkp.zb[j];
     }
     proof.f = gkp.f;
 
