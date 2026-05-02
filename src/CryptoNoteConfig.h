@@ -51,7 +51,6 @@ const size_t CRYPTONOTE_COIN_VERSION                         = 1;
 const unsigned EMISSION_SPEED_FACTOR                         = 18;
 static_assert(EMISSION_SPEED_FACTOR <= 8 * sizeof(uint64_t), "Bad EMISSION_SPEED_FACTOR");
 
-const uint32_t CT_FORK_HEIGHT                                = 999999999; // placeholder
 
 const size_t   CRYPTONOTE_REWARD_BLOCKS_WINDOW               = 100;
 const size_t   CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE     = 1000000; //size of block (bytes) after which reward for block calculated using block size
@@ -122,6 +121,7 @@ const uint32_t UPGRADE_HEIGHT_V4_2                           = 500000; // Fee pe
 const uint32_t UPGRADE_HEIGHT_V4_3                           = 667000; // Fixed min fee + fee per-byte for extra
 const uint32_t UPGRADE_HEIGHT_V5                             = 700000; // Block v5, back to LWMA1+, Alt. Signed Proof-of-Work
 const uint32_t UPGRADE_HEIGHT_V6                             = 4294967294; // Block v6
+const uint32_t CT_FORK_HEIGHT                                = UPGRADE_HEIGHT_V6; // Confidential Transactions, Pubkey-referenced rings for CT transactions, enable mempool-based zero-conf transactions chaining
 
 const unsigned UPGRADE_VOTING_THRESHOLD                      = 90; // percent
 const uint32_t UPGRADE_VOTING_WINDOW                         = EXPECTED_NUMBER_OF_BLOCKS_PER_DAY;  // blocks
