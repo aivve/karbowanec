@@ -422,6 +422,9 @@ namespace CryptoNote {
     bool loadTransactions(const Block& block, std::vector<Transaction>& transactions);
     void saveTransactions(const std::vector<Transaction>& transactions);
 
+    bool ensureOutputPubkeyIndex();
+    bool backfillOutputPubkeyIndex();
+
     // One-time migration from legacy blocks.bin / blockindexes.bin
     bool migrateFromSwappedVector(const std::string& config_folder);
 

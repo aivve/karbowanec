@@ -488,6 +488,11 @@ bool Blockchain::init(const std::string& config_folder, bool load_existing) {
     return false;
   }
 
+  if (!flushBatch()) {
+    logger(ERROR, BRIGHT_RED) << "Failed to flush startup blockchain batch";
+    return false;
+  }
+
   update_next_cumulative_size_limit();
 
   // One-time backfill of account registration index for blocks that predate it.
@@ -551,6 +556,11 @@ bool Blockchain::init(const std::string& config_folder, bool load_existing) {
     }
   }
 
+  if (!ensureOutputPubkeyIndex()) {
+    logger(ERROR, BRIGHT_RED) << "Failed to initialize output pubkey index";
+    return false;
+  }
+
   chainHeight = m_db.getChainHeight();
   DbBlockMeta tailMeta{};
   m_db.getBlockMeta(chainHeight - 1, tailMeta);
@@ -594,6 +604,116 @@ bool Blockchain::flushBatch() {
     m_batchFastMode = false;
   }
   return true;
+}
+
+bool Blockchain::ensureOutputPubkeyIndex() {
+  if (m_db.isOutputPubkeyIndexBackfilled()) {
+    return true;
+  }
+
+  return backfillOutputPubkeyIndex();
+}
+
+bool Blockchain::backfillOutputPubkeyIndex() {
+  const uint32_t chainHeight = m_db.getChainHeight();
+  logger(INFO, BRIGHT_WHITE) << "Backfilling output pubkey index for "
+                             << chainHeight << " block(s)...";
+
+  for (;;) {
+    uint64_t indexedOutputs = 0;
+    uint32_t batchCount = 0;
+
+    try {
+      for (uint32_t h = 0; h < chainHeight; ++h) {
+        if (batchCount == 0) {
+          m_db.growMapIfNeeded();
+          m_db.beginWriteTxn();
+
+          if (h == 0) {
+            m_db.clearOutputPubkeyIndex();
+            m_db.clearOutputPubkeyIndexBackfilledMarker();
+          }
+        }
+
+        if (h > 0 && h % 50000 == 0) {
+          logger(INFO) << "Output pubkey index backfill: height "
+                       << h << " of " << chainHeight;
+        }
+
+        DbBlockMeta meta{};
+        if (!m_db.getBlockMeta(h, meta)) {
+          throw std::runtime_error("missing block metadata at height " + std::to_string(h));
+        }
+
+        for (uint32_t txSlot32 = 0; txSlot32 < meta.txCount; ++txSlot32) {
+          const uint16_t txSlot = static_cast<uint16_t>(txSlot32);
+          TransactionEntry te = transactionByIndex({ h, txSlot });
+
+          if (te.tx.outputs.size() > std::numeric_limits<uint16_t>::max()) {
+            throw std::runtime_error("transaction has too many outputs at height " +
+                                     std::to_string(h) + ", tx " + std::to_string(txSlot32));
+          }
+
+          for (uint16_t outIdx = 0; outIdx < static_cast<uint16_t>(te.tx.outputs.size()); ++outIdx) {
+            const auto& target = te.tx.outputs[outIdx].target;
+            const Crypto::PublicKey* pubkey = nullptr;
+            if (target.type() == typeid(KeyOutput)) {
+              pubkey = &boost::get<KeyOutput>(target).key;
+            } else if (target.type() == typeid(ConfidentialOutput)) {
+              pubkey = &boost::get<ConfidentialOutput>(target).targetKey;
+            } else {
+              continue;
+            }
+
+            if (!m_db.putOutputPubkey(*pubkey, h, txSlot, outIdx)) {
+              logger(ERROR, BRIGHT_RED)
+                << "Duplicate output pubkey found while backfilling index at height "
+                << h << ", tx " << txSlot << ", output " << outIdx;
+              m_db.abortTxn();
+              return false;
+            }
+            ++indexedOutputs;
+          }
+        }
+
+        ++batchCount;
+        if (batchCount >= BATCH_SIZE || h + 1 == chainHeight) {
+          if (h + 1 == chainHeight) {
+            m_db.markOutputPubkeyIndexBackfilled(chainHeight);
+          }
+          m_db.commitTxn();
+          batchCount = 0;
+        }
+      }
+
+      if (chainHeight == 0) {
+        m_db.growMapIfNeeded();
+        m_db.beginWriteTxn();
+        m_db.clearOutputPubkeyIndex();
+        m_db.clearOutputPubkeyIndexBackfilledMarker();
+        m_db.markOutputPubkeyIndexBackfilled(chainHeight);
+        m_db.commitTxn();
+      }
+
+      logger(INFO, BRIGHT_GREEN) << "Output pubkey index backfill complete: "
+                                 << indexedOutputs << " output(s) indexed.";
+      return true;
+    } catch (const LMDBMapFullException&) {
+      if (m_db.hasActiveTxn()) {
+        m_db.abortTxn();
+      }
+      logger(WARNING, BRIGHT_YELLOW)
+        << "LMDB map full during output pubkey index backfill; resizing and retrying";
+      m_db.resizeMap();
+    } catch (const std::exception& e) {
+      if (m_db.hasActiveTxn()) {
+        m_db.abortTxn();
+      }
+      logger(ERROR, BRIGHT_RED)
+        << "Output pubkey index backfill failed: " << e.what();
+      return false;
+    }
+  }
 }
 
 bool Blockchain::isSyncing() const {

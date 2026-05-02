@@ -360,6 +360,103 @@ bool runOutputPubkeyUniquenessScenario() {
   return true;
 }
 
+bool runOutputPubkeyBackfillScenario() {
+  Logging::ConsoleLogger logger;
+  const CryptoNote::Currency currency = CryptoNote::CurrencyBuilder(logger).currency();
+  const std::filesystem::path dataDir =
+      std::filesystem::path("lmdb_output_pubkey_backfill_test_data");
+  std::error_code ec;
+  std::filesystem::remove_all(dataDir, ec);
+  std::filesystem::create_directories(dataDir, ec);
+  if (ec) {
+    std::cerr << "[FAIL] could not create output-pubkey backfill test directory: "
+              << ec.message() << std::endl;
+    return false;
+  }
+
+  Crypto::PublicKey genesisPubkey{};
+  Crypto::Hash genesisTxHash{};
+
+  {
+    System::Dispatcher dispatcher;
+    CryptoNote::Core core(currency, nullptr, logger, dispatcher, 0, false);
+    CryptoNote::CoreConfig coreConfig;
+    coreConfig.configFolder = dataDir.string();
+    CryptoNote::MinerConfig minerConfig;
+
+    if (!expect(core.init(coreConfig, minerConfig, false),
+                "backfill scenario initial core.init failed")) {
+      std::filesystem::remove_all(dataDir, ec);
+      return false;
+    }
+
+    Crypto::Hash genesisHash = core.getBlockIdByHeight(0);
+    CryptoNote::Block genesis;
+    if (!expect(core.getBlockByHash(genesisHash, genesis),
+                "backfill scenario failed to load genesis block")) {
+      core.deinit();
+      std::filesystem::remove_all(dataDir, ec);
+      return false;
+    }
+
+    genesisPubkey = boost::get<CryptoNote::KeyOutput>(genesis.baseTransaction.outputs[0].target).key;
+    genesisTxHash = getObjectHash(genesis.baseTransaction);
+    core.deinit();
+  }
+
+  {
+    CryptoNote::LMDBBlockchainDB db;
+    if (!expect(db.open((dataDir / "blockchain.lmdb").string()),
+                "failed to open LMDB for output-pubkey backfill simulation")) {
+      std::filesystem::remove_all(dataDir, ec);
+      return false;
+    }
+
+    db.beginWriteTxn();
+    db.clearOutputPubkeyIndex();
+    db.clearOutputPubkeyIndexBackfilledMarker();
+    db.commitTxn();
+    db.close();
+  }
+
+  {
+    System::Dispatcher dispatcher;
+    CryptoNote::Core core(currency, nullptr, logger, dispatcher, 0, false);
+    CryptoNote::CoreConfig coreConfig;
+    coreConfig.configFolder = dataDir.string();
+    CryptoNote::MinerConfig minerConfig;
+
+    if (!expect(core.init(coreConfig, minerConfig, false),
+                "reopened core failed to rebuild output-pubkey index")) {
+      std::filesystem::remove_all(dataDir, ec);
+      return false;
+    }
+
+    CryptoNote::ConfidentialInput cin;
+    cin.ringPubkeys.push_back(genesisPubkey);
+    std::list<std::pair<Crypto::Hash, size_t>> outputReferences;
+    if (!expect(core.scanCtInputRingForIndices(cin, outputReferences),
+                "rebuilt output-pubkey index did not resolve legacy KeyOutput pubkey")) {
+      core.deinit();
+      std::filesystem::remove_all(dataDir, ec);
+      return false;
+    }
+    if (!expect(outputReferences.size() == 1 &&
+                outputReferences.front().first == genesisTxHash &&
+                outputReferences.front().second == 0,
+                "legacy KeyOutput pubkey resolved to the wrong output after rebuild")) {
+      core.deinit();
+      std::filesystem::remove_all(dataDir, ec);
+      return false;
+    }
+
+    core.deinit();
+  }
+
+  std::filesystem::remove_all(dataDir, ec);
+  return true;
+}
+
 bool runCtOutputSemanticUniquenessScenario() {
   CryptoNote::Transaction tx;
   tx.version = CryptoNote::TRANSACTION_VERSION_CT;
@@ -397,6 +494,9 @@ int main() {
     return 1;
   }
   if (!runOutputPubkeyUniquenessScenario()) {
+    return 1;
+  }
+  if (!runOutputPubkeyBackfillScenario()) {
     return 1;
   }
   if (!runCtOutputSemanticUniquenessScenario()) {

@@ -25,6 +25,10 @@
 
 namespace CryptoNote {
 
+namespace {
+const char OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY[] = "output_pubkey_idx_v1";
+}
+
 // ─── Big-endian helpers ────────────────────────────────────────────────────
 
 void LMDBBlockchainDB::encBE32(uint8_t* out, uint32_t v) {
@@ -157,6 +161,7 @@ bool LMDBBlockchainDB::open(const std::string& path) {
     openDb(setupTxn, "key_outputs",       0,                         m_dbiKeyOutputs);
     openDb(setupTxn, "key_output_counts", 0,                         m_dbiKeyOutputCounts);
     openDb(setupTxn, "output_pubkey_idx", 0,                         m_dbiOutputPubkeyIdx);
+    openDb(setupTxn, "properties",        0,                         m_dbiProperties);
     openDb(setupTxn, "payment_id_idx",    MDB_DUPSORT | MDB_DUPFIXED, m_dbiPaymentIdIdx);
     openDb(setupTxn, "timestamp_idx",     0,                         m_dbiTimestampIdx);
     openDb(setupTxn, "gen_tx_idx",        0,                         m_dbiGenTxIdx);
@@ -217,6 +222,8 @@ void LMDBBlockchainDB::clear() {
   dropDb(m_dbiTxIndices);
   dropDb(m_dbiKeyOutputs);
   dropDb(m_dbiKeyOutputCounts);
+  dropDb(m_dbiOutputPubkeyIdx);
+  dropDb(m_dbiProperties);
   dropDb(m_dbiPaymentIdIdx);
   dropDb(m_dbiTimestampIdx);
   dropDb(m_dbiGenTxIdx);
@@ -780,6 +787,45 @@ bool LMDBBlockchainDB::removeOutputPubkey(const Crypto::PublicKey& pubkey) {
 }
 
 // ─── payment_id_idx (DUPSORT) ─────────────────────────────────────────────
+
+void LMDBBlockchainDB::clearOutputPubkeyIndex() {
+  assert(m_writeTxn);
+  int rc = mdb_drop(m_writeTxn, m_dbiOutputPubkeyIdx, 0);
+  checkRc(rc, "clearOutputPubkeyIndex");
+}
+
+bool LMDBBlockchainDB::isOutputPubkeyIndexBackfilled() const {
+  auto guard = readTxn();
+  MDB_val k = {sizeof(OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY) - 1,
+               const_cast<char*>(OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY)};
+  MDB_val v{};
+  int rc = mdb_get(guard.txn, m_dbiProperties, &k, &v);
+  if (rc == MDB_NOTFOUND) return false;
+  checkRc(rc, "isOutputPubkeyIndexBackfilled");
+  return v.mv_size == 4;
+}
+
+bool LMDBBlockchainDB::markOutputPubkeyIndexBackfilled(uint32_t chainHeight) {
+  assert(m_writeTxn);
+  MDB_val k = {sizeof(OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY) - 1,
+               const_cast<char*>(OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY)};
+  uint8_t value[4];
+  encBE32(value, chainHeight);
+  MDB_val v = {sizeof(value), value};
+  int rc = mdb_put(m_writeTxn, m_dbiProperties, &k, &v, 0);
+  checkRc(rc, "markOutputPubkeyIndexBackfilled");
+  return true;
+}
+
+bool LMDBBlockchainDB::clearOutputPubkeyIndexBackfilledMarker() {
+  assert(m_writeTxn);
+  MDB_val k = {sizeof(OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY) - 1,
+               const_cast<char*>(OUTPUT_PUBKEY_INDEX_BACKFILLED_KEY)};
+  int rc = mdb_del(m_writeTxn, m_dbiProperties, &k, nullptr);
+  if (rc == MDB_NOTFOUND) return false;
+  checkRc(rc, "clearOutputPubkeyIndexBackfilledMarker");
+  return true;
+}
 
 bool LMDBBlockchainDB::putPaymentId(const Crypto::Hash& paymentId, const Crypto::Hash& txHash) {
   assert(m_writeTxn);
