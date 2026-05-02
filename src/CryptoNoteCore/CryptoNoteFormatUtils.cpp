@@ -19,6 +19,7 @@
 #include "CryptoNoteFormatUtils.h"
 
 #include <set>
+#include <unordered_set>
 
 #include <Logging/LoggerRef.h>
 #include <Common/BinaryArray.hpp>
@@ -167,6 +168,7 @@ bool check_inputs_types_supported(const TransactionPrefix& tx) {
 bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
   if (tx.version == TRANSACTION_VERSION_CT) {
     // CT transaction: outputs must be ConfidentialOutput
+    std::unordered_set<PublicKey> keys_seen;
     for (const TransactionOutput& out : tx.outputs) {
       if (out.target.type() != typeid(ConfidentialOutput)) {
         if (error) {
@@ -181,6 +183,15 @@ bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
         }
         return false;
       }
+
+      const auto& targetKey = boost::get<ConfidentialOutput>(out.target).targetKey;
+      if (keys_seen.find(targetKey) != keys_seen.end()) {
+        if (error) {
+          *error = "The same CT output target is present more than once";
+        }
+        return false;
+      }
+      keys_seen.insert(targetKey);
     }
     return true;
   }

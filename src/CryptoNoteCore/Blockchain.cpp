@@ -3116,15 +3116,25 @@ bool Blockchain::pushTransaction(BlockEntry& block, const Crypto::Hash& transact
       m_db.putKeyOutput(tx.outputs[o].amount, globalIdx,
                         block.height, transactionIndex.transaction, o);
       // Phase 1 pubkey index: stable reference for CT input rings.
-      m_db.putOutputPubkey(boost::get<KeyOutput>(tx.outputs[o].target).key,
-                           block.height, transactionIndex.transaction, o);
+      const auto& outputKey = boost::get<KeyOutput>(tx.outputs[o].target).key;
+      if (!m_db.putOutputPubkey(outputKey, block.height, transactionIndex.transaction, o)) {
+        logger(ERROR, BRIGHT_RED) << "Duplicate output pubkey was pushed to blockchain at block "
+                                  << block.height << ", tx " << transactionIndex.transaction
+                                  << ", output " << o;
+        return false;
+      }
       gidx[o] = globalIdx;
     } else if (tx.outputs[o].target.type() == typeid(ConfidentialOutput)) {
       uint32_t globalIdx = m_db.getKeyOutputCount(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT);
       m_db.putKeyOutput(CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT, globalIdx,
                         block.height, transactionIndex.transaction, o);
-      m_db.putOutputPubkey(boost::get<ConfidentialOutput>(tx.outputs[o].target).targetKey,
-                           block.height, transactionIndex.transaction, o);
+      const auto& targetKey = boost::get<ConfidentialOutput>(tx.outputs[o].target).targetKey;
+      if (!m_db.putOutputPubkey(targetKey, block.height, transactionIndex.transaction, o)) {
+        logger(ERROR, BRIGHT_RED) << "Duplicate CT output pubkey was pushed to blockchain at block "
+                                  << block.height << ", tx " << transactionIndex.transaction
+                                  << ", output " << o;
+        return false;
+      }
       gidx[o] = globalIdx;
     }
   }

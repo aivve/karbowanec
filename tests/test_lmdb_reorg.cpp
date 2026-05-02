@@ -2,6 +2,8 @@
 #include "CryptoNoteCore/Core.h"
 #include "CryptoNoteCore/CoreConfig.h"
 #include "CryptoNoteCore/Currency.h"
+#include "CryptoNoteCore/CryptoNoteFormatUtils.h"
+#include "CryptoNoteCore/LMDBBlockchainDB.h"
 #include "CryptoNoteCore/MinerConfig.h"
 #include "Logging/ConsoleLogger.h"
 #include "System/Dispatcher.h"
@@ -298,13 +300,109 @@ bool runReorgScenario() {
   return true;
 }
 
+bool runOutputPubkeyUniquenessScenario() {
+  const std::filesystem::path dataDir =
+      std::filesystem::path("lmdb_output_pubkey_test_data");
+  std::error_code ec;
+  std::filesystem::remove_all(dataDir, ec);
+  std::filesystem::create_directories(dataDir, ec);
+  if (ec) {
+    std::cerr << "[FAIL] could not create output-pubkey test directory: "
+              << ec.message() << std::endl;
+    return false;
+  }
+
+  CryptoNote::LMDBBlockchainDB db;
+  if (!expect(db.open(dataDir.string()), "output-pubkey db.open failed")) {
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  Crypto::PublicKey pubkey{};
+  pubkey.data[0] = 0x42;
+
+  db.beginWriteTxn();
+  const bool firstInsert = db.putOutputPubkey(pubkey, 10, 1, 2);
+  db.commitTxn();
+  if (!expect(firstInsert, "first output-pubkey insert failed")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  db.beginWriteTxn();
+  const bool duplicateInsert = db.putOutputPubkey(pubkey, 11, 3, 4);
+  db.abortTxn();
+  if (!expect(!duplicateInsert, "duplicate output-pubkey insert was accepted")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  uint32_t block = 0;
+  uint16_t txSlot = 0;
+  uint16_t outIdx = 0;
+  if (!expect(db.getOutputPubkey(pubkey, block, txSlot, outIdx),
+              "output-pubkey lookup failed after duplicate rejection")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+  if (!expect(block == 10 && txSlot == 1 && outIdx == 2,
+              "duplicate output-pubkey insert overwrote original mapping")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  db.close();
+  std::filesystem::remove_all(dataDir, ec);
+  return true;
+}
+
+bool runCtOutputSemanticUniquenessScenario() {
+  CryptoNote::Transaction tx;
+  tx.version = CryptoNote::TRANSACTION_VERSION_CT;
+  tx.unlockTime = 0;
+  tx.fee = 0;
+
+  CryptoNote::ConfidentialOutput out{};
+  out.targetKey.data[0] = 0x7a;
+  out.maskedAmount.fill(0);
+
+  CryptoNote::TransactionOutput txOut;
+  txOut.amount = 0;
+  txOut.target = out;
+  tx.outputs.push_back(txOut);
+  tx.outputs.push_back(txOut);
+
+  std::string error;
+  if (!expect(!CryptoNote::check_outs_valid(tx, &error),
+              "duplicate CT output target passed semantic validation")) {
+    return false;
+  }
+
+  if (!expect(error == "The same CT output target is present more than once",
+              "duplicate CT output target produced unexpected error")) {
+    return false;
+  }
+
+  return true;
+}
+
 } // namespace
 
 int main() {
   if (!runReorgScenario()) {
     return 1;
   }
+  if (!runOutputPubkeyUniquenessScenario()) {
+    return 1;
+  }
+  if (!runCtOutputSemanticUniquenessScenario()) {
+    return 1;
+  }
 
-  std::cout << "[PASS] LMDB reorg scenario" << std::endl;
+  std::cout << "[PASS] LMDB reorg, output-pubkey uniqueness, and CT output semantic scenarios" << std::endl;
   return 0;
 }

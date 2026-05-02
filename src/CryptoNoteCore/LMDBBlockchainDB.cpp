@@ -748,7 +748,10 @@ bool LMDBBlockchainDB::putOutputPubkey(const Crypto::PublicKey& pubkey,
   valBuf[7] =  outIdx       & 0xFF;
   MDB_val v = {8, valBuf};
 
-  int rc = mdb_put(m_writeTxn, m_dbiOutputPubkeyIdx, &k, &v, 0);
+  int rc = mdb_put(m_writeTxn, m_dbiOutputPubkeyIdx, &k, &v, MDB_NOOVERWRITE);
+  if (rc == MDB_KEYEXIST) {
+    return false;
+  }
   checkRc(rc, "putOutputPubkey");
   return true;
 }
