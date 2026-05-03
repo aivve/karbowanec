@@ -2097,7 +2097,7 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
     body += "<table class=\"counter\" cellpadding=\"10px\">\n";
     body += "  <thead>\n";
     body += "  <tr>\n";
-    body += "    <th>No</th><th>Amount</th><th>Key image</th><th>Pseudo commitment</th><th>Output indexes (references)</th>\n";
+    body += "    <th>No</th><th>Amount</th><th>Key image</th><th>Pseudo commitment</th><th>Output indexes (references)<br />Key Offset - Output No</th>\n";
     body += "  </tr>\n";
     body += "</thead>\n";
     body += "<tbody>\n";
@@ -2124,7 +2124,7 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
           for (size_t n = 0; n < k.outputs.size(); ++n) {
             body += "    <a href=\"/explorer/tx/" + Common::podToHex(k.outputs[n].transactionHash) + "\">";
             body += (n < k.input.outputIndexes.size() ? std::to_string(k.input.outputIndexes[n]) : "?"); // key_offset
-            body += " (Output No " + std::to_string(k.outputs[n].number) +")</a>"; // tx output reference
+            body += " - " + std::to_string(k.outputs[n].number) +"</a>"; // tx output reference
             if (n + 1 < k.outputs.size()) body += ", ";
           }
         }
@@ -2146,7 +2146,7 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
             if (k < c.ringOutputIndexes.size()) {
               body += std::to_string(c.ringOutputIndexes[k]) + " ";
             }
-            body += "Output No " + std::to_string(c.outputs[k].number) + "</a>";
+            body += " - " + std::to_string(c.outputs[k].number) + "</a>";
             if (k + 1 < c.outputs.size()) body += ", ";
           }
         }
