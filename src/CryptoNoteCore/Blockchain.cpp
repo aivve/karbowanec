@@ -1806,7 +1806,12 @@ bool Blockchain::add_out_to_get_random_outs(uint64_t amount, size_t globalIdx,
   oen.global_amount_index = static_cast<uint32_t>(globalIdx);
   if (isKeyOutput) {
     oen.out_key = boost::get<KeyOutput>(target).key;
-    Crypto::transparent_amount_to_commitment(te.tx.outputs[outIdx].amount, oen.commitment);
+    if (!Crypto::transparent_amount_to_commitment(te.tx.outputs[outIdx].amount, oen.commitment)) {
+      logger(ERROR, BRIGHT_RED) << "internal error: failed to build transparent commitment for amount="
+        << te.tx.outputs[outIdx].amount << " globalIdx=" << globalIdx;
+      result_outs.outs.pop_back();
+      return false;
+    }
     oen.output_type = static_cast<uint8_t>(TransactionTypes::OutputType::Key);
   } else {
     const auto& cout = boost::get<ConfidentialOutput>(target);

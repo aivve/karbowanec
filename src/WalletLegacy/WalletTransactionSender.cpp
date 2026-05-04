@@ -198,8 +198,7 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::makeSendRequest(Transact
       0 == mixIn,
       context->dustPolicy.dustThreshold,
       context->selectedTransfers,
-      useCT,
-      CryptoNote::parameters::CT_MAX_EXTRA_NON_CANONICAL_INPUTS);
+      useCT);
   }
 
   throwIf(context->foundMoney < neededMoney, error::WRONG_AMOUNT);
@@ -245,8 +244,7 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
        0 == mixIn,
        context->dustPolicy.dustThreshold,
        context->selectedTransfers,
-       useCT,
-       CryptoNote::parameters::CT_MAX_EXTRA_NON_CANONICAL_INPUTS);
+       useCT);
   }
 
   throwIf(context->foundMoney < neededMoney, error::WRONG_AMOUNT);
@@ -669,14 +667,13 @@ uint64_t WalletTransactionSender::selectTransfersToSend(
   bool addUnmixable,
   uint64_t dust,
   std::list<TransactionOutputInformation>& selectedTransfers,
-  bool includeNonCanonical,
-  size_t nonCanonicalLimit) {
+  bool includeNonCanonical) {
 
   std::vector<size_t> unusedTransfers;
   std::vector<size_t> unusedDust;
   std::vector<size_t> unusedUnmixable;
   std::vector<size_t> nonCanonicalOutputs;
-  
+
   std::vector<TransactionOutputInformation> outputs;
   m_transferDetails.getOutputs(outputs, ITransfersContainer::IncludeDefault);
   std::vector<uint64_t> spendableAmounts(outputs.size(), 0);
@@ -718,7 +715,10 @@ uint64_t WalletTransactionSender::selectTransfersToSend(
   };
   std::mt19937 urng = Random::generator();
 
-  while (foundMoney < neededMoney && (!unusedTransfers.empty() || !unusedDust.empty() || (addUnmixable && !unusedUnmixable.empty()))) {
+  // Phase 1: prefer canonical / mixable inputs.
+  while (foundMoney < neededMoney &&
+         selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
+         (!unusedTransfers.empty() || !unusedDust.empty() || (addUnmixable && !unusedUnmixable.empty()))) {
     size_t idx;
     if (addUnmixable && !unusedUnmixable.empty()) {
       idx = popRandomValue(urng, unusedUnmixable);
@@ -728,19 +728,18 @@ uint64_t WalletTransactionSender::selectTransfersToSend(
     selectOutput(idx);
   }
 
-  if (includeNonCanonical && nonCanonicalLimit != 0 && !nonCanonicalOutputs.empty()) {
-    size_t added = 0;
-    while (added < nonCanonicalLimit &&
+  // Phase 2: if a shortfall remains, fall back to non-canonical inputs (sub-floor
+  // residue, V5+ coinbase whose single output is not a multiple of MIN_CT_DENOMINATION,
+  // etc.). The CT path absorbs the residue into the fee. Bounded only by CT_MAX_INPUTS.
+  if (includeNonCanonical && foundMoney < neededMoney && !nonCanonicalOutputs.empty()) {
+    while (foundMoney < neededMoney &&
            selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
            !nonCanonicalOutputs.empty()) {
-      if (selectOutput(popRandomValue(urng, nonCanonicalOutputs))) {
-        ++added;
-      }
+      selectOutput(popRandomValue(urng, nonCanonicalOutputs));
     }
   }
 
   return foundMoney;
-
 }
 
 } /* namespace CryptoNote */

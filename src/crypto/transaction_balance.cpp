@@ -200,16 +200,14 @@ bool transparent_amount_to_commitment(
   uint64_t amount,
   EllipticCurvePoint& commitment)
 {
+  // amount=0 would yield 0*H = identity. The identity point is rejected by
+  // point_valid_for_pedersen() everywhere it is consumed (input commitments,
+  // ring commitments, GK proof inputs), so producing it here is never useful
+  // and only invites accidental coupling. Consensus also requires KeyOutput
+  // amounts to be non-zero, so a transparent ring member with amount=0 cannot
+  // exist on chain. Fail fast at the source.
   if (amount == 0) {
-    // 0*H = identity. Encode identity point.
-    static const unsigned char identity[32] = {
-      0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    };
-    memcpy(&commitment, identity, 32);
-    return true;
+    return false;
   }
 
   // Compute amount*H (blinding factor = 0, so C = amount*H + 0*G = amount*H)

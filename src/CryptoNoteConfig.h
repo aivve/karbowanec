@@ -71,7 +71,7 @@ const uint64_t MIN_TX_MIXIN_SIZE                             = 2;
 const uint64_t MAX_TX_MIXIN_SIZE                             = 20;
 const uint64_t MAX_EXTRA_SIZE                                = 1024;
 
-// Confidential transaction parameters (post-fork)
+// Confidential transaction parameters
 const size_t   CT_MIN_RING_SIZE                              = 4;     // min ring members per CT input
 const size_t   CT_MAX_RING_SIZE                              = 16;    // max ring members per CT input
 const uint64_t CT_MINIMUM_FEE                                = UINT64_C(10000000000);    // 0.01 KRB (= MIN_CT_DENOMINATION)
@@ -79,7 +79,6 @@ const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(10000000
 const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      // internal bucket for hidden-output rings
 const size_t   CT_MAX_INPUTS                                 = 256;
 const size_t   CT_MAX_OUTPUTS                                = 256;
-const size_t   CT_MAX_EXTRA_NON_CANONICAL_INPUTS             = 32;    // wallet policy: opportunistic residue cleanup per CT spend
 
 const uint64_t MAX_TRANSACTION_SIZE_LIMIT                    = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_CURRENT / 4 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
 

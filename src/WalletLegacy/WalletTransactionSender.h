@@ -76,8 +76,7 @@ private:
 
   uint64_t selectTransfersToSend(uint64_t neededMoney, bool addUnmixable, uint64_t dust,
     std::list<TransactionOutputInformation>& selectedTransfers,
-    bool includeNonCanonical = false,
-    size_t nonCanonicalLimit = 0);
+    bool includeNonCanonical = false);
 
   const Currency& m_currency;
   AccountKeys m_keys;

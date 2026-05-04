@@ -88,9 +88,10 @@ bool sign_transaction_kernel(
 //
 // For transparent inputs with known plaintext amount, the implicit commitment
 // is amount*H + 0*G = amount*H (zero blinding factor).
-// The amount must be in atomic units.
+// The amount must be a non-zero value in atomic units.
 //
-// Returns false if the point computation fails.
+// Returns false if amount is 0 (would yield identity, rejected downstream)
+// or if the point computation fails.
 bool transparent_amount_to_commitment(
   uint64_t amount,
   EllipticCurvePoint& commitment);

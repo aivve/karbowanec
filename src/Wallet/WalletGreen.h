@@ -295,8 +295,7 @@ protected:
     uint64_t dustThreshold,
     std::vector<WalletOuts>&& wallets,
     std::vector<OutputToTransfer>& selectedTransfers,
-    bool includeNonCanonical = false,
-    size_t nonCanonicalLimit = 0);
+    bool includeNonCanonical = false);
 
   bool isCoinbaseOutput(const OutputToTransfer& output) const;
   std::vector<uint64_t> chooseInputMixins(const std::vector<OutputToTransfer>& selectedTransfers,

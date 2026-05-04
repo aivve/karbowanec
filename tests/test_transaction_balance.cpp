@@ -513,24 +513,18 @@ static void test_large_amounts() {
   PASS();
 }
 
-// ── Test 13: Transparent zero-amount commitment ──────────────────────
+// ── Test 13: Transparent zero-amount commitment is rejected ──────────
 
 static void test_transparent_zero() {
-  TEST("Transparent zero-amount: identity point");
+  TEST("Transparent zero-amount: rejected at the source");
 
   Crypto::EllipticCurvePoint C;
+  // amount=0 would yield 0*H = identity, which fails point_valid_for_pedersen
+  // downstream and is never a legitimate transparent ring member (consensus
+  // requires KeyOutput.amount != 0). transparent_amount_to_commitment must
+  // refuse it directly so callers get a single, clear failure point.
   bool ok = Crypto::transparent_amount_to_commitment(0, C);
-  if (!ok) FAIL("transparent_amount_to_commitment(0) failed");
-
-  // Should be the identity point: 0x01, 0x00...
-  static const unsigned char identity[32] = {
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-  };
-  if (memcmp(&C, identity, 32) != 0)
-    FAIL("zero-amount commitment != identity");
+  if (ok) FAIL("transparent_amount_to_commitment(0) should fail");
 
   PASS();
 }

@@ -1612,8 +1612,7 @@ void WalletGreen::prepareTransaction(std::vector<WalletOuts>&& wallets,
     0,
     std::move(wallets),
     selectedTransfers,
-    useCT,
-    CryptoNote::parameters::CT_MAX_EXTRA_NON_CANONICAL_INPUTS);
+    useCT);
 
   if (foundMoney < preparedTransaction.neededMoney) {
     m_logger(ERROR, BRIGHT_RED) << "Failed to create transaction: not enough money. Needed " << m_currency.formatAmount(preparedTransaction.neededMoney) <<
@@ -2690,8 +2689,7 @@ uint64_t WalletGreen::selectTransfers(
   uint64_t dustThreshold,
   std::vector<WalletOuts>&& wallets,
   std::vector<OutputToTransfer>& selectedTransfers,
-  bool includeNonCanonical,
-  size_t nonCanonicalLimit) {
+  bool includeNonCanonical) {
 
   uint64_t foundMoney = 0;
 
@@ -2744,32 +2742,38 @@ uint64_t WalletGreen::selectTransfers(
     return true;
   };
 
+  // Phase 1: prefer canonical / mixable inputs.
   ShuffleGenerator<size_t> indexGenerator(walletOuts.size());
-  while (foundMoney < neededMoney && !indexGenerator.empty()) {
+  while (foundMoney < neededMoney &&
+         selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
+         !indexGenerator.empty()) {
     selectOutput(walletOuts[indexGenerator()]);
   }
 
-  if (dust && !dustOutputs.empty()) {
+  if (dust && !dustOutputs.empty() &&
+      selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS) {
     ShuffleGenerator<size_t> dustIndexGenerator(dustOutputs.size());
     do {
       selectOutput(dustOutputs[dustIndexGenerator()]);
-    } while (foundMoney < neededMoney && !dustIndexGenerator.empty());
+    } while (foundMoney < neededMoney &&
+             selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
+             !dustIndexGenerator.empty());
   }
 
-  if (includeNonCanonical && nonCanonicalLimit != 0 && !nonCanonicalOutputs.empty()) {
+  // Phase 2: if a shortfall remains, fall back to non-canonical inputs (sub-floor
+  // residue, V5+ coinbase whose single output is not a multiple of MIN_CT_DENOMINATION,
+  // etc.). The CT path absorbs the residue into the fee. Bounded only by CT_MAX_INPUTS.
+  if (includeNonCanonical && foundMoney < neededMoney && !nonCanonicalOutputs.empty()) {
     ShuffleGenerator<size_t> nonCanonicalIndexGenerator(nonCanonicalOutputs.size());
-    size_t added = 0;
-    while (added < nonCanonicalLimit &&
+    while (foundMoney < neededMoney &&
            selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
            !nonCanonicalIndexGenerator.empty()) {
-      if (selectOutput(nonCanonicalOutputs[nonCanonicalIndexGenerator()])) {
-        ++added;
-      }
+      selectOutput(nonCanonicalOutputs[nonCanonicalIndexGenerator()]);
     }
   }
 
   return foundMoney;
-};
+}
 
 std::vector<WalletGreen::WalletOuts> WalletGreen::pickWalletsWithMoney() const {
   auto& walletsIndex = m_walletsContainer.get<RandomAccessIndex>();
