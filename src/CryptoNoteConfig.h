@@ -37,7 +37,7 @@ const uint64_t CRYPTONOTE_TX_PROOF_BASE58_PREFIX             = 3576968; // (0x36
 const uint64_t CRYPTONOTE_RESERVE_PROOF_BASE58_PREFIX        = 44907175188; // (0xa74ad1d14), starts with "RsrvPrf..."
 const uint64_t CRYPTONOTE_KEYS_SIGNATURE_BASE58_PREFIX       = 176103705; // (0xa7f2119), starts with "SigV1..."
 const size_t   CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW          = 10;
-const size_t   CRYPTONOTE_TX_SPENDABLE_AGE                   = 6;
+const size_t   CRYPTONOTE_TX_SPENDABLE_AGE                   = 2;
 const uint64_t CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT            = DIFFICULTY_TARGET * 7;
 const uint64_t CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V1         = DIFFICULTY_TARGET * 3;
 const size_t   BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW             = 60;
@@ -66,9 +66,9 @@ const uint64_t MINIMUM_FEE_V3                                = UINT64_C(10000000
 const uint64_t MINIMUM_FEE                                   = MINIMUM_FEE_V3;
 const uint64_t MAXIMUM_FEE                                   = UINT64_C(100000000000);
 
-const uint64_t DEFAULT_DUST_THRESHOLD                        = UINT64_C(100000000);
+const uint64_t DEFAULT_DUST_THRESHOLD                        = UINT64_C(10000000000);
 const uint64_t MIN_TX_MIXIN_SIZE                             = 2;
-const uint64_t MAX_TX_MIXIN_SIZE                             = 20;
+const uint64_t MAX_TX_MIXIN_SIZE                             = 20; // legacy, actual max mixin is defined in CT_MAX_RING_SIZE
 const uint64_t MAX_EXTRA_SIZE                                = 1024;
 
 // Confidential transaction parameters
