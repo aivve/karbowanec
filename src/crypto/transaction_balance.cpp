@@ -56,19 +56,18 @@ static void point_sub(const ge_p3& A, const ge_p3& B, ge_p3& result) {
   ge_p1p1_to_p3(&result, &diff);
 }
 
-// Identity point in ge_p3 representation (0, 1, 1, 0).
-static void identity_p3(ge_p3& result) {
-  // The neutral element in extended coordinates: (X:Y:Z:T) = (0:1:1:0)
-  ge_p3 zero;
-  memset(&zero, 0, sizeof(zero));
-  // Encode the identity (0x01, 0x00...00) and decode it back.
+// Identity point in ge_p3 representation. The neutral element encodes as
+// (x=0, y=1) -> bytes 0x01, 0x00..0x00, which always decodes successfully;
+// the return is checked anyway so a future change to ge_frombytes_vartime
+// can never silently leave `result` uninitialized.
+static bool identity_p3(ge_p3& result) {
   static const unsigned char identity_bytes[32] = {
     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
   };
-  ge_frombytes_vartime(&result, identity_bytes);
+  return ge_frombytes_vartime(&result, identity_bytes) == 0;
 }
 
 // ── compute_excess_commitment ────────────────────────────────────────
@@ -83,7 +82,8 @@ bool compute_excess_commitment(
 {
   // Start with identity
   ge_p3 accumulator;
-  identity_p3(accumulator);
+  if (!identity_p3(accumulator))
+    return false;
 
   // Add all input commitments
   for (size_t i = 0; i < num_inputs; ++i) {
