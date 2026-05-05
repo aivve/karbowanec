@@ -2763,12 +2763,22 @@ uint64_t WalletGreen::selectTransfers(
   // Phase 2: if a shortfall remains, fall back to non-canonical inputs (sub-floor
   // residue, V5+ coinbase whose single output is not a multiple of MIN_CT_DENOMINATION,
   // etc.). The CT path absorbs the residue into the fee. Bounded only by CT_MAX_INPUTS.
+  //
+  // Sort descending by spendable amount and pick largest-first instead of random:
+  // a wallet with a mix of large V5+ coinbase outputs (~tens of KRB each) and many
+  // tiny sub-floor pieces (sub-cent) would otherwise random-walk through the dust
+  // and exhaust CT_MAX_INPUTS long before covering the spend.
   if (includeNonCanonical && foundMoney < neededMoney && !nonCanonicalOutputs.empty()) {
-    ShuffleGenerator<size_t> nonCanonicalIndexGenerator(nonCanonicalOutputs.size());
-    while (foundMoney < neededMoney &&
-           selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
-           !nonCanonicalIndexGenerator.empty()) {
-      selectOutput(nonCanonicalOutputs[nonCanonicalIndexGenerator()]);
+    std::sort(nonCanonicalOutputs.begin(), nonCanonicalOutputs.end(),
+              [&outputs](size_t a, size_t b) {
+                return outputs[a].spendAmount > outputs[b].spendAmount;
+              });
+    for (size_t idx : nonCanonicalOutputs) {
+      if (foundMoney >= neededMoney ||
+          selectedTransfers.size() >= CryptoNote::parameters::CT_MAX_INPUTS) {
+        break;
+      }
+      selectOutput(idx);
     }
   }
 

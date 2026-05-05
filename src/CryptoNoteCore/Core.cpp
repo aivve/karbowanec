@@ -331,7 +331,10 @@ bool Core::check_tx_mixin(const Transaction& tx, const Crypto::Hash& txHash, uin
 
 bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_t blobSize, tx_verification_context& tvc, uint32_t height) {
   if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
-    // CT transaction: fee is an explicit field, checked against CT fee policy
+    // CT transaction: fee is an explicit field, checked against CT fee policy.
+    // The tx body itself pays a flat CT_MINIMUM_FEE; only attacker-controlled
+    // bloat in tx.extra is charged per byte so that arbitrary-data padding is
+    // not free. Mirrors the legacy V4_3+ rule, applied to extra only.
     uint64_t fee = tx.fee;
     if (fee < CryptoNote::parameters::CT_MINIMUM_FEE) {
       tvc.m_verification_failed = true;
@@ -344,6 +347,18 @@ bool Core::check_tx_fee(const Transaction& tx, const Crypto::Hash& txHash, size_
       tvc.m_verification_failed = true;
       logger(ERROR) << "CT transaction " << Common::podToHex(txHash) << " fee " << fee
                     << " above maximum " << CryptoNote::parameters::CT_MAXIMUM_FEE;
+      return false;
+    }
+    const uint64_t extraSize = static_cast<uint64_t>(tx.extra.size());
+    const uint64_t feeForExtra = m_currency.getFeePerByte(extraSize,
+                                   CryptoNote::parameters::CT_MINIMUM_FEE);
+    const uint64_t requiredFee = CryptoNote::parameters::CT_MINIMUM_FEE + feeForExtra;
+    if (fee < requiredFee) {
+      tvc.m_verification_failed = true;
+      tvc.m_tx_fee_too_small = true;
+      logger(DEBUGGING) << "CT transaction " << Common::podToHex(txHash) << " fee " << fee
+                        << " below required " << requiredFee
+                        << " (extra " << extraSize << " bytes, surcharge " << feeForExtra << ")";
       return false;
     }
     return true;

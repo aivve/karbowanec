@@ -731,11 +731,22 @@ uint64_t WalletTransactionSender::selectTransfersToSend(
   // Phase 2: if a shortfall remains, fall back to non-canonical inputs (sub-floor
   // residue, V5+ coinbase whose single output is not a multiple of MIN_CT_DENOMINATION,
   // etc.). The CT path absorbs the residue into the fee. Bounded only by CT_MAX_INPUTS.
+  //
+  // Sort descending by spendable amount and pick largest-first instead of random:
+  // a wallet with a mix of large V5+ coinbase outputs (~tens of KRB each) and many
+  // tiny sub-floor pieces (sub-cent) would otherwise random-walk through the dust
+  // and exhaust CT_MAX_INPUTS long before covering the spend.
   if (includeNonCanonical && foundMoney < neededMoney && !nonCanonicalOutputs.empty()) {
-    while (foundMoney < neededMoney &&
-           selectedTransfers.size() < CryptoNote::parameters::CT_MAX_INPUTS &&
-           !nonCanonicalOutputs.empty()) {
-      selectOutput(popRandomValue(urng, nonCanonicalOutputs));
+    std::sort(nonCanonicalOutputs.begin(), nonCanonicalOutputs.end(),
+              [&spendableAmounts](size_t a, size_t b) {
+                return spendableAmounts[a] > spendableAmounts[b];
+              });
+    for (size_t idx : nonCanonicalOutputs) {
+      if (foundMoney >= neededMoney ||
+          selectedTransfers.size() >= CryptoNote::parameters::CT_MAX_INPUTS) {
+        break;
+      }
+      selectOutput(idx);
     }
   }
 

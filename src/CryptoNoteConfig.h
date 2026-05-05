@@ -77,7 +77,14 @@ const size_t   CT_MAX_RING_SIZE                              = 16;    // max rin
 const uint64_t CT_MINIMUM_FEE                                = UINT64_C(10000000000);    // 0.01 KRB (= MIN_CT_DENOMINATION)
 const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(100000000000000); // 100 KRB
 const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      // internal bucket for hidden-output rings
-const size_t   CT_MAX_INPUTS                                 = 256;
+// Per-tx structural caps. The binding consensus cap on tx blob size is
+// MAX_TRANSACTION_SIZE_LIMIT (~244 KB at current parameters). With CT-output
+// GK proofs at ~1.4 KB each and CT inputs at ~0.6 KB (ring 4) to ~2.2 KB
+// (ring 16), the size cap is reached well before these counts in practice.
+// They remain as defense in depth against pathological/buggy txs and to
+// bound per-tx CPU verification cost (GK verify ~3-5 ms/output, MLSAG +
+// per-ring-member subgroup checks and DB lookups per input).
+const size_t   CT_MAX_INPUTS                                 = 512;
 const size_t   CT_MAX_OUTPUTS                                = 256;
 
 const uint64_t MAX_TRANSACTION_SIZE_LIMIT                    = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_CURRENT / 4 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
