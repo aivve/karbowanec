@@ -185,7 +185,7 @@ namespace CryptoNote {
 void serialize(TransactionPrefix& txP, ISerializer& serializer) {
   serializer(txP.version, "version");
 
-  if (txP.version != CURRENT_TRANSACTION_VERSION && txP.version != TRANSACTION_VERSION_CT) {
+  if (txP.version > CURRENT_TRANSACTION_VERSION && txP.version != TRANSACTION_VERSION_CT) {
     throw std::runtime_error("Wrong transaction version");
   }
 
