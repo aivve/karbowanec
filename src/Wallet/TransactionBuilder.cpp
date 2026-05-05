@@ -115,6 +115,47 @@ std::unique_ptr<ITransaction> buildTransaction(
 // after fully populating the ConfidentialInput structs, which matches the
 // hash used by isOurOutgoingTransaction() in TransfersConsumer.cpp.
 
+namespace {
+
+// RAII guard that securely wipes all temporary CT-build secrets when it goes
+// out of scope, on both the success and the exception path. Wallet hardening
+// only — does not affect consensus serialization or transaction validity.
+struct CTBuildSecretCleanup {
+  std::vector<Crypto::EllipticCurveScalar>& outputBlindings;
+  std::vector<Crypto::EllipticCurveScalar>& pseudoBlindings;
+  std::vector<CTBuildInput>& inputs;
+  Crypto::EllipticCurveScalar* excessScalar = nullptr;
+  KeyPair* txKeyPair = nullptr;
+
+  ~CTBuildSecretCleanup() {
+    if (!outputBlindings.empty()) {
+      sodium_memzero(outputBlindings.data(),
+                     outputBlindings.size() * sizeof(Crypto::EllipticCurveScalar));
+    }
+    if (!pseudoBlindings.empty()) {
+      sodium_memzero(pseudoBlindings.data(),
+                     pseudoBlindings.size() * sizeof(Crypto::EllipticCurveScalar));
+    }
+    for (auto& input : inputs) {
+      sodium_memzero(&input.realBlinding, sizeof(input.realBlinding));
+      sodium_memzero(&input.spendPrivkey, sizeof(input.spendPrivkey));
+    }
+    if (excessScalar != nullptr) {
+      sodium_memzero(excessScalar, sizeof(*excessScalar));
+    }
+    if (txKeyPair != nullptr) {
+      sodium_memzero(&txKeyPair->secretKey, sizeof(txKeyPair->secretKey));
+    }
+  }
+};
+
+} // namespace
+
+// NOTE: buildConfidentialTransaction() consumes a *temporary* set of CTBuildInput
+// descriptors copied from wallet state. The function securely wipes the secret
+// fields (realBlinding, spendPrivkey) of each input on both success and
+// exception paths via CTBuildSecretCleanup. Callers must not pass references to
+// persistent wallet storage — only short-lived build descriptors.
 Transaction buildConfidentialTransaction(
     std::vector<CTBuildInput>& inputs,
     std::vector<CTBuildOutput>& outputs,
@@ -159,6 +200,15 @@ Transaction buildConfidentialTransaction(
   std::vector<Crypto::EllipticCurvePoint> pseudoCommitments(inputs.size());
   std::vector<Crypto::KeyImage> keyImages(inputs.size());
 
+  // Pre-size outputBlindings so its storage is registered with the cleanup
+  // guard before any code path that can throw populates secrets.
+  std::vector<Crypto::EllipticCurveScalar> outputBlindings(outputs.size());
+
+  // Install RAII cleanup as early as possible so secrets are wiped on every
+  // exit path (success or exception). excessScalar / txKeyPair pointers are
+  // set immediately after those locals are declared further down.
+  CTBuildSecretCleanup cleanup{outputBlindings, pseudoBlindings, inputs};
+
   for (size_t i = 0; i < inputs.size(); ++i) {
     // Generate random pseudo-blinding factor
     Crypto::EllipticCurveScalar r_pseudo;
@@ -168,7 +218,9 @@ Transaction buildConfidentialTransaction(
 
     // Compute pseudo-commitment: C' = amount*H + r'*G
     Crypto::PublicKey pseudo_pk;
-    if (!Crypto::pedersen_commit(inputs[i].amount, r_pseudo, pseudo_pk)) {
+    bool pcOk = Crypto::pedersen_commit(inputs[i].amount, r_pseudo, pseudo_pk);
+    sodium_memzero(&r_pseudo, sizeof(r_pseudo));
+    if (!pcOk) {
       throw std::runtime_error("Failed to compute pseudo-commitment for input " + std::to_string(i));
     }
     std::memcpy(&pseudoCommitments[i], &pseudo_pk, 32);
@@ -206,6 +258,7 @@ Transaction buildConfidentialTransaction(
   Crypto::Hash inputsHash;
   getObjectHash(tx.inputs, inputsHash);
   KeyPair txKeyPair;
+  cleanup.txKeyPair = &txKeyPair;
   if (!generateDeterministicTransactionKeys(inputsHash, viewSecretKey, txKeyPair)) {
     throw std::runtime_error("Failed to generate deterministic transaction keys");
   }
@@ -230,16 +283,24 @@ Transaction buildConfidentialTransaction(
     return a.amount < b.amount;
   });
 
-  // Per-output state: blinding factors, commitments, stealth keys, denomination indices
-  std::vector<Crypto::EllipticCurveScalar> outputBlindings(outputs.size());
+  // Per-output state: commitments, stealth keys, denomination indices.
+  // outputBlindings was pre-sized above and is owned by the cleanup guard.
   std::vector<Crypto::PublicKey> outputCommitments(outputs.size());
   std::vector<Crypto::PublicKey> outputTargetKeys(outputs.size());
   std::vector<std::array<uint8_t, 8>> outputMaskedAmounts(outputs.size());
   std::vector<int> outputDenomIndices(outputs.size());
 
+  // RAII helper: wipe the per-iteration ECDH shared secret on every exit path.
+  struct ScopedKeyDerivationWipe {
+    Crypto::KeyDerivation* p;
+    ~ScopedKeyDerivationWipe() { if (p) sodium_memzero(p, sizeof(*p)); }
+  };
+
   for (size_t i = 0; i < outputs.size(); ++i) {
     // Derive ECDH shared secret with recipient
     Crypto::KeyDerivation sharedSecret;
+    ScopedKeyDerivationWipe sharedSecretWipe{&sharedSecret};
+
     if (!Crypto::generate_key_derivation(outputs[i].destination.viewPublicKey,
                                           txKeyPair.secretKey, sharedSecret)) {
       throw std::runtime_error("Failed to generate key derivation for output " + std::to_string(i));
@@ -349,6 +410,7 @@ Transaction buildConfidentialTransaction(
   // contributes fully. The balance equation:
   //   sum(C'_in) - sum(C_out) - fee*H = excess*G
   Crypto::EllipticCurveScalar excessScalar;
+  cleanup.excessScalar = &excessScalar;
   Crypto::compute_excess_scalar(
       pseudoBlindings.data(), pseudoBlindings.size(),
       outputBlindings.data(), outputBlindings.size(),
@@ -364,11 +426,10 @@ Transaction buildConfidentialTransaction(
   std::memcpy(&tx.kernel.sigE, &cryptoKernel.signature, 32);
   std::memcpy(&tx.kernel.sigS, reinterpret_cast<const char*>(&cryptoKernel.signature) + 32, 32);
 
-  // ── Secure cleanup ─────────────────────────────────────────────────────────
-  sodium_memzero(outputBlindings.data(), outputBlindings.size() * sizeof(Crypto::EllipticCurveScalar));
-  sodium_memzero(pseudoBlindings.data(), pseudoBlindings.size() * sizeof(Crypto::EllipticCurveScalar));
-  sodium_memzero(&excessScalar, sizeof(excessScalar));
-
+  // All temporary CT-build secrets (outputBlindings, pseudoBlindings, per-input
+  // realBlinding/spendPrivkey, excessScalar, txKeyPair.secretKey) are wiped by
+  // CTBuildSecretCleanup's destructor on the way out — including any early
+  // exception path above. Wallet hardening only; tx bytes are unchanged.
   return tx;
 }
 
