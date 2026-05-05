@@ -2321,6 +2321,8 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       logger(ERROR) << "CT validation: input " << i << " has empty ring in tx " << txHash;
       return false;
     }
+    // Allow ring size 1 for special handling only as a candidate for the V5+ coinbase carve-out.
+    // The actual referenced output is checked below after resolving the ring member.
     if (ringSize != 1 && ringSize < CT_MIN_RING_SIZE) {
       logger(ERROR) << "CT validation: input " << i << " ring size " << ringSize
                     << " below minimum " << CT_MIN_RING_SIZE << " in tx " << txHash;
@@ -2520,8 +2522,10 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
   }
 
-  // Step 7: Verify subgroup membership of all GK proof elements A[j], B[j], Q[m]
-  // (Already done in Step 3 during ge_frombytes_vartime decode + gk_verify)
+  // Step 7: Verify subgroup membership of all GK proof elements
+  // GK proof point/scalar validation is performed inside gk_verify()
+  // when each output proof is checked above. No separate GK subgroup
+  // pass is needed here.
 
   // Step 8: Verify balance equation: sum(C_in) - sum(C_out) - fee*H = excess_commitment
   {
@@ -2544,10 +2548,11 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     // Map CryptoNote::TransactionKernel to Crypto::TransactionKernel
     // CryptoNote kernel has: excessCommitment (Point), sigE (Scalar), sigS (Scalar)
     // Crypto kernel has: excess (Point), signature (Signature = {c, r})
-    Crypto::TransactionKernel crypto_kernel;
+    Crypto::TransactionKernel crypto_kernel{};
     crypto_kernel.excess = tx.kernel.excessCommitment;
     // Signature is (e, s) pair stored as two 32-byte scalars
-    memcpy(&crypto_kernel.signature, &tx.kernel.sigE, 64);
+    crypto_kernel.signature.c = tx.kernel.sigE;
+    crypto_kernel.signature.r = tx.kernel.sigS;
 
     if (!Crypto::verify_transaction_balance(
         input_commits.data(), input_commits.size(),
