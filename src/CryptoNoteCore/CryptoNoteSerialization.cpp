@@ -59,8 +59,10 @@ size_t getSignaturesCount(const TransactionInput& input) {
 struct BinaryVariantTagGetter: boost::static_visitor<uint8_t> {
   uint8_t operator()(const CryptoNote::BaseInput) { return  0xff; }
   uint8_t operator()(const CryptoNote::KeyInput) { return  0x2; }
+  // Tag 0x3 reserverd for deprecated CryptoNote::MultisignatureInput
   uint8_t operator()(const CryptoNote::ConfidentialInput) { return  0x4; }
   uint8_t operator()(const CryptoNote::KeyOutput) { return  0x2; }
+  // Tag 0x3 reserverd for deprecated CryptoNote::MultisignatureOutput
   uint8_t operator()(const CryptoNote::ConfidentialOutput) { return  0x4; }
   uint8_t operator()(const CryptoNote::Transaction) { return  0xcc; }
   uint8_t operator()(const CryptoNote::Block) { return  0xbb; }
