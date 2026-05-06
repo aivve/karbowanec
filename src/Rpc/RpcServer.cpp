@@ -2860,6 +2860,7 @@ bool RpcServer::on_get_transactions_pool_short(const COMMAND_RPC_GET_TRANSACTION
     mempool_transaction.amount_out = getRpcPublicOutputAmount(txd.tx);
     mempool_transaction.size = txd.blobSize;
     mempool_transaction.receive_time = txd.receiveTime;
+    mempool_transaction.version = txd.tx.version;
     res.transactions.push_back(mempool_transaction);
   }
   res.status = CORE_RPC_STATUS_OK;
@@ -2926,6 +2927,7 @@ bool RpcServer::on_get_transactions_by_payment_id(const COMMAND_RPC_GET_TRANSACT
     transaction_short.fee = getRpcTransactionFee(tx);
     transaction_short.amount_out = amount_out;
     transaction_short.size = getObjectBinarySize(tx);
+    transaction_short.version = tx.version;
     res.transactions.push_back(transaction_short);
   }
 

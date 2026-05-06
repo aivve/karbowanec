@@ -666,12 +666,17 @@ struct transaction_short_response {
   uint64_t fee;
   uint64_t amount_out;
   uint64_t size;
+  // Transaction version - 1 (or 0 for genesis) is transparent, 2 is CT.
+  // Lets clients distinguish hidden-amount transactions in list views without
+  // a follow-up gettransaction call or a heuristic over fee/amount.
+  uint8_t version;
 
   void serialize(ISerializer &s) {
     KV_MEMBER(hash)
     KV_MEMBER(fee)
     KV_MEMBER(amount_out)
     KV_MEMBER(size)
+    KV_MEMBER(version)
   }
 };
 
@@ -681,6 +686,7 @@ struct transaction_pool_response {
   uint64_t amount_out;
   uint64_t size;
   uint64_t receive_time;
+  uint8_t version;
 
   void serialize(ISerializer &s) {
     KV_MEMBER(hash)
@@ -688,6 +694,7 @@ struct transaction_pool_response {
     KV_MEMBER(amount_out)
     KV_MEMBER(size)
     KV_MEMBER(receive_time)
+    KV_MEMBER(version)
   }
 };
 
