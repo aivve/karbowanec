@@ -28,6 +28,7 @@
 #include "Serialization/SerializationOverloads.h"
 #include "Serialization/BinaryInputStreamSerializer.h"
 #include "Serialization/BinaryOutputStreamSerializer.h"
+#include "Serialization/JsonOutputStreamSerializer.h"
 
 #include "Common/StringOutputStream.h"
 #include "crypto/crypto.h"
@@ -395,6 +396,36 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
 }
 
 void serialize(CTOutputProof& proof, ISerializer& serializer) {
+  // The proof body is consensus-critical: the binary form is fixed at 6 raw
+  // points/scalars per field with no length prefix, so any signed/hashed bytes
+  // line up with what verifiers reconstruct. JSON output, however, needs named
+  // arrays so RPC consumers (block explorer) can read the fields. Branch on
+  // serializer type rather than retrofitting beginArray() into the binary path,
+  // which would change the on-disk layout.
+  if (dynamic_cast<JsonOutputStreamSerializer*>(&serializer) != nullptr) {
+    auto emitPointArray = [&](Crypto::EllipticCurvePoint (&arr)[6], Common::StringView name) {
+      size_t size = 6;
+      serializer.beginArray(size, name);
+      for (size_t i = 0; i < 6; ++i) serializePod(arr[i], "", serializer);
+      serializer.endArray();
+    };
+    auto emitScalarArray = [&](Crypto::EllipticCurveScalar (&arr)[6], Common::StringView name) {
+      size_t size = 6;
+      serializer.beginArray(size, name);
+      for (size_t i = 0; i < 6; ++i) serializePod(arr[i], "", serializer);
+      serializer.endArray();
+    };
+    emitPointArray(proof.I, "I");
+    emitPointArray(proof.A, "A");
+    emitPointArray(proof.B, "B");
+    emitPointArray(proof.Q, "Q");
+    emitScalarArray(proof.z, "z");
+    emitScalarArray(proof.za, "za");
+    emitScalarArray(proof.zb, "zb");
+    serializePod(proof.f, "f", serializer);
+    return;
+  }
+
   for (size_t i = 0; i < 6; ++i) {
     serializePod(proof.I[i], "", serializer);
   }
