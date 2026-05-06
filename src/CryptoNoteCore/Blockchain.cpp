@@ -968,6 +968,11 @@ bool Blockchain::getBlockLongHash(Crypto::cn_context& context, const Block& b, C
   // directly from the block template instead of getCurrentBlockchainHeight().
   const uint32_t currentHeight = boost::get<BaseInput>(b.baseTransaction.inputs[0]).blockIndex;
   const uint32_t unlockWindow = static_cast<uint32_t>(m_currency.minedMoneyUnlockWindow());
+  if (currentHeight <= unlockWindow + 1) {
+    logger(ERROR, BRIGHT_RED) << "[POW] block height " << currentHeight
+      << " too low for v5+ PoW (unlockWindow=" << unlockWindow << ")";
+    return false;
+  }
   const uint32_t maxHeight = currentHeight - 1 - unlockWindow;
 
 #define ITER 128
