@@ -39,16 +39,16 @@ struct KeyInput {
   Crypto::KeyImage keyImage;
 };
 
-// Confidential transaction input (version 4) — prefix portion only.
+// Confidential transaction input (version 2) — prefix portion only.
 // Contains the ring of public keys and commitments, a pseudo-output commitment,
 // and key image. MLSAG signatures are stored separately in Transaction body.
 struct ConfidentialInput {
-  uint64_t                                  ringAmount;      // transparent amount bucket of referenced ring members
-  std::vector<uint32_t>                     ringOutputIndexes; // relative offsets in the ringAmount bucket
-  std::vector<Crypto::PublicKey>           ringPubkeys;   // one-time public keys of ring members
-  std::vector<Crypto::EllipticCurvePoint>  ringCommitments; // Pedersen commitments of ring members
-  Crypto::EllipticCurvePoint               pseudoCommitment; // C' = v*H + r'*G
-  Crypto::KeyImage                         keyImage;       // I = x * Hp(P)
+  uint64_t                                 ringAmount;        // transparent amount bucket of referenced ring members
+  std::vector<uint32_t>                    ringOutputIndexes; // relative offsets in the ringAmount bucket
+  std::vector<Crypto::PublicKey>           ringPubkeys;       // one-time public keys of ring members
+  std::vector<Crypto::EllipticCurvePoint>  ringCommitments;   // Pedersen commitments of ring members
+  Crypto::EllipticCurvePoint               pseudoCommitment;  // C' = v*H + r'*G
+  Crypto::KeyImage                         keyImage;          // I = x * Hp(P)
 };
 
 typedef boost::variant<BaseInput, KeyInput, ConfidentialInput> TransactionInput;
@@ -61,13 +61,13 @@ struct KeyOutput {
   Crypto::PublicKey key;
 };
 
-// Confidential transaction output (version 4) — prefix portion only.
+// Confidential transaction output (version 2) — prefix portion only.
 // Contains a Pedersen commitment and masked amount. GK denomination proofs
 // are stored separately in Transaction body.
 struct ConfidentialOutput {
   Crypto::PublicKey          targetKey;        // One-time stealth address P = Hs(8aR||idx)*G + B  (32 bytes)
   Crypto::EllipticCurvePoint commitment;       // Pedersen commitment C = v*H + r*G  (32 bytes)
-  std::array<uint8_t, 8>    maskedAmount;      // ECDH-masked denomination (8 bytes)
+  std::array<uint8_t, 8>     maskedAmount;     // ECDH-masked denomination (8 bytes)
 };
 
 typedef boost::variant<KeyOutput, ConfidentialOutput> TransactionOutputTarget;
@@ -80,7 +80,7 @@ struct TransactionOutput {
 using TransactionInputs = std::vector<TransactionInput>;
 
 // ---------------------------------------------------------------------------
-// CT proof body types (version 4 only — stored in Transaction, not prefix)
+// CT proof body types (version 2 only — stored in Transaction, not prefix)
 // ---------------------------------------------------------------------------
 
 // Per-input MLSAG ring signature (two-row: spend key + commitment difference).
