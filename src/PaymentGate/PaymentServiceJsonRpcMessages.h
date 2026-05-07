@@ -24,11 +24,12 @@
 #include <limits>
 #include <vector>
 
+#include "CryptoNoteConfig.h"
 #include "Serialization/ISerializer.h"
 
 namespace PaymentService {
 
-const uint32_t DEFAULT_ANONYMITY_LEVEL = 6;
+const uint32_t DEFAULT_ANONYMITY_LEVEL = static_cast<uint32_t>(CryptoNote::parameters::DEFAULT_TX_MIXIN);
 
 class RequestSerializationError: public std::exception {
 public:

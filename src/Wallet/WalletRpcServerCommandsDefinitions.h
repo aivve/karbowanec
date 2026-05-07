@@ -69,7 +69,7 @@ using CryptoNote::ISerializer;
     {
       std::list<transfer_destination> destinations;
       uint64_t fee = CryptoNote::parameters::MINIMUM_FEE_V2;
-      uint64_t mixin = 0;
+      uint64_t mixin = CryptoNote::parameters::DEFAULT_TX_MIXIN;
       uint64_t unlock_time = 0;
       std::string payment_id;
       std::string extra;

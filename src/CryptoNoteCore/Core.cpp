@@ -448,7 +448,7 @@ bool Core::check_tx_unmixable(const Transaction& tx, const Crypto::Hash& txHash,
     // Post-CT-fork: transparent outputs in non-coinbase transactions must be >= MIN_CT_DENOMINATION
     // (this function is only invoked for non-coinbase txs). Coinbase remains the dust sink and
     // may carry sub-floor fee residue. CT outputs are validated structurally via the GK proof.
-    if (height >= CryptoNote::parameters::CT_FORK_HEIGHT &&
+    if (m_currency.isConfidentialTransactionsActivated(height) &&
         out.amount > 0 && out.amount < CryptoNote::MIN_CT_DENOMINATION) {
       logger(ERROR) << "Transparent output below MIN_CT_DENOMINATION for tx id= " << Common::podToHex(txHash);
       return false;
@@ -953,7 +953,8 @@ bool Core::check_tx_syntax(const Transaction& tx, const Crypto::Hash& tx_hash, u
     return false;
   }
 
-  const bool ctActivated = height >= CryptoNote::parameters::CT_FORK_HEIGHT;
+  const uint8_t currentTransactionVersion = m_currency.currentTransactionVersion(height);
+  const bool ctActivated = currentTransactionVersion == TRANSACTION_VERSION_CT;
   if (tx.version == TRANSACTION_VERSION_CT && !ctActivated) {
     logger(ERROR) << "CT transaction " << Common::podToHex(tx_hash)
                   << " arrived before CT activation height "
@@ -962,12 +963,10 @@ bool Core::check_tx_syntax(const Transaction& tx, const Crypto::Hash& tx_hash, u
     return false;
   }
 
-  const uint8_t blockMajorVersion = m_blockchain.getBlockMajorVersionForHeight(height);
-  if (tx.version == CURRENT_TRANSACTION_VERSION && blockMajorVersion >= BLOCK_MAJOR_VERSION_6) {
+  if (tx.version == CURRENT_TRANSACTION_VERSION && currentTransactionVersion != CURRENT_TRANSACTION_VERSION) {
     logger(ERROR) << "Legacy transaction " << Common::podToHex(tx_hash)
                   << " rejected for block height " << height
-                  << " (major version " << static_cast<unsigned>(blockMajorVersion)
-                  << ", CT-only era)";
+                  << " (CT-only era)";
     return false;
   }
 

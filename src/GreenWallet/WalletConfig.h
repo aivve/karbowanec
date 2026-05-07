@@ -47,8 +47,8 @@ namespace WalletConfig
     const long unsigned int addressLength = 95;
 
 
-    /* The mixin value to use with transactions */
-    const uint64_t defaultMixin = 5;
+    /* Decoy count used by default; CT_MAX_RING_SIZE - 1 gives ring size 16. */
+    const uint64_t defaultMixin = CryptoNote::parameters::DEFAULT_TX_MIXIN;
 
     /* The default fee value to use with transactions (in ATOMIC units!) */
     const uint64_t defaultFee = CryptoNote::parameters::MINIMUM_FEE; 

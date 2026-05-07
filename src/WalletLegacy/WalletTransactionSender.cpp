@@ -182,7 +182,7 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::makeSendRequest(Transact
   throwIf(transfers.empty(), error::ZERO_DESTINATION);
   validateTransfersAddresses(transfers);
   uint64_t neededMoney = countNeededMoney(fee, transfers);
-  const bool useCT = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::CT_FORK_HEIGHT;
+  const bool useCT = m_currency.currentTransactionVersion(m_node.getLastLocalBlockHeight()) == CryptoNote::TRANSACTION_VERSION_CT;
 
   std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
 
@@ -228,7 +228,7 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
   throwIf(transfers.empty(), error::ZERO_DESTINATION);
   validateTransfersAddresses(transfers);
   uint64_t neededMoney = countNeededMoney(fee, transfers);
-  const bool useCT = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::CT_FORK_HEIGHT;
+  const bool useCT = m_currency.currentTransactionVersion(m_node.getLastLocalBlockHeight()) == CryptoNote::TRANSACTION_VERSION_CT;
 
   std::shared_ptr<SendTransactionContext> context = std::make_shared<SendTransactionContext>();
 
@@ -377,7 +377,7 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
     uint64_t totalAmount = -transaction.totalAmount;
     uint64_t changeAmount = context->foundMoney > totalAmount ? context->foundMoney - totalAmount : 0;
 
-    bool useCT = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::CT_FORK_HEIGHT;
+    const bool useCT = m_currency.currentTransactionVersion(m_node.getLastLocalBlockHeight()) == CryptoNote::TRANSACTION_VERSION_CT;
 
     Transaction tx;
     if (useCT) {

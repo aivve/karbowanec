@@ -74,6 +74,7 @@ const uint64_t MAX_EXTRA_SIZE                                = 1024;
 // Confidential transaction parameters
 const size_t   CT_MIN_RING_SIZE                              = 4;     // min ring members per CT input
 const size_t   CT_MAX_RING_SIZE                              = 16;    // max ring members per CT input
+const uint64_t DEFAULT_TX_MIXIN                              = CT_MAX_RING_SIZE - 1; // decoys, gives ring size 16
 const uint64_t CT_MINIMUM_FEE                                = UINT64_C(10000000000);    // 0.01 KRB (= MIN_CT_DENOMINATION)
 const uint64_t CT_MAXIMUM_FEE                                = UINT64_C(100000000000000); // 100 KRB
 const uint64_t CT_CONFIDENTIAL_OUTPUT_AMOUNT                 = UINT64_MAX;      // internal bucket for hidden-output rings

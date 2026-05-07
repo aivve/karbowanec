@@ -1603,7 +1603,7 @@ void WalletGreen::prepareTransaction(std::vector<WalletOuts>&& wallets,
 
   // CT activation: at and above CT_FORK_HEIGHT, regular transactions must use the
   // confidential path with canonical denomination decomposition.
-  bool useCT = m_node.getLastLocalBlockHeight() >= CryptoNote::parameters::CT_FORK_HEIGHT;
+  const bool useCT = m_currency.currentTransactionVersion(m_node.getLastLocalBlockHeight()) == CryptoNote::TRANSACTION_VERSION_CT;
 
   std::vector<OutputToTransfer> selectedTransfers;
   uint64_t foundMoney = selectTransfers(

@@ -130,6 +130,10 @@ public:
   uint32_t minNumberVotingBlocks() const { return (m_upgradeVotingWindow * m_upgradeVotingThreshold + 99) / 100; }
   uint32_t maxUpgradeDistance() const { return 7 * m_upgradeWindow; }
   uint32_t calculateUpgradeHeight(uint32_t voteCompleteHeight) const { return voteCompleteHeight + m_upgradeWindow; }
+  bool isConfidentialTransactionsActivated(uint32_t height) const { return height >= CryptoNote::parameters::CT_FORK_HEIGHT; }
+  uint8_t currentTransactionVersion(uint32_t height) const {
+    return isConfidentialTransactionsActivated(height) ? TRANSACTION_VERSION_CT : CURRENT_TRANSACTION_VERSION;
+  }
 
   const std::string& blocksFileName() const { return m_blocksFileName; }
   const std::string& blocksCacheFileName() const { return m_blocksCacheFileName; }

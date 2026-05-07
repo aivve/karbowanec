@@ -287,7 +287,7 @@ namespace CryptoNote {
   }
 
   bool Currency::isFusionTransaction(const std::vector<uint64_t>& inputsAmounts, const std::vector<uint64_t>& outputsAmounts, size_t size, uint32_t height) const {
-    if (height >= CryptoNote::parameters::CT_FORK_HEIGHT) {
+    if (isConfidentialTransactionsActivated(height)) {
       return false;
     }
 
@@ -331,7 +331,7 @@ namespace CryptoNote {
   }
 
   bool Currency::isFusionTransaction(const Transaction& transaction, size_t size, uint32_t height) const {
-    if (height >= CryptoNote::parameters::CT_FORK_HEIGHT) {
+    if (isConfidentialTransactionsActivated(height)) {
       return false;
     }
 
@@ -427,7 +427,7 @@ namespace CryptoNote {
   }
 
   uint64_t Currency::getMinimalFee(const uint32_t height) const {
-    if (height >= CryptoNote::parameters::CT_FORK_HEIGHT)
+    if (isConfidentialTransactionsActivated(height))
       return CryptoNote::parameters::CT_MINIMUM_FEE;
 
     if (height <= CryptoNote::parameters::UPGRADE_HEIGHT_V3_1)

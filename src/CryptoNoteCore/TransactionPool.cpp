@@ -46,22 +46,12 @@ using namespace Logging;
 namespace CryptoNote {
 
   namespace {
-    bool isTxVersionAllowedForHeight(const Transaction& tx, uint32_t height, uint8_t blockMajorVersion) {
+    bool isTxVersionAllowedForHeight(const Currency& currency, const Transaction& tx, uint32_t height) {
       if (tx.version != CURRENT_TRANSACTION_VERSION && tx.version != TRANSACTION_VERSION_CT) {
         return false;
       }
 
-      if (tx.version == TRANSACTION_VERSION_CT &&
-          height < CryptoNote::parameters::CT_FORK_HEIGHT) {
-        return false;
-      }
-
-      if (tx.version == CURRENT_TRANSACTION_VERSION &&
-          blockMajorVersion >= BLOCK_MAJOR_VERSION_6) {
-        return false;
-      }
-
-      return true;
+      return tx.version == currency.currentTransactionVersion(height);
     }
   } // namespace
 
@@ -365,7 +355,7 @@ namespace CryptoNote {
     const uint8_t blockMajorVersion = m_core.getBlockMajorVersionForHeight(validationHeight);
     size_t removedByVersion = 0;
     for (auto it = m_transactions.begin(); it != m_transactions.end();) {
-      if (!isTxVersionAllowedForHeight(it->tx, validationHeight, blockMajorVersion)) {
+      if (!isTxVersionAllowedForHeight(m_currency, it->tx, validationHeight)) {
         it = removeTransaction(it);
         ++removedByVersion;
       } else {
@@ -459,7 +449,6 @@ namespace CryptoNote {
     total_size = 0;
     fee = 0;
     const uint32_t blockHeight = m_core.getCurrentBlockchainHeight();
-    const uint8_t blockMajorVersion = m_core.getBlockMajorVersionForHeight(blockHeight);
 
     size_t max_total_size = (125 * median_size) / 100;
     max_total_size = std::min(max_total_size, maxCumulativeSize) - m_currency.minerTxBlobReservedSize();
@@ -469,7 +458,7 @@ namespace CryptoNote {
     for (auto i = m_fee_index.begin(); i != m_fee_index.end(); ++i) {
       const auto& txd = *i;
 
-      if (!isTxVersionAllowedForHeight(txd.tx, blockHeight, blockMajorVersion)) {
+      if (!isTxVersionAllowedForHeight(m_currency, txd.tx, blockHeight)) {
         logger(DEBUGGING) << "Transaction " << txd.id
                           << " not included to block template due to tx version/fork gating mismatch";
         continue;

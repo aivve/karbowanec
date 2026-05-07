@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <boost/optional.hpp>
+#include "CryptoNoteConfig.h"
 #include "CryptoNote.h"
 #include "ITransfersContainer.h"
 
@@ -115,7 +116,7 @@ struct TransactionParameters {
   std::vector<std::string> sourceAddresses;
   std::vector<WalletOrder> destinations;
   uint64_t fee = 0;
-  uint64_t mixIn = 0;
+  uint64_t mixIn = parameters::DEFAULT_TX_MIXIN;
   std::string extra;
   uint64_t unlockTimestamp = 0;
   DonationSettings donation;
