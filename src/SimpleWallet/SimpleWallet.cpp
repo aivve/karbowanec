@@ -237,8 +237,22 @@ struct TransferCommand {
 #endif
 
   TransferCommand(const CryptoNote::Currency& currency, const CryptoNote::NodeRpcProxy& node) :
-    m_currency(currency), m_node(node), fake_outs_count(0),
+    m_currency(currency), m_node(node), fake_outs_count(CryptoNote::parameters::DEFAULT_TX_MIXIN),
     fee(m_node.getMinimalFee()) {
+  }
+
+  bool validateMixin(LoggerRef& logger) const {
+    if (fake_outs_count < m_currency.minMixin() && fake_outs_count != 0) {
+      logger(ERROR, BRIGHT_RED) << "mixIn should be equal to or bigger than " << m_currency.minMixin();
+      return false;
+    }
+
+    if (fake_outs_count > m_currency.maxMixin()) {
+      logger(ERROR, BRIGHT_RED) << "mixIn should be equal to or less than " << m_currency.maxMixin();
+      return false;
+    }
+
+    return true;
   }
 
   bool parseArguments(LoggerRef& logger, const std::vector<std::string> &args) {
@@ -246,23 +260,6 @@ struct TransferCommand {
     ArgumentReader<std::vector<std::string>::const_iterator> ar(args.begin(), args.end());
 
     try {
-
-      auto mixin_str = ar.next();
-
-      if (!Common::fromString(mixin_str, fake_outs_count)) {
-        logger(ERROR, BRIGHT_RED) << "mixin_count should be non-negative integer, got " << mixin_str;
-        return false;
-      }
-
-      if (fake_outs_count < m_currency.minMixin() && fake_outs_count != 0) {
-        logger(ERROR, BRIGHT_RED) << "mixIn should be equal to or bigger than " << m_currency.minMixin();
-        return false;
-      }
-
-      if (fake_outs_count > m_currency.maxMixin()) {
-        logger(ERROR, BRIGHT_RED) << "mixIn should be equal to or less than " << m_currency.maxMixin();
-        return false;
-      }
 
       while (!ar.eof()) {
 
@@ -289,6 +286,17 @@ struct TransferCommand {
                 << (m_node.getLastLocalBlockHeaderInfo().majorVersion < CryptoNote::BLOCK_MAJOR_VERSION_4 ? m_currency.minimumFee() : m_node.getMinimalFee());
               return false;
             }
+          } else if (arg == "-m") {
+            if (!Common::fromString(value, fake_outs_count)) {
+              logger(ERROR, BRIGHT_RED) << "mixin_count should be non-negative integer, got " << value;
+              return false;
+            }
+            if (!validateMixin(logger)) {
+              return false;
+            }
+          } else {
+            logger(ERROR, BRIGHT_RED) << "Unknown transfer option: " << arg;
+            return false;
           }
         } else {
           WalletLegacyTransfer destination;
@@ -376,6 +384,10 @@ struct TransferCommand {
 #endif
         ) {
         logger(ERROR, BRIGHT_RED) << "At least one destination address is required";
+        return false;
+      }
+
+      if (!validateMixin(logger)) {
         return false;
       }
     }
@@ -677,13 +689,13 @@ simple_wallet::simple_wallet(System::Dispatcher& dispatcher, const CryptoNote::C
   m_consoleHandler.setHandler("outputs", std::bind(&simple_wallet::show_unlocked_outputs_count, this, std::placeholders::_1), "Show the number of unlocked outputs available for a transaction");
   m_consoleHandler.setHandler("bc_height", std::bind(&simple_wallet::show_blockchain_height, this, std::placeholders::_1), "Show blockchain height");
   m_consoleHandler.setHandler("transfer", std::bind(&simple_wallet::transfer, this, std::placeholders::_1),
-    "transfer <mixin_count> <addr_1> <amount_1> [<addr_2> <amount_2> ... <addr_N> <amount_N>] [-p payment_id] [-f fee]"
+    "transfer <addr_1> <amount_1> [<addr_2> <amount_2> ... <addr_N> <amount_N>] [-p payment_id] [-f fee] [-m mixin_count]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. "
-    "<mixin_count> is the number of transactions yours is indistinguishable from (from 0 to maximum available)");
+    "<mixin_count> defaults to ring size 16 and can be overridden with -m.");
   m_consoleHandler.setHandler("dust_sweep", std::bind(&simple_wallet::dust_sweep, this, std::placeholders::_1),
     "dust_sweep [max_inputs] - Consolidate non-aligned transparent outputs to your wallet address");
   m_consoleHandler.setHandler("prepare", std::bind(&simple_wallet::prepare_tx, this, std::placeholders::_1),
-    "Prepare raw transaction in hex format but do not relay, e.g. for manual relay <addr_1> <amount_1> ... <addr_N> <amount_N> [-p payment_id] [-f fee]"
+    "Prepare raw transaction in hex format but do not relay, e.g. for manual relay <addr_1> <amount_1> ... <addr_N> <amount_N> [-p payment_id] [-f fee] [-m mixin_count]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. ");
   m_consoleHandler.setHandler("set_log", std::bind(&simple_wallet::set_log, this, std::placeholders::_1), "set_log <level> - Change current log level, <level> is a number 0-4");
   m_consoleHandler.setHandler("address", std::bind(&simple_wallet::print_address, this, std::placeholders::_1), "Show current wallet public address");
@@ -2268,23 +2280,17 @@ bool simple_wallet::transfer(const std::vector<std::string> &args) {
   }
 
   uint64_t unmixable_balance = m_wallet->unmixableBalance();
-  uint64_t mixIn = 0;
-  std::string mixin_str = args[0];
-  if (!Common::fromString(args[0], mixIn)) {
-    logger(ERROR, BRIGHT_RED) << "mixin_count should be non-negative integer, got " << mixin_str;
-    return false;
-  }
-
-  if (mixIn != 0 && unmixable_balance != 0) {
-    logger(WARNING, BRIGHT_YELLOW) << "You have unmixable coins " << m_currency.formatAmount(unmixable_balance) << " in your wallet. "
-                                   << "If you encounter problems with sending, sweep them by making transaction with zero <mixin_count>.";
-  }
 
   try {
     TransferCommand cmd(m_currency, *m_node);
 
     if (!cmd.parseArguments(logger, args))
       return true;
+
+    if (cmd.fake_outs_count != 0 && unmixable_balance != 0) {
+      logger(WARNING, BRIGHT_YELLOW) << "You have unmixable coins " << m_currency.formatAmount(unmixable_balance) << " in your wallet. "
+                                     << "If you encounter problems with sending, sweep them by making transaction with zero <mixin_count>.";
+    }
 
 #ifndef __ANDROID__
     for (auto& kv : cmd.aliases) {
