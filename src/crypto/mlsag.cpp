@@ -18,12 +18,6 @@ extern "C" {
 
 namespace Crypto {
 
-static bool ct_pubkey_valid(const PublicKey& key) {
-  EllipticCurvePoint point;
-  memcpy(point.data, key.data, sizeof(point.data));
-  return point_valid_for_pedersen(point);
-}
-
 // Hash-to-curve: maps a public key to a prime-order Ed25519 point.
 // Matches the hash_to_ec in crypto.cpp (Keccak + elligator + cofactor clear).
 static void mlsag_hash_to_ec(const PublicKey& key, ge_p3& res) {
@@ -110,7 +104,7 @@ bool mlsag_sign(
 
   sig.ss.resize(ring_size);
 
-  if (!ct_pubkey_valid(ring_pubkeys[true_index])) {
+  if (!ct_public_key_valid(ring_pubkeys[true_index])) {
     return false;
   }
 
@@ -255,7 +249,7 @@ static bool verify_ring(
     ge_p3 P_i;
     if (ge_frombytes_vartime(&P_i, reinterpret_cast<const unsigned char*>(&ring_pubkeys[i])) != 0)
       return false;
-    if (!ct_pubkey_valid(ring_pubkeys[i]))
+    if (!ct_public_key_valid(ring_pubkeys[i]))
       return false;
 
     ge_double_scalarmult_base_vartime(&tmp_p2,

@@ -2251,11 +2251,9 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
     const auto& cout = boost::get<ConfidentialOutput>(tx.outputs[i].target);
 
-    // Verify targetKey is a valid curve point (stealth address)
-    ge_p3 targetKeyPoint;
-    if (ge_frombytes_vartime(&targetKeyPoint,
-        reinterpret_cast<const unsigned char*>(&cout.targetKey)) != 0) {
-      logger(ERROR) << "CT validation: output " << i << " targetKey is not a valid point in tx " << txHash;
+    // Verify targetKey is a valid prime-order CT public key (stealth address)
+    if (!Crypto::ct_public_key_valid(cout.targetKey)) {
+      logger(ERROR) << "CT validation: output " << i << " targetKey is not a valid CT public key in tx " << txHash;
       return false;
     }
 
@@ -2469,7 +2467,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         expectedCommitment = referencedConfidentialOutput.commitment;
       }
 
-      if (!Crypto::check_key(referencedPubkey)) {
+      if (!Crypto::ct_public_key_valid(referencedPubkey)) {
         logger(ERROR) << "CT validation: input " << i << " ring pubkey " << k << " invalid on-chain in tx " << txHash;
         return false;
       }

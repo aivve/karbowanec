@@ -103,6 +103,10 @@ bool point_valid_for_pedersen(const EllipticCurvePoint& P) {
   return true;
 }
 
+bool ct_public_key_valid(const PublicKey& key) {
+  return point_valid_for_pedersen(key);
+}
+
 // ── Pedersen commitment ──────────────────────────────────────────────
 //
 // C = v*H + r*G

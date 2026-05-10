@@ -74,10 +74,11 @@ static int tests_passed = 0;
   do { \
     tests_run++; \
     printf("  %-62s", name); \
+    fflush(stdout); \
   } while(0)
 
-#define PASS() do { tests_passed++; printf("[PASS]\n"); } while(0)
-#define FAIL(msg) do { printf("[FAIL] %s\n", msg); return; } while(0)
+#define PASS() do { tests_passed++; printf("[PASS]\n"); fflush(stdout); } while(0)
+#define FAIL(msg) do { printf("[FAIL] %s\n", msg); fflush(stdout); return; } while(0)
 
 // =====================================================================
 // SECTION 1: CT FLOOR / DUST POLICY TESTS
@@ -645,7 +646,7 @@ static void test_ecdh_recipient_identifies_output() {
     FAIL("pedersen_commit failed");
 
   Crypto::MaskedAmount masked;
-  Crypto::mask_amount(derivation, amount, masked);
+  Crypto::mask_amount(derivation, output_index, amount, masked);
 
   // Recipient side: recover amount using view_sec + tx_pub
   uint64_t recovered_amount;
@@ -692,7 +693,7 @@ static void test_ecdh_non_owner_skips() {
   Crypto::pedersen_commit(amount, blinding, commitment);
 
   Crypto::MaskedAmount masked;
-  Crypto::mask_amount(derivation, amount, masked);
+  Crypto::mask_amount(derivation, 0, amount, masked);
 
   // Non-owner tries to decrypt: should fail verification
   uint64_t recovered_amount;
@@ -734,7 +735,7 @@ static void test_ecdh_multiple_outputs() {
     Crypto::pedersen_commit(amounts[idx], blinding, commitment);
 
     Crypto::MaskedAmount masked;
-    Crypto::mask_amount(derivation, amounts[idx], masked);
+    Crypto::mask_amount(derivation, idx, amounts[idx], masked);
 
     uint64_t recovered;
     Crypto::EllipticCurveScalar rec_blind;
@@ -891,12 +892,12 @@ static void test_full_ct_transaction_simulation() {
   // Simulate a complete CT transaction with balance, GK proofs, and MLSAG
 
   // Amounts: 2 inputs of canonical denominations, 3 outputs + fee
-  // Input: 5000 + 3000 = 8000
-  // Output: 4000 + 3000 + 900 = 7900, Fee: 100
+  // Input: 500 + 300 = 800
+  // Output: 400 + 300 + 90 = 790, Fee: 10
   // All amounts must be canonical denominations
   const uint64_t d = CryptoNote::MIN_CT_DENOMINATION;
   uint64_t amounts_in[2] = {500 * d, 300 * d};
-  uint64_t amounts_out[3] = {400 * d, 300 * d, 290 * d};
+  uint64_t amounts_out[3] = {400 * d, 300 * d, 90 * d};
   uint64_t fee = 10 * d;
 
   Crypto::EllipticCurveScalar r_in[2], r_out[3];
@@ -986,13 +987,12 @@ static void test_ct_fee_bounds() {
 static void test_max_denomination_gk_in_balance() {
   TEST("Combined: max denomination (100,000 KRB) in full balance");
 
-  uint64_t max_denom = CryptoNote::DENOMINATIONS[63]; // 10,000,000 au = 100,000 KRB
-  uint64_t fee = 1;
+  uint64_t max_denom = CryptoNote::DENOMINATIONS[63]; // 100,000 KRB
+  uint64_t fee = CryptoNote::MIN_CT_DENOMINATION;
   uint64_t out_amount = max_denom - fee;
 
-  // Need out_amount to be decomposable
-  // max_denom = 10,000,000 → out_amount = 9,999,999
-  // Decompose to verify it works
+  // Need out_amount to be decomposable.
+  // max_denom minus one CT floor denomination remains exactly representable.
   auto parts = CryptoNote::decomposeAmount(out_amount);
   uint64_t sum = 0;
   for (auto p : parts) sum += p;

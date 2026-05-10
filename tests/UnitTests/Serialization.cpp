@@ -19,12 +19,28 @@
 
 #include "Common/StdInputStream.h"
 #include "Common/StdOutputStream.h"
+#include "Common/Varint.h"
+#include "CryptoNoteConfig.h"
+#include "CryptoNoteCore/CryptoNoteTools.h"
 #include "Serialization/BinaryInputStreamSerializer.h"
 #include "Serialization/BinaryOutputStreamSerializer.h"
 #include "Serialization/BinarySerializationTools.h"
 
 using namespace Common;
 using namespace CryptoNote;
+
+namespace {
+
+void appendVarint(BinaryArray& blob, uint64_t value) {
+  std::string encoded = Tools::get_varint_data(value);
+  blob.insert(blob.end(), encoded.begin(), encoded.end());
+}
+
+void appendZeros(BinaryArray& blob, size_t count) {
+  blob.insert(blob.end(), count, 0);
+}
+
+}
 
 TEST(BinarySerializer, uint16) {
 
@@ -53,6 +69,59 @@ TEST(BinarySerializer, uint16) {
     ASSERT_EQ(u32, t32);
     ASSERT_EQ(u16, t16);
   }
+}
+
+TEST(BinarySerializer, rejectsCtInputCountAboveProtocolCap) {
+  BinaryArray blob;
+  appendVarint(blob, TRANSACTION_VERSION_CT);
+  appendVarint(blob, 0); // fee
+  appendVarint(blob, static_cast<uint64_t>(parameters::CT_MAX_INPUTS) + 1);
+
+  Transaction tx;
+  ASSERT_FALSE(fromBinaryArray(tx, blob));
+  ASSERT_TRUE(tx.inputs.empty());
+}
+
+TEST(BinarySerializer, rejectsCtOutputCountAboveProtocolCap) {
+  BinaryArray blob;
+  appendVarint(blob, TRANSACTION_VERSION_CT);
+  appendVarint(blob, 0); // fee
+  appendVarint(blob, 0); // vin
+  appendVarint(blob, static_cast<uint64_t>(parameters::CT_MAX_OUTPUTS) + 1);
+
+  Transaction tx;
+  ASSERT_FALSE(fromBinaryArray(tx, blob));
+  ASSERT_TRUE(tx.outputs.empty());
+}
+
+TEST(BinarySerializer, rejectsCtRingOffsetsAboveProtocolCapBeforeResize) {
+  BinaryArray blob;
+  appendVarint(blob, 0); // ring_amount
+  appendVarint(blob, static_cast<uint64_t>(parameters::CT_MAX_RING_SIZE) + 1);
+
+  Common::MemoryInputStream stream(blob.data(), blob.size());
+  BinaryInputStreamSerializer serializer(stream);
+  ConfidentialInput input;
+
+  ASSERT_THROW(serialize(input, serializer), std::runtime_error);
+  ASSERT_TRUE(input.ringOutputIndexes.empty());
+}
+
+TEST(BinarySerializer, rejectsCtRingCommitmentCountMismatchBeforeResize) {
+  BinaryArray blob;
+  appendVarint(blob, 0); // ring_amount
+  appendVarint(blob, 0); // ring_offsets
+  appendVarint(blob, 1); // ring_pubkeys
+  appendZeros(blob, sizeof(Crypto::PublicKey));
+  appendVarint(blob, 2); // ring_commits
+
+  Common::MemoryInputStream stream(blob.data(), blob.size());
+  BinaryInputStreamSerializer serializer(stream);
+  ConfidentialInput input;
+
+  ASSERT_THROW(serialize(input, serializer), std::runtime_error);
+  ASSERT_EQ(1, input.ringPubkeys.size());
+  ASSERT_TRUE(input.ringCommitments.empty());
 }
 
 
