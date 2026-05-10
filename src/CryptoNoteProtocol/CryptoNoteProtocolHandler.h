@@ -19,6 +19,7 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
 
 #include <Common/ObserverManager.h>
 
@@ -56,7 +57,7 @@ namespace CryptoNote
 
     bool hasTransactions() {
       std::lock_guard<std::recursive_mutex> lk(m_stempool_mutex);
-      return m_stempool.empty();
+      return !m_stempool.empty();
     }
 
     bool hasTransaction(const Crypto::Hash& txid) {
@@ -174,6 +175,8 @@ namespace CryptoNote
     bool on_connection_synchronized();
     void updateObservedHeight(uint32_t peerHeight, const CryptoNoteConnectionContext& context);
     void recalculateMaxObservedHeight(const CryptoNoteConnectionContext& context);
+    std::vector<CryptoNoteConnectionContext> get_dandelion_stem_snapshot() const;
+    bool get_dandelion_stem_peer(CryptoNoteConnectionContext& peer, const net_connection_id* excludeConnection = nullptr) const;
     int processObjects(CryptoNoteConnectionContext& context, const std::vector<parsed_block_entry>& blocks);
     Logging::LoggerRef logger;
 
@@ -198,6 +201,7 @@ namespace CryptoNote
 
     OnceInInterval m_dandelionStemSelectInterval;
     OnceInInterval m_dandelionStemFluffInterval;
+    mutable std::mutex m_dandelionStemMutex;
     std::vector<CryptoNoteConnectionContext> m_dandelion_stem;
 
     StemPool m_stemPool;
