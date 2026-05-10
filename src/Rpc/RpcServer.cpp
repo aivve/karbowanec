@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <future>
 #include <limits>
 #include <unordered_map>
@@ -33,6 +34,7 @@
 
 // CryptoNote
 #include <crypto/crypto.h>
+#include "crypto/ct_ecdh.h"
 #include <crypto/random.h>
 #include "BlockchainExplorerData.h"
 #include "Common/Base58.h"
@@ -100,6 +102,54 @@ bool hasConfidentialOutput(const TransactionDetails& tx) {
 
 std::string maskedAmountToHex(const std::array<uint8_t, 8>& amount) {
   return Common::toHex(amount.data(), amount.size());
+}
+
+bool getOutputAmountForAddress(const TransactionOutput& output, const AccountPublicAddress& address,
+                               const Crypto::KeyDerivation& derivation, size_t outputIndex,
+                               uint64_t& amount) {
+  Crypto::PublicKey outputKey;
+  bool isConfidential = false;
+
+  if (output.target.type() == typeid(KeyOutput)) {
+    const KeyOutput& outKey = boost::get<KeyOutput>(output.target);
+    outputKey = outKey.key;
+    amount = output.amount;
+  } else if (output.target.type() == typeid(ConfidentialOutput)) {
+    const ConfidentialOutput& confidentialOutput = boost::get<ConfidentialOutput>(output.target);
+    outputKey = confidentialOutput.targetKey;
+    isConfidential = true;
+  } else {
+    return false;
+  }
+
+  Crypto::PublicKey derivedKey;
+  if (!Crypto::derive_public_key(derivation, outputIndex, address.spendPublicKey, derivedKey) || derivedKey != outputKey) {
+    return false;
+  }
+
+  if (!isConfidential) {
+    return true;
+  }
+
+  const ConfidentialOutput& confidentialOutput = boost::get<ConfidentialOutput>(output.target);
+  Crypto::MaskedAmount maskedAmount;
+  static_assert(sizeof(maskedAmount.data) == sizeof(confidentialOutput.maskedAmount), "Masked amount size mismatch");
+  std::memcpy(maskedAmount.data, confidentialOutput.maskedAmount.data(), sizeof(maskedAmount.data));
+
+  amount = Crypto::unmask_amount(derivation, maskedAmount);
+
+  Crypto::EllipticCurveScalar blindingFactor;
+  Crypto::derive_blinding_factor(derivation, outputIndex, blindingFactor);
+
+  Crypto::PublicKey expectedCommitment;
+  if (!Crypto::pedersen_commit(amount, blindingFactor, expectedCommitment)) {
+    return false;
+  }
+
+  Crypto::PublicKey commitment;
+  static_assert(sizeof(commitment) == sizeof(confidentialOutput.commitment), "Commitment size mismatch");
+  std::memcpy(&commitment, &confidentialOutput.commitment, sizeof(commitment));
+  return expectedCommitment == commitment;
 }
 
 template <typename T, size_t N>
@@ -1478,26 +1528,22 @@ bool RpcServer::on_check_payment(const COMMAND_RPC_CHECK_PAYMENT_BY_PAYMENT_ID::
     std::vector<TransactionOutput> outputs;
     try {
       for (const TransactionOutput& o : tx.outputs) {
-        if (o.target.type() == typeid(KeyOutput)) {
-          const KeyOutput out_key = boost::get<KeyOutput>(o.target);
-          Crypto::PublicKey pubkey;
-          derive_public_key(derivation, keyIndex, address.spendPublicKey, pubkey);
-          if (pubkey == out_key.key) {
-            received += o.amount;
+        uint64_t outputAmount = 0;
+        if (getOutputAmountForAddress(o, address, derivation, keyIndex, outputAmount)) {
+          received += outputAmount;
 
-            // count confirmations only for actually paying tx
-            // and include only their hashes in responce
-            Crypto::Hash blockHash;
-            uint32_t blockHeight;
-            Crypto::Hash txHash = getObjectHash(tx);
-            if (std::find(rsp.transaction_hashes.begin(), rsp.transaction_hashes.end(), txHash) == rsp.transaction_hashes.end()) {
-              rsp.transaction_hashes.push_back(txHash);
-            }
-            if (m_core.getBlockContainingTx(txHash, blockHash, blockHeight)) {
-              uint32_t confirmations = m_protocolQuery.getObservedHeight() - blockHeight;
-              if  (rsp.confirmations < confirmations) {
-                   rsp.confirmations = confirmations;
-              }
+          // count confirmations only for actually paying tx
+          // and include only their hashes in responce
+          Crypto::Hash blockHash;
+          uint32_t blockHeight;
+          Crypto::Hash txHash = getObjectHash(tx);
+          if (std::find(rsp.transaction_hashes.begin(), rsp.transaction_hashes.end(), txHash) == rsp.transaction_hashes.end()) {
+            rsp.transaction_hashes.push_back(txHash);
+          }
+          if (m_core.getBlockContainingTx(txHash, blockHash, blockHeight)) {
+            uint32_t confirmations = m_protocolQuery.getObservedHeight() - blockHeight;
+            if  (rsp.confirmations < confirmations) {
+                 rsp.confirmations = confirmations;
             }
           }
         }
@@ -3222,14 +3268,10 @@ bool RpcServer::on_check_transaction_key(const COMMAND_RPC_CHECK_TRANSACTION_KEY
   std::vector<TransactionOutput> outputs;
   try {
     for (const TransactionOutput& o : transaction.outputs) {
-      if (o.target.type() == typeid(KeyOutput)) {
-        const KeyOutput out_key = boost::get<KeyOutput>(o.target);
-        Crypto::PublicKey pubkey;
-        derive_public_key(derivation, keyIndex, address.spendPublicKey, pubkey);
-        if (pubkey == out_key.key) {
-          received += o.amount;
-          outputs.push_back(o);
-        }
+      uint64_t outputAmount = 0;
+      if (getOutputAmountForAddress(o, address, derivation, keyIndex, outputAmount)) {
+        received += outputAmount;
+        outputs.push_back(o);
       }
       ++keyIndex;
     }
@@ -3295,14 +3337,10 @@ bool RpcServer::on_check_transaction_with_view_key(const COMMAND_RPC_CHECK_TRANS
   std::vector<TransactionOutput> outputs;
   try {
     for (const TransactionOutput& o : transaction.outputs) {
-      if (o.target.type() == typeid(KeyOutput)) {
-        const KeyOutput out_key = boost::get<KeyOutput>(o.target);
-        Crypto::PublicKey pubkey;
-        derive_public_key(derivation, keyIndex, address.spendPublicKey, pubkey);
-        if (pubkey == out_key.key) {
-          received += o.amount;
-          outputs.push_back(o);
-        }
+      uint64_t outputAmount = 0;
+      if (getOutputAmountForAddress(o, address, derivation, keyIndex, outputAmount)) {
+        received += outputAmount;
+        outputs.push_back(o);
       }
       ++keyIndex;
     }
@@ -3390,14 +3428,10 @@ bool RpcServer::on_check_transaction_proof(const COMMAND_RPC_CHECK_TRANSACTION_P
     std::vector<TransactionOutput> outputs;
     try {
       for (const TransactionOutput& o : transaction.outputs) {
-        if (o.target.type() == typeid(KeyOutput)) {
-          const KeyOutput out_key = boost::get<KeyOutput>(o.target);
-          Crypto::PublicKey pubkey;
-          derive_public_key(derivation, keyIndex, address.spendPublicKey, pubkey);
-          if (pubkey == out_key.key) {
-            received += o.amount;
-            outputs.push_back(o);
-          }
+        uint64_t outputAmount = 0;
+        if (getOutputAmountForAddress(o, address, derivation, keyIndex, outputAmount)) {
+          received += outputAmount;
+          outputs.push_back(o);
         }
         ++keyIndex;
       }
