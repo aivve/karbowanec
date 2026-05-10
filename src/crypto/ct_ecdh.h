@@ -43,13 +43,13 @@ bool pedersen_commit(uint64_t amount, const EllipticCurveScalar& blinding_factor
                      PublicKey& commitment);
 
 // Mask amount for on-chain storage.
-//   mask = Hs(shared_secret || 0x00)[0..7]
+//   mask = Hs(shared_secret || output_index || "amount-mask-v1")[0..7]
 //   masked = uint64_le(amount) XOR mask
-void mask_amount(const KeyDerivation& shared_secret, uint64_t amount,
+void mask_amount(const KeyDerivation& shared_secret, size_t output_index, uint64_t amount,
                  MaskedAmount& masked);
 
 // Unmask amount from on-chain data.
-uint64_t unmask_amount(const KeyDerivation& shared_secret,
+uint64_t unmask_amount(const KeyDerivation& shared_secret, size_t output_index,
                        const MaskedAmount& masked);
 
 // Recipient: given view secret key and tx public key R, recover amount and

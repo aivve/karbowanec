@@ -1423,7 +1423,9 @@ bool Core::handleIncomingTransaction(const Transaction& tx, const Crypto::Hash& 
   }
 
   // is in checkpoint zone
-  if (!m_blockchain.isInCheckpointZone(getCurrentBlockchainHeight())) {
+  const bool inCheckpointZone = m_blockchain.isInCheckpointZone(getCurrentBlockchainHeight());
+  const bool enforcePolicyChecks = !inCheckpointZone || tx.version == CryptoNote::TRANSACTION_VERSION_CT;
+  if (enforcePolicyChecks) {
     if (blobSize > m_currency.maxTransactionSizeLimit() && getCurrentBlockMajorVersion() >= BLOCK_MAJOR_VERSION_4) {
       logger(INFO) << "Transaction verification failed: too big size " << blobSize << " of transaction " << txHash << ", rejected";
       tvc.m_verification_failed = true;

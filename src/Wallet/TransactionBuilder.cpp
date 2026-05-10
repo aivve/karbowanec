@@ -322,7 +322,7 @@ Transaction buildConfidentialTransaction(
 
     // ECDH-mask the amount
     Crypto::MaskedAmount masked;
-    Crypto::mask_amount(sharedSecret, outputs[i].amount, masked);
+    Crypto::mask_amount(sharedSecret, i, outputs[i].amount, masked);
     std::memcpy(outputMaskedAmounts[i].data(), masked.data, 8);
 
     outputDenomIndices[i] = denominationIndex(outputs[i].amount);

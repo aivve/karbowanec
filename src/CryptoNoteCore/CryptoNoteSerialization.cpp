@@ -145,6 +145,15 @@ bool serializeVarintVector(std::vector<uint32_t>& vector, CryptoNote::ISerialize
   return true;
 }
 
+void throwIfArrayTooLarge(size_t size, size_t maxSize, const char* fieldName) {
+  if (size > maxSize) {
+    std::ostringstream oss;
+    oss << "Serialization error: array '" << fieldName << "' size " << size
+        << " exceeds limit " << maxSize;
+    throw std::runtime_error(oss.str());
+  }
+}
+
 }
 
 namespace Crypto {
@@ -219,6 +228,9 @@ void serialize(Transaction& tx, ISerializer& serializer) {
     size_t sigCount = tx.ctSignatures.size();
     serializer.beginArray(sigCount, "ct_signatures");
     if (serializer.type() == ISerializer::INPUT) {
+      throwIfArrayTooLarge(sigCount, CryptoNote::parameters::CT_MAX_INPUTS, "ct_signatures");
+    }
+    if (serializer.type() == ISerializer::INPUT) {
       tx.ctSignatures.resize(sigCount);
     }
     for (size_t i = 0; i < sigCount; ++i) {
@@ -229,6 +241,9 @@ void serialize(Transaction& tx, ISerializer& serializer) {
     // Per-output GK denomination proofs
     size_t proofCount = tx.ctProofs.size();
     serializer.beginArray(proofCount, "ct_proofs");
+    if (serializer.type() == ISerializer::INPUT) {
+      throwIfArrayTooLarge(proofCount, CryptoNote::parameters::CT_MAX_OUTPUTS, "ct_proofs");
+    }
     if (serializer.type() == ISerializer::INPUT) {
       tx.ctProofs.resize(proofCount);
     }
@@ -343,10 +358,16 @@ void serialize(KeyOutput& key, ISerializer& serializer) {
 void serialize(ConfidentialInput& input, ISerializer& serializer) {
   serializer(input.ringAmount, "ring_amount");
   serializeVarintVector(input.ringOutputIndexes, serializer, "ring_offsets");
+  if (serializer.type() == ISerializer::INPUT) {
+    throwIfArrayTooLarge(input.ringOutputIndexes.size(), CryptoNote::parameters::CT_MAX_RING_SIZE, "ring_offsets");
+  }
 
   // Ring public keys (variable length)
   size_t ringSize = input.ringPubkeys.size();
   serializer.beginArray(ringSize, "ring_pubkeys");
+  if (serializer.type() == ISerializer::INPUT) {
+    throwIfArrayTooLarge(ringSize, CryptoNote::parameters::CT_MAX_RING_SIZE, "ring_pubkeys");
+  }
   if (serializer.type() == ISerializer::INPUT) {
     input.ringPubkeys.resize(ringSize);
   }
@@ -387,6 +408,9 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
   serializePod(sig.c0, "c0", serializer);
   size_t ringSize = sig.ss.size();
   serializer.beginArray(ringSize, "ss");
+  if (serializer.type() == ISerializer::INPUT) {
+    throwIfArrayTooLarge(ringSize, CryptoNote::parameters::CT_MAX_RING_SIZE, "ss");
+  }
   if (serializer.type() == ISerializer::INPUT) {
     sig.ss.resize(ringSize);
   }

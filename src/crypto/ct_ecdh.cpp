@@ -71,24 +71,26 @@ namespace Crypto {
     return true;
   }
 
-  // Internal: compute the 8-byte amount mask from shared secret.
-  // mask = Hs(shared_secret || 0x00)[0..7]
-  static void compute_amount_mask(const KeyDerivation& shared_secret, uint8_t mask[8]) {
+  // Internal: compute the 8-byte amount mask from shared secret and output index.
+  // mask = Hs(shared_secret || output_index || "amount-mask-v1")[0..7]
+  static void compute_amount_mask(const KeyDerivation& shared_secret, size_t output_index, uint8_t mask[8]) {
     EllipticCurveScalar scalar;
-    // Use index 0 with a domain separator: we pass size_t(0) through the varint
-    // encoding, but to distinguish from blinding factor derivation we use a
-    // different approach: hash the shared secret with a 0x00 byte appended.
-    struct {
-      KeyDerivation derivation;
-      uint8_t domain;
-    } buf;
-    buf.derivation = shared_secret;
-    buf.domain = 0x00;
-    hash_to_scalar(&buf, sizeof(buf), scalar);
+    unsigned char buf[sizeof(KeyDerivation) + ((sizeof(size_t) * 8 + 6) / 7) + 14];
+    unsigned char* ptr = buf;
+    memcpy(ptr, &shared_secret, sizeof(shared_secret));
+    ptr += sizeof(shared_secret);
+    char* varintBegin = reinterpret_cast<char*>(ptr);
+    char* end = varintBegin;
+    Tools::write_varint(end, output_index);
+    ptr += (end - varintBegin);
+    static const char amountDomain[] = "amount-mask-v1";
+    memcpy(ptr, amountDomain, sizeof(amountDomain) - 1);
+    ptr += sizeof(amountDomain) - 1;
+    hash_to_scalar(buf, ptr - buf, scalar);
     memcpy(mask, scalar.data, 8);
   }
 
-  void mask_amount(const KeyDerivation& shared_secret, uint64_t amount,
+  void mask_amount(const KeyDerivation& shared_secret, size_t output_index, uint64_t amount,
                    MaskedAmount& masked) {
     // Encode amount as little-endian uint64
     uint8_t amount_le[8];
@@ -98,17 +100,17 @@ namespace Crypto {
 
     // Compute mask and XOR
     uint8_t mask[8];
-    compute_amount_mask(shared_secret, mask);
+    compute_amount_mask(shared_secret, output_index, mask);
     for (int i = 0; i < 8; i++) {
       masked.data[i] = amount_le[i] ^ mask[i];
     }
   }
 
-  uint64_t unmask_amount(const KeyDerivation& shared_secret,
+  uint64_t unmask_amount(const KeyDerivation& shared_secret, size_t output_index,
                          const MaskedAmount& masked) {
     // Compute mask and XOR to recover amount
     uint8_t mask[8];
-    compute_amount_mask(shared_secret, mask);
+    compute_amount_mask(shared_secret, output_index, mask);
 
     uint8_t amount_le[8];
     for (int i = 0; i < 8; i++) {
@@ -137,7 +139,7 @@ namespace Crypto {
     }
 
     // Step 2: Unmask amount
-    amount_out = unmask_amount(shared_secret, masked);
+    amount_out = unmask_amount(shared_secret, output_index, masked);
 
     // Step 3: Re-derive blinding factor
     derive_blinding_factor(shared_secret, output_index, blinding_factor_out);

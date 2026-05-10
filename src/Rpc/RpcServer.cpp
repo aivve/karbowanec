@@ -136,7 +136,7 @@ bool getOutputAmountForAddress(const TransactionOutput& output, const AccountPub
   static_assert(sizeof(maskedAmount.data) == sizeof(confidentialOutput.maskedAmount), "Masked amount size mismatch");
   std::memcpy(maskedAmount.data, confidentialOutput.maskedAmount.data(), sizeof(maskedAmount.data));
 
-  amount = Crypto::unmask_amount(derivation, maskedAmount);
+  amount = Crypto::unmask_amount(derivation, outputIndex, maskedAmount);
 
   Crypto::EllipticCurveScalar blindingFactor;
   Crypto::derive_blinding_factor(derivation, outputIndex, blindingFactor);

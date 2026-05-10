@@ -12,6 +12,12 @@
 
 namespace Crypto {
 
+static bool ct_pubkey_valid(const PublicKey& key) {
+  EllipticCurvePoint point;
+  memcpy(point.data, key.data, sizeof(point.data));
+  return point_valid_for_pedersen(point);
+}
+
 // ── Helper: encode uint64 as a reduced scalar (little-endian) ────────
 
 static void uint64_to_scalar(uint64_t val, unsigned char out[32]) {
@@ -159,7 +165,7 @@ bool verify_transaction_balance(
   const PublicKey& excess_pubkey =
     reinterpret_cast<const PublicKey&>(kernel.excess);
 
-  if (!check_key(excess_pubkey))
+  if (!ct_pubkey_valid(excess_pubkey))
     return false;
 
   return check_signature(tx_hash, excess_pubkey, kernel.signature);

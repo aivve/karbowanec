@@ -19,6 +19,8 @@ namespace CryptoNote {
 
 namespace {
 
+constexpr size_t MAX_BINARY_ARRAY_ELEMENTS = 1000000;
+
 template<typename StorageType, typename T>
 void readVarintAs(IInputStream& s, T &i) {
   i = static_cast<T>(readVarint<StorageType>(s));
@@ -39,6 +41,9 @@ void BinaryInputStreamSerializer::endObject() {
 
 bool BinaryInputStreamSerializer::beginArray(size_t& size, Common::StringView name) {
   readVarintAs<uint64_t>(stream, size);
+  if (size > MAX_BINARY_ARRAY_ELEMENTS) {
+    throw std::runtime_error("Array size is too big");
+  }
 
   return true;
 }

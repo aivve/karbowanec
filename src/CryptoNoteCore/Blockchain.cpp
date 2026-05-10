@@ -2085,8 +2085,6 @@ bool Blockchain::checkTransactionInputs(const Transaction& tx, uint32_t* pmax_us
   if (tx.version == CryptoNote::TRANSACTION_VERSION_CT) {
     if (pmax_used_block_height) *pmax_used_block_height = 0;
     Crypto::Hash transactionHash = getObjectHash(tx);
-    if (isInCheckpointZone(getCurrentBlockchainHeight()))
-      return true;
     return checkConfidentialTransaction(tx, transactionHash, pmax_used_block_height);
   }
 
