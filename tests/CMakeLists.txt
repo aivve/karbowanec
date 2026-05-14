@@ -36,6 +36,8 @@ add_executable(DifficultyTests Difficulty/Difficulty.cpp)
 add_executable(HashTargetTests HashTarget.cpp)
 add_executable(HashTests Hash/main.cpp)
 
+add_executable(PqPrimitivesTests test_pq_primitives.cpp)
+
 target_link_libraries(CoreTests TestGenerator Wallet CryptoNoteCore Serialization System Logging Common Crypto BlockchainExplorer ${Boost_LIBRARIES})
 target_link_libraries(IntegrationTests IntegrationTestLibrary Wallet NodeRpcProxy InProcessNode P2P Rpc Http Transfers Serialization System CryptoNoteCore Logging Common Crypto BlockchainExplorer gtest Mnemonics upnpc-static ${Boost_LIBRARIES})
 target_link_libraries(NodeRpcProxyTests NodeRpcProxy CryptoNoteCore Rpc Http Serialization System Logging Common Crypto ${Boost_LIBRARIES})
@@ -47,6 +49,8 @@ target_link_libraries(LMDBReorgTests TestGenerator Wallet CryptoNoteCore Seriali
 target_link_libraries(DifficultyTests CryptoNoteCore Serialization Crypto Logging Common ${Boost_LIBRARIES})
 target_link_libraries(HashTargetTests CryptoNoteCore Crypto)
 target_link_libraries(HashTests Crypto)
+
+target_link_libraries(PqPrimitivesTests CryptoPq gtest ${Boost_LIBRARIES})
 
 if(MSVC)
   target_link_libraries(SystemTests ws2_32)
@@ -91,6 +95,7 @@ set_property(TARGET
   DifficultyTests
   HashTargetTests
   HashTests
+  PqPrimitivesTests
 PROPERTY FOLDER "tests")
 
 add_dependencies(IntegrationTestLibrary version)
@@ -107,6 +112,7 @@ set_property(TARGET LMDBReorgTests PROPERTY OUTPUT_NAME "lmdb_reorg_tests")
 set_property(TARGET DifficultyTests PROPERTY OUTPUT_NAME "difficulty_tests")
 set_property(TARGET HashTargetTests PROPERTY OUTPUT_NAME "hash_target_tests")
 set_property(TARGET HashTests PROPERTY OUTPUT_NAME "hash_tests")
+set_property(TARGET PqPrimitivesTests PROPERTY OUTPUT_NAME "pq_primitives_tests")
 
 add_test(CoreTests core_tests --generate_and_play_test_data)
 add_test(CryptoTests crypto_tests ${CMAKE_CURRENT_SOURCE_DIR}/crypto/tests.txt)
@@ -117,4 +123,5 @@ endforeach()
 add_test(HashTargetTests hash_target_tests)
 add_test(SystemTests system_tests)
 add_test(UnitTests unit_tests)
+add_test(PqPrimitivesTests pq_primitives_tests)
 add_test(LMDBReorgTests lmdb_reorg_tests)

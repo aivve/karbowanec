@@ -1,0 +1,66 @@
+#ifndef SIGN_H
+#define SIGN_H
+
+#include <oqs/oqs.h>
+
+#include <stddef.h>
+#include <stdint.h>
+#include "params.h"
+#include "polyvec.h"
+#include "poly.h"
+
+#define crypto_sign_keypair DILITHIUM_NAMESPACE(keypair)
+int crypto_sign_keypair(uint8_t *pk, uint8_t *sk);
+
+/* Karbo PQ patch: deterministic keygen from a SEEDBYTES-long seed.
+ * Functionally identical to crypto_sign_keypair() except the seedbuf is
+ * sourced from the caller instead of randombytes(). Required by the PQ
+ * Phase-1 spec, which derives per-output spend keys deterministically
+ * from the ML-KEM shared secret. See external/liboqs/UPSTREAM.md. */
+#define crypto_sign_keypair_derand DILITHIUM_NAMESPACE(keypair_derand)
+int crypto_sign_keypair_derand(uint8_t *pk, uint8_t *sk, const uint8_t *seed);
+
+#define crypto_sign_signature_internal DILITHIUM_NAMESPACE(signature_internal)
+OQS_API int crypto_sign_signature_internal(uint8_t *sig,
+                                   size_t *siglen,
+                                   const uint8_t *m,
+                                   size_t mlen,
+                                   const uint8_t *pre,
+                                   size_t prelen,
+                                   const uint8_t rnd[RNDBYTES],
+                                   const uint8_t *sk);
+
+#define crypto_sign_signature DILITHIUM_NAMESPACE(signature)
+int crypto_sign_signature(uint8_t *sig, size_t *siglen,
+                          const uint8_t *m, size_t mlen,
+                          const uint8_t *ctx, size_t ctxlen,
+                          const uint8_t *sk);
+
+#define crypto_sign DILITHIUM_NAMESPACETOP
+int crypto_sign(uint8_t *sm, size_t *smlen,
+                const uint8_t *m, size_t mlen,
+                const uint8_t *ctx, size_t ctxlen,
+                const uint8_t *sk);
+
+#define crypto_sign_verify_internal DILITHIUM_NAMESPACE(verify_internal)
+OQS_API int crypto_sign_verify_internal(const uint8_t *sig,
+                                size_t siglen,
+                                const uint8_t *m,
+                                size_t mlen,
+                                const uint8_t *pre,
+                                size_t prelen,
+                                const uint8_t *pk);
+
+#define crypto_sign_verify DILITHIUM_NAMESPACE(verify)
+int crypto_sign_verify(const uint8_t *sig, size_t siglen,
+                       const uint8_t *m, size_t mlen,
+                       const uint8_t *ctx, size_t ctxlen,
+                       const uint8_t *pk);
+
+#define crypto_sign_open DILITHIUM_NAMESPACE(open)
+int crypto_sign_open(uint8_t *m, size_t *mlen,
+                     const uint8_t *sm, size_t smlen,
+                     const uint8_t *ctx, size_t ctxlen,
+                     const uint8_t *pk);
+
+#endif

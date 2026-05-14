@@ -9,6 +9,7 @@ file(GLOB_RECURSE BlockchainExplorer BlockchainExplorer/*)
 file(GLOB_RECURSE Checkpoints Checkpoints/*)
 file(GLOB_RECURSE Common Common/*)
 file(GLOB_RECURSE Crypto crypto/*)
+file(GLOB_RECURSE CryptoPq crypto_pq/*)
 file(GLOB_RECURSE CryptoNoteCore CryptoNoteCore/* CryptoNoteConfig.h)
 file(GLOB_RECURSE CryptoNoteProtocol CryptoNoteProtocol/*)
 file(GLOB_RECURSE Daemon Daemon/*)
@@ -49,6 +50,13 @@ add_library(Checkpoints ${Checkpoints})
 add_library(CryptoNoteProtocol ${CryptoNoteProtocol})
 add_library(Common ${Common})
 add_library(Crypto ${Crypto})
+add_library(CryptoPq ${CryptoPq})
+target_link_libraries(CryptoPq PUBLIC oqs chacha20poly1305)
+# liboqs's generated <oqs/*.h> headers live in PROJECT_BINARY_DIR/include but
+# are only exposed via include_directories() in liboqs's own subdir, so they
+# don't propagate through the oqs target. Add the path explicitly here.
+target_include_directories(CryptoPq PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/external/liboqs/include>)
 add_library(CryptoNoteCore ${CryptoNoteCore})
 target_link_libraries(CryptoNoteCore PUBLIC ${LMDB_LIBRARY})
 add_library(Http ${Http})
