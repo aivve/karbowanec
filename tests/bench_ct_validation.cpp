@@ -4,10 +4,10 @@
 // transaction at various input/output/ring-size configurations. Excludes
 // per-ring-member LMDB lookups (those are I/O-bound and depend on the
 // daemon's running state); this benchmark focuses on the CPU cost of
-// MLSAG verify, GK proof verify, balance equation, and kernel signature.
+// Triptych verify, GK proof verify, balance equation, and kernel signature.
 //
 // Numbers from this run let you decide whether the structural caps
-// (CT_MAX_INPUTS=512, CT_MAX_OUTPUTS=256, CT_MAX_RING_SIZE=16) need
+// (CT_MAX_INPUTS=128, CT_MAX_OUTPUTS=64, CT_MAX_RING_SIZE=16) need
 // to drop, or whether they're already comfortably below a 1s per-tx
 // validation budget.
 //
@@ -16,7 +16,7 @@
 // single preset.
 
 #include "crypto/gk_proof.h"
-#include "crypto/mlsag.h"
+#include "crypto/triptych.h"
 #include "crypto/pedersen.h"
 #include "crypto/transaction_balance.h"
 #include "crypto/ct_ecdh.h"
@@ -64,7 +64,7 @@ static void random_hash(Crypto::Hash& h) {
 
 // ─── Generated CT tx (verify-only payload) ─────────────────────────────
 //
-// The fields below mirror what the validator's MLSAG/GK/balance steps
+// The fields below mirror what the validator's Triptych/GK/balance steps
 // actually consume — we skip the wire layout and ring-member DB resolution
 // because they aren't part of the crypto cost. Build is slow (signing);
 // verify is what the blockchain pays per accepted tx.
@@ -81,7 +81,7 @@ struct CtTxStub {
   std::vector<std::vector<Crypto::EllipticCurvePoint>>     ringCommits;
   std::vector<Crypto::EllipticCurvePoint>                  pseudoCommits;
   std::vector<Crypto::KeyImage>                            keyImages;
-  std::vector<Crypto::MLSAGSignature>                      mlsagSigs;
+  std::vector<Crypto::TriptychSignature>                   triptychSigs;
 
   // Per-output
   std::vector<Crypto::EllipticCurvePoint>                  outputCommits;
@@ -104,12 +104,17 @@ static void buildCtTx(size_t numInputs, size_t ringSize, size_t numOutputs,
   tx.fee = 0;
   random_hash(tx.txHash);
 
+  if (!Crypto::triptych_ring_size_supported(ringSize)) {
+    std::fprintf(stderr, "buildCtTx: unsupported ring size %zu (must be 4, 8, or 16)\n", ringSize);
+    std::exit(1);
+  }
+
   // ── Inputs ──────────────────────────────────────────────────────────
   tx.ringPubkeys.assign(numInputs, std::vector<Crypto::PublicKey>(ringSize));
   tx.ringCommits.assign(numInputs, std::vector<Crypto::EllipticCurvePoint>(ringSize));
   tx.pseudoCommits.resize(numInputs);
   tx.keyImages.resize(numInputs);
-  tx.mlsagSigs.resize(numInputs);
+  tx.triptychSigs.resize(numInputs);
 
   std::vector<Crypto::SecretKey> spendSecs(numInputs);
   std::vector<Crypto::EllipticCurveScalar> realBlindings(numInputs);
@@ -151,14 +156,14 @@ static void buildCtTx(size_t numInputs, size_t ringSize, size_t numOutputs,
       std::exit(1);
     }
 
-    if (!Crypto::mlsag_sign(tx.txHash,
-                            tx.ringPubkeys[i].data(),
-                            tx.ringCommits[i].data(),
-                            tx.pseudoCommits[i],
-                            ringSize, trueIdx,
-                            spendSecs[i], realBlindings[i], pseudoBlindings[i],
-                            tx.keyImages[i], tx.mlsagSigs[i])) {
-      std::fprintf(stderr, "mlsag_sign failed at input %zu\n", i);
+    if (!Crypto::triptych_sign(tx.txHash,
+                               tx.ringPubkeys[i].data(),
+                               tx.ringCommits[i].data(),
+                               tx.pseudoCommits[i],
+                               ringSize, trueIdx,
+                               spendSecs[i], realBlindings[i], pseudoBlindings[i],
+                               tx.keyImages[i], tx.triptychSigs[i])) {
+      std::fprintf(stderr, "triptych_sign failed at input %zu\n", i);
       std::exit(1);
     }
   }
@@ -215,7 +220,7 @@ static void buildCtTx(size_t numInputs, size_t ringSize, size_t numOutputs,
 }
 
 struct VerifyTiming {
-  double mlsagMicros = 0.0;
+  double triptychMicros = 0.0;
   double gkMicros = 0.0;
   double balanceMicros = 0.0;
   double totalMicros = 0.0;
@@ -225,28 +230,28 @@ struct VerifyTiming {
 // Run the CPU-bound portion of the validator pipeline. Skips ring-member
 // DB resolution (the validator does m_db.getKeyOutput per member; that's
 // I/O cost we don't measure here) and skips subgroup pre-checks on inputs
-// (cheap; in the same ballpark as one MLSAG mult).
+// (cheap; in the same ballpark as one Triptych scalarmult).
 static VerifyTiming verifyCtTx(const CtTxStub& tx) {
   VerifyTiming t;
 
-  // MLSAG verify per input
+  // Triptych verify per input
   {
     auto start = clock_t_::now();
     for (size_t i = 0; i < tx.numInputs; ++i) {
-      bool ok = Crypto::mlsag_verify(tx.txHash,
-                                     tx.ringPubkeys[i].data(),
-                                     tx.ringCommits[i].data(),
-                                     tx.pseudoCommits[i],
-                                     tx.ringSize,
-                                     tx.keyImages[i],
-                                     tx.mlsagSigs[i]);
+      bool ok = Crypto::triptych_verify(tx.txHash,
+                                        tx.ringPubkeys[i].data(),
+                                        tx.ringCommits[i].data(),
+                                        tx.pseudoCommits[i],
+                                        tx.ringSize,
+                                        tx.keyImages[i],
+                                        tx.triptychSigs[i]);
       if (!ok) {
         t.allPassed = false;
-        std::fprintf(stderr, "[bench] MLSAG verify FAILED at input %zu\n", i);
+        std::fprintf(stderr, "[bench] Triptych verify FAILED at input %zu\n", i);
       }
     }
     auto end = clock_t_::now();
-    t.mlsagMicros = std::chrono::duration<double, std::micro>(end - start).count();
+    t.triptychMicros = std::chrono::duration<double, std::micro>(end - start).count();
   }
 
   // GK verify per output
@@ -278,34 +283,34 @@ static VerifyTiming verifyCtTx(const CtTxStub& tx) {
     t.balanceMicros = std::chrono::duration<double, std::micro>(end - start).count();
   }
 
-  t.totalMicros = t.mlsagMicros + t.gkMicros + t.balanceMicros;
+  t.totalMicros = t.triptychMicros + t.gkMicros + t.balanceMicros;
   return t;
 }
 
 // Same as verifyCtTx but uses Crypto::gk_verify_batch over all outputs
-// instead of looping gk_verify per output. The MLSAG and balance steps
+// instead of looping gk_verify per output. The Triptych and balance steps
 // are identical; only the GK timing changes.
 static VerifyTiming verifyCtTxBatchedGK(const CtTxStub& tx) {
   VerifyTiming t;
 
-  // MLSAG verify per input (same path as the non-batched flow).
+  // Triptych verify per input (same path as the non-batched flow).
   {
     auto start = clock_t_::now();
     for (size_t i = 0; i < tx.numInputs; ++i) {
-      bool ok = Crypto::mlsag_verify(tx.txHash,
-                                     tx.ringPubkeys[i].data(),
-                                     tx.ringCommits[i].data(),
-                                     tx.pseudoCommits[i],
-                                     tx.ringSize,
-                                     tx.keyImages[i],
-                                     tx.mlsagSigs[i]);
+      bool ok = Crypto::triptych_verify(tx.txHash,
+                                        tx.ringPubkeys[i].data(),
+                                        tx.ringCommits[i].data(),
+                                        tx.pseudoCommits[i],
+                                        tx.ringSize,
+                                        tx.keyImages[i],
+                                        tx.triptychSigs[i]);
       if (!ok) {
         t.allPassed = false;
-        std::fprintf(stderr, "[bench] MLSAG verify FAILED at input %zu\n", i);
+        std::fprintf(stderr, "[bench] Triptych verify FAILED at input %zu\n", i);
       }
     }
     auto end = clock_t_::now();
-    t.mlsagMicros = std::chrono::duration<double, std::micro>(end - start).count();
+    t.triptychMicros = std::chrono::duration<double, std::micro>(end - start).count();
   }
 
   // Batched GK verify over all outputs at once.
@@ -336,24 +341,26 @@ static VerifyTiming verifyCtTxBatchedGK(const CtTxStub& tx) {
     t.balanceMicros = std::chrono::duration<double, std::micro>(end - start).count();
   }
 
-  t.totalMicros = t.mlsagMicros + t.gkMicros + t.balanceMicros;
+  t.totalMicros = t.triptychMicros + t.gkMicros + t.balanceMicros;
   return t;
 }
 
 // ─── Worst-case size estimate ──────────────────────────────────────────
 //
-// Per-input wire cost at ring size R:
+// Per-input wire cost at ring size R, with n = log2(R) ∈ {2, 3, 4}:
 //   ~32 (pseudo) + 32 (key image) + R * (varint amount + varint offset
-//   + 32 pubkey + 32 commit) + MLSAG (~32 + R * 64) + tag byte
-//   ≈ 64 + R * (96 + 9 amount + 5 offset) + 32 + R*64 + 1
-//   ≈ 97 + R * 174   bytes
+//   + 32 pubkey + 32 commit) + Triptych (1 byte n + (9n + 3) × 32) + tag byte
+//   = 64 + R × (96 + 9 amount + 5 offset) + 1 + (9n + 3) × 32 + 1
+//   = 66 + R × 110 + (9n + 3) × 32   bytes
 //
 // Per-output wire cost: 32 target_key + 32 commit + 8 masked + ~5 amount
 //                       + GK proof = ~77 + 1376 = ~1453 bytes
 //
 // Plus kernel ~96, extra ~33, version/fee ~10
 static size_t estimateWireSize(size_t numInputs, size_t ringSize, size_t numOutputs) {
-  size_t perInput = 97 + ringSize * 174;
+  size_t n = (ringSize == 4) ? 2 : (ringSize == 8) ? 3 : 4;  // log2(R)
+  size_t triptychBytes = 1 + (9 * n + 3) * 32;
+  size_t perInput = 66 + ringSize * 110 + triptychBytes;
   size_t perOutput = 1453;
   size_t fixed = 96 + 33 + 10;
   return numInputs * perInput + numOutputs * perOutput + fixed;
@@ -369,13 +376,13 @@ struct Preset {
 };
 
 static const Preset kPresets[] = {
-  {"typical",       1,   4,   2,  20, "single 1-in/2-out, min ring"},
-  {"common-ct",     2,  16,   3,  10, "2 inputs ring 16, 3 outputs"},
+  {"typical",       1,   4,   2,  20, "single 1-in/2-out, min ring (n=2)"},
+  {"common-ct",     2,  16,   3,  10, "2 inputs ring 16 (n=4), 3 outputs"},
   {"size-medium",  10,  16,  10,   5, "10 in / 10 out, ring 16"},
   {"size-heavy",   50,  16,  50,   3, "50 in / 50 out, ring 16"},
   {"input-bound", 100,  16,  17,   3, "~size-cap, input-heavy"},
-  {"output-bound", 50,  16, 100,   3, "~size-cap, output-heavy"},
-  {"structural-max", 512, 16, 256, 1, "structural caps — exceeds wire size limit"},
+  {"output-bound", 50,  16,  64,   3, "~size-cap, output-heavy"},
+  {"structural-max", 128, 16, 64,  1, "structural caps (CT_MAX_INPUTS, CT_MAX_OUTPUTS)"},
 };
 static const size_t kNumPresets = sizeof(kPresets) / sizeof(kPresets[0]);
 
@@ -408,31 +415,31 @@ static void runPreset(const Preset& p, bool batchedGK) {
   (void)runOnce();
 
   // Timed iterations
-  double sumMlsag = 0, sumGk = 0, sumBalance = 0, sumTotal = 0;
+  double sumTriptych = 0, sumGk = 0, sumBalance = 0, sumTotal = 0;
   double minTotal = 1e18, maxTotal = 0;
   for (size_t it = 0; it < p.iterations; ++it) {
     VerifyTiming t = runOnce();
-    sumMlsag += t.mlsagMicros;
+    sumTriptych += t.triptychMicros;
     sumGk += t.gkMicros;
     sumBalance += t.balanceMicros;
     sumTotal += t.totalMicros;
     if (t.totalMicros < minTotal) minTotal = t.totalMicros;
     if (t.totalMicros > maxTotal) maxTotal = t.totalMicros;
   }
-  double avgMlsag = sumMlsag / p.iterations;
+  double avgTriptych = sumTriptych / p.iterations;
   double avgGk = sumGk / p.iterations;
   double avgBalance = sumBalance / p.iterations;
   double avgTotal = sumTotal / p.iterations;
 
-  const double mlsagPerInputUs = p.numInputs > 0 ? avgMlsag / p.numInputs : 0;
-  const double gkPerOutputUs   = p.numOutputs > 0 ? avgGk / p.numOutputs : 0;
+  const double triptychPerInputUs = p.numInputs > 0 ? avgTriptych / p.numInputs : 0;
+  const double gkPerOutputUs      = p.numOutputs > 0 ? avgGk / p.numOutputs : 0;
 
-  std::printf("  MLSAG verify : %8.1f ms total  (%.1f us / input)\n",
-              avgMlsag / 1000.0, mlsagPerInputUs);
-  std::printf("  GK    verify : %8.1f ms total  (%.1f us / output)%s\n",
+  std::printf("  Triptych verify : %8.1f ms total  (%.1f us / input)\n",
+              avgTriptych / 1000.0, triptychPerInputUs);
+  std::printf("  GK       verify : %8.1f ms total  (%.1f us / output)%s\n",
               avgGk / 1000.0, gkPerOutputUs,
               batchedGK ? "  [batched]" : "");
-  std::printf("  Balance+kern : %8.1f ms total\n", avgBalance / 1000.0);
+  std::printf("  Balance+kern    : %8.1f ms total\n", avgBalance / 1000.0);
   std::printf("  TOTAL        : %8.1f ms  (min %.1f, max %.1f ms over %zu iters)\n",
               avgTotal / 1000.0, minTotal / 1000.0, maxTotal / 1000.0, p.iterations);
 

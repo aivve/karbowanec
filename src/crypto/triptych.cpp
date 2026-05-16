@@ -31,22 +31,24 @@ namespace Crypto {
 
 namespace {
 
-// log2(N) for the three supported ring sizes. The proof's vector lengths
-// are exactly n. Callers MUST validate ring_size with
+// log2(N) for the supported ring sizes. Returns 0 for ring_size = 1
+// (the Schnorr branch; no bit decomposition) and for any unsupported
+// shape — callers MUST validate ring_size with
 // triptych_ring_size_supported() before allocating buffers.
 inline size_t log2_ring(size_t ring_size) {
   switch (ring_size) {
+    case 1:  return 0;
     case 4:  return 2;
     case 8:  return 3;
     case 16: return 4;
-    default: return 0;  // caller checks before reaching here
+    default: return 0;
   }
 }
 
 } // anonymous namespace
 
 bool triptych_ring_size_supported(size_t ring_size) {
-  return ring_size == 4 || ring_size == 8 || ring_size == 16;
+  return ring_size == 1 || ring_size == 4 || ring_size == 8 || ring_size == 16;
 }
 
 // ── Scalar / point primitives ───────────────────────────────────────────
@@ -178,10 +180,16 @@ void sc_invert(unsigned char out[32], const unsigned char in[32]) {
 
 namespace {
 
+// n_bits = length of I_bits / A / B  (= log2(ring_size) for full Triptych,
+//          0 for the ring_size=1 Schnorr branch).
+// n_q    = length of Q_P / Q_M / Q_U (= n_bits for full Triptych, but
+//          1 for the Schnorr branch — the Q vectors carry the three
+//          Schnorr nonce commitments in that case).
 void compute_challenge(
   const Hash& message,
   size_t ring_size,
-  size_t n,
+  size_t n_bits,
+  size_t n_q,
   const PublicKey ring_pubkeys[],
   const EllipticCurvePoint ring_commits[],
   const EllipticCurvePoint& pseudo_commit,
@@ -200,22 +208,22 @@ void compute_challenge(
   // Buffer layout:
   //   domain || message(32) || ring_size_byte(1) ||
   //   N*32 ring_pubkeys || N*32 ring_commits || 32 pseudo || 32 image ||
-  //   n*32 I_bits || n*32 A || n*32 B ||
-  //   n*32 Q_P || n*32 Q_M || n*32 Q_U
+  //   n_bits*32 I_bits || n_bits*32 A || n_bits*32 B ||
+  //   n_q*32 Q_P || n_q*32 Q_M || n_q*32 Q_U
   const size_t buf_size =
       domain_len
       + 32                       // message
-      + 1                        // ring_size byte (3 supported, fits in u8)
+      + 1                        // ring_size byte
       + 32 * ring_size           // ring_pubkeys
       + 32 * ring_size           // ring_commits
       + 32                       // pseudo_commit
       + 32                       // key_image
-      + 32 * n                   // I_bits
-      + 32 * n                   // A
-      + 32 * n                   // B
-      + 32 * n                   // Q_P
-      + 32 * n                   // Q_M
-      + 32 * n;                  // Q_U
+      + 32 * n_bits              // I_bits
+      + 32 * n_bits              // A
+      + 32 * n_bits              // B
+      + 32 * n_q                 // Q_P
+      + 32 * n_q                 // Q_M
+      + 32 * n_q;                // Q_U
 
   std::vector<unsigned char> buf(buf_size);
   unsigned char* ptr = buf.data();
@@ -242,12 +250,12 @@ void compute_challenge(
   std::memcpy(ptr, &key_image, 32);
   ptr += 32;
 
-  for (size_t j = 0; j < n; ++j) { p3_to_bytes(ptr, &I_bits[j]); ptr += 32; }
-  for (size_t j = 0; j < n; ++j) { p3_to_bytes(ptr, &A[j]);      ptr += 32; }
-  for (size_t j = 0; j < n; ++j) { p3_to_bytes(ptr, &B[j]);      ptr += 32; }
-  for (size_t m = 0; m < n; ++m) { p3_to_bytes(ptr, &Q_P[m]);    ptr += 32; }
-  for (size_t m = 0; m < n; ++m) { p3_to_bytes(ptr, &Q_M[m]);    ptr += 32; }
-  for (size_t m = 0; m < n; ++m) { p3_to_bytes(ptr, &Q_U[m]);    ptr += 32; }
+  for (size_t j = 0; j < n_bits; ++j) { p3_to_bytes(ptr, &I_bits[j]); ptr += 32; }
+  for (size_t j = 0; j < n_bits; ++j) { p3_to_bytes(ptr, &A[j]);      ptr += 32; }
+  for (size_t j = 0; j < n_bits; ++j) { p3_to_bytes(ptr, &B[j]);      ptr += 32; }
+  for (size_t m = 0; m < n_q;    ++m) { p3_to_bytes(ptr, &Q_P[m]);    ptr += 32; }
+  for (size_t m = 0; m < n_q;    ++m) { p3_to_bytes(ptr, &Q_M[m]);    ptr += 32; }
+  for (size_t m = 0; m < n_q;    ++m) { p3_to_bytes(ptr, &Q_U[m]);    ptr += 32; }
 
   assert(ptr == buf.data() + buf_size);
 
@@ -406,6 +414,73 @@ bool triptych_sign(
     hash_to_ec(ring_pubkeys[k], U[k]);
   }
 
+  // ── Ring-size-1 (Schnorr) branch ──────────────────────────────────────
+  //
+  // The Triptych polynomial selector degenerates at n=0; with a single
+  // ring member there is no decoy to hide among, so we collapse to three
+  // Schnorr proofs sharing the Fiat-Shamir challenge:
+  //
+  //   T_P = ρ_P·G       , f_P = ρ_P + x_chal·x
+  //   T_M = ρ_M·G       , f_M = ρ_M + x_chal·z
+  //   T_U = ρ_U·Hp(P_0) , f_U = ρ_U + x_chal·x
+  //
+  // ρ_P and ρ_U are independent; the "same x" binding is implicit via
+  // dlog hardness of I in base Hp(P_0).
+  if (ring_size == 1) {
+    sig.I_bits.clear();
+    sig.A.clear();
+    sig.B.clear();
+    sig.z.clear();
+    sig.za.clear();
+    sig.zb.clear();
+    sig.Q_P.resize(1);
+    sig.Q_M.resize(1);
+    sig.Q_U.resize(1);
+
+    EllipticCurveScalar rho_P, rho_M, rho_U;
+    random_scalar(rho_P);
+    random_scalar(rho_M);
+    random_scalar(rho_U);
+
+    ge_p3 T_P, T_M, T_U;
+    ge_scalarmult_base(&T_P, rho_P.data);
+    ge_scalarmult_base(&T_M, rho_M.data);
+    if (!scalarmult_p3(&T_U, rho_U.data, &U[0])) return false;
+
+    EllipticCurveScalar x_chal;
+    compute_challenge(
+      message, ring_size, /*n_bits=*/0, /*n_q=*/1,
+      ring_pubkeys, ring_commits, pseudo_commit, key_image,
+      /*I_bits=*/nullptr, /*A=*/nullptr, /*B=*/nullptr,
+      &T_P, &T_M, &T_U,
+      x_chal);
+
+    // f_P = ρ_P + x_chal·x
+    unsigned char term[32];
+    sc_mul(term, x_chal.data, reinterpret_cast<const unsigned char*>(&spend_privkey));
+    sc_add(sig.f_P.data, rho_P.data, term);
+
+    // f_M = ρ_M + x_chal·z
+    sc_mul(term, x_chal.data, z_witness.data);
+    sc_add(sig.f_M.data, rho_M.data, term);
+
+    // f_U = ρ_U + x_chal·x   (same x as f_P, but distinct ρ_U so f_U != f_P
+    // in general; binding is via dlog hardness on Hp(P_0), not equality)
+    sc_mul(term, x_chal.data, reinterpret_cast<const unsigned char*>(&spend_privkey));
+    sc_add(sig.f_U.data, rho_U.data, term);
+
+    p3_to_bytes(reinterpret_cast<unsigned char*>(&sig.Q_P[0]), &T_P);
+    p3_to_bytes(reinterpret_cast<unsigned char*>(&sig.Q_M[0]), &T_M);
+    p3_to_bytes(reinterpret_cast<unsigned char*>(&sig.Q_U[0]), &T_U);
+
+    sodium_memzero(&rho_P, sizeof(rho_P));
+    sodium_memzero(&rho_M, sizeof(rho_M));
+    sodium_memzero(&rho_U, sizeof(rho_U));
+    sodium_memzero(&z_witness, sizeof(z_witness));
+
+    return true;
+  }
+
   // ── Step 4: bit-decomposition phase (standard GK) ─────────────────────
   // Allocate sig vectors and fresh randomness for bit commitments.
   sig.I_bits.resize(n);
@@ -501,7 +576,7 @@ bool triptych_sign(
   // ── Step 7: Fiat-Shamir challenge ─────────────────────────────────────
   EllipticCurveScalar x_chal;
   compute_challenge(
-    message, ring_size, n,
+    message, ring_size, /*n_bits=*/n, /*n_q=*/n,
     ring_pubkeys, ring_commits, pseudo_commit, key_image,
     I_bits_p3.data(), A_p3.data(), B_p3.data(),
     Q_P_p3.data(), Q_M_p3.data(), Q_U_p3.data(),
@@ -594,15 +669,18 @@ bool triptych_verify(
   const TriptychSignature& sig)
 {
   if (!triptych_ring_size_supported(ring_size)) return false;
-  const size_t n = log2_ring(ring_size);
+  const size_t n   = log2_ring(ring_size);
+  // n_q = vector length of Q_P/Q_M/Q_U. For ring_size=1 the Q vectors
+  // carry three Schnorr nonce commitments (length 1) even though n=0.
+  const size_t n_q = (ring_size == 1) ? 1 : n;
 
-  // Shape check: every vector must be exactly n.
+  // Shape check.
   if (sig.I_bits.size() != n) return false;
   if (sig.A.size()      != n) return false;
   if (sig.B.size()      != n) return false;
-  if (sig.Q_P.size()    != n) return false;
-  if (sig.Q_M.size()    != n) return false;
-  if (sig.Q_U.size()    != n) return false;
+  if (sig.Q_P.size()    != n_q) return false;
+  if (sig.Q_M.size()    != n_q) return false;
+  if (sig.Q_U.size()    != n_q) return false;
   if (sig.z.size()      != n) return false;
   if (sig.za.size()     != n) return false;
   if (sig.zb.size()     != n) return false;
@@ -632,21 +710,24 @@ bool triptych_verify(
   // Decode all proof points; each must be subgroup-valid (rejects torsion
   // attacks that could otherwise sneak forged components past identity).
   std::vector<ge_p3> I_bits_p3(n), A_p3(n), B_p3(n);
-  std::vector<ge_p3> Q_P_p3(n), Q_M_p3(n), Q_U_p3(n);
+  std::vector<ge_p3> Q_P_p3(n_q), Q_M_p3(n_q), Q_U_p3(n_q);
   for (size_t j = 0; j < n; ++j) {
     if (ge_frombytes_vartime(&I_bits_p3[j], reinterpret_cast<const unsigned char*>(&sig.I_bits[j])) != 0) return false;
     if (ge_frombytes_vartime(&A_p3[j],      reinterpret_cast<const unsigned char*>(&sig.A[j]))      != 0) return false;
     if (ge_frombytes_vartime(&B_p3[j],      reinterpret_cast<const unsigned char*>(&sig.B[j]))      != 0) return false;
-    if (ge_frombytes_vartime(&Q_P_p3[j],    reinterpret_cast<const unsigned char*>(&sig.Q_P[j]))    != 0) return false;
-    if (ge_frombytes_vartime(&Q_M_p3[j],    reinterpret_cast<const unsigned char*>(&sig.Q_M[j]))    != 0) return false;
-    if (ge_frombytes_vartime(&Q_U_p3[j],    reinterpret_cast<const unsigned char*>(&sig.Q_U[j]))    != 0) return false;
 
     if (!subgroup_check_p3(I_bits_p3[j])) return false;
     if (!subgroup_check_p3(A_p3[j]))      return false;
     if (!subgroup_check_p3(B_p3[j]))      return false;
-    if (!subgroup_check_p3(Q_P_p3[j]))    return false;
-    if (!subgroup_check_p3(Q_M_p3[j]))    return false;
-    if (!subgroup_check_p3(Q_U_p3[j]))    return false;
+  }
+  for (size_t m = 0; m < n_q; ++m) {
+    if (ge_frombytes_vartime(&Q_P_p3[m], reinterpret_cast<const unsigned char*>(&sig.Q_P[m])) != 0) return false;
+    if (ge_frombytes_vartime(&Q_M_p3[m], reinterpret_cast<const unsigned char*>(&sig.Q_M[m])) != 0) return false;
+    if (ge_frombytes_vartime(&Q_U_p3[m], reinterpret_cast<const unsigned char*>(&sig.Q_U[m])) != 0) return false;
+
+    if (!subgroup_check_p3(Q_P_p3[m])) return false;
+    if (!subgroup_check_p3(Q_M_p3[m])) return false;
+    if (!subgroup_check_p3(Q_U_p3[m])) return false;
   }
 
   // Decode ring inputs; recompute U_k = Hp(P_k) and M_k = C_k − C_pseudo.
@@ -674,13 +755,61 @@ bool triptych_verify(
     hash_to_ec(ring_pubkeys[k], U[k]);
   }
 
+  // ── Ring-size-1 (Schnorr) verifier branch ─────────────────────────────
+  //
+  //   (a)  f_P · G        =?= Q_P[0] + x_chal · P_0
+  //   (b)  f_M · G        =?= Q_M[0] + x_chal · M_0
+  //   (c)  f_U · Hp(P_0)  =?= Q_U[0] + x_chal · I
+  //
+  // Each equation is an independent Schnorr verification sharing one FS
+  // challenge. The "same x" binding for (a) and (c) is implicit via dlog
+  // hardness of I in base Hp(P_0).
+  if (ring_size == 1) {
+    EllipticCurveScalar x_chal;
+    compute_challenge(
+      message, ring_size, /*n_bits=*/0, /*n_q=*/1,
+      ring_pubkeys, ring_commits, pseudo_commit, key_image,
+      /*I_bits=*/nullptr, /*A=*/nullptr, /*B=*/nullptr,
+      Q_P_p3.data(), Q_M_p3.data(), Q_U_p3.data(),
+      x_chal);
+
+    // (a) f_P · G =?= Q_P[0] + x_chal · P_0
+    {
+      ge_p3 lhs, rhs, term;
+      ge_scalarmult_base(&lhs, sig.f_P.data);
+      if (!scalarmult_p3(&term, x_chal.data, &P[0])) return false;
+      point_add(&rhs, &Q_P_p3[0], &term);
+      if (!point_equal(lhs, rhs)) return false;
+    }
+
+    // (b) f_M · G =?= Q_M[0] + x_chal · M_0
+    {
+      ge_p3 lhs, rhs, term;
+      ge_scalarmult_base(&lhs, sig.f_M.data);
+      if (!scalarmult_p3(&term, x_chal.data, &M[0])) return false;
+      point_add(&rhs, &Q_M_p3[0], &term);
+      if (!point_equal(lhs, rhs)) return false;
+    }
+
+    // (c) f_U · Hp(P_0) =?= Q_U[0] + x_chal · I
+    {
+      ge_p3 lhs, rhs, term;
+      if (!scalarmult_p3(&lhs, sig.f_U.data, &U[0])) return false;
+      if (!scalarmult_p3(&term, x_chal.data, &I_p3)) return false;
+      point_add(&rhs, &Q_U_p3[0], &term);
+      if (!point_equal(lhs, rhs)) return false;
+    }
+
+    return true;
+  }
+
   // Recompute the Fiat-Shamir challenge from the same canonical buffer
   // the prover built. Any mismatch (tampered proof, swapped pseudo
   // commit, swapped key image, swapped tx prefix) flips x_chal and the
   // ring identities below fail by overwhelming probability.
   EllipticCurveScalar x_chal;
   compute_challenge(
-    message, ring_size, n,
+    message, ring_size, /*n_bits=*/n, /*n_q=*/n,
     ring_pubkeys, ring_commits, pseudo_commit, key_image,
     I_bits_p3.data(), A_p3.data(), B_p3.data(),
     Q_P_p3.data(), Q_M_p3.data(), Q_U_p3.data(),

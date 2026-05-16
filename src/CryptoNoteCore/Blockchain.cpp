@@ -41,7 +41,7 @@
 #include "../crypto/hash.h"
 #include "../crypto/pedersen.h"
 #include "../crypto/gk_proof.h"
-#include "../crypto/mlsag.h"
+#include "../crypto/triptych.h"
 #include "../crypto/transaction_balance.h"
 #include "../crypto/crypto-ops.h"
 #include "../CryptoNoteConfig.h"
@@ -2131,7 +2131,7 @@ bool Blockchain::checkTransactionInputs(const Transaction& tx,
     Crypto::Hash transactionHash = getObjectHash(tx);
     // Under a confirmed checkpoint the block hash is already trusted by the
     // network. Run only cheap structural checks so historical CT blocks can
-    // stream through the pool/index path without re-verifying MLSAG, GK and
+    // stream through the pool/index path without re-verifying Triptych, GK and
     // balance kernels.
     if (context == TxValidationContext::CheckpointedBlock) {
       return checkConfidentialTransactionStructure(tx, transactionHash);
@@ -2310,7 +2310,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     return false;
   }
 
-  // Use the prefix hash for Fiat-Shamir binding. Proof response fields (MLSAG, GK, kernel)
+  // Use the prefix hash for Fiat-Shamir binding. Proof response fields (Triptych, GK, kernel)
   // are in the Transaction body, not the prefix, so the prefix hash naturally excludes them.
   const Crypto::Hash ct_signing_hash = getObjectHash(*static_cast<const TransactionPrefix*>(&tx));
 
@@ -2430,16 +2430,15 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       logger(ERROR) << "CT validation: input " << i << " has empty ring in tx " << txHash;
       return false;
     }
-    // Allow ring size 1 for special handling only as a candidate for the V5+ coinbase carve-out.
-    // The actual referenced output is checked below after resolving the ring member.
-    if (ringSize != 1 && ringSize < CT_MIN_RING_SIZE) {
+    // Triptych supports ring sizes 1 (Schnorr branch) and 4 / 8 / 16
+    // (full one-out-of-many). Ring size 1 is restricted further below
+    // (after ring-member resolution) to the V5+ coinbase carve-out: a
+    // mining-tx output has no privacy expectation, so spending it does
+    // not require decoys.
+    if (!Crypto::triptych_ring_size_supported(ringSize)) {
       logger(ERROR) << "CT validation: input " << i << " ring size " << ringSize
-                    << " below minimum " << CT_MIN_RING_SIZE << " in tx " << txHash;
-      return false;
-    }
-    if (ringSize > CT_MAX_RING_SIZE) {
-      logger(ERROR) << "CT validation: input " << i << " ring size " << ringSize
-                    << " above maximum " << CT_MAX_RING_SIZE << " in tx " << txHash;
+                    << " is not a supported Triptych shape (1, 4, 8, or 16)"
+                    << " in tx " << txHash;
       return false;
     }
     if (ringSize != cin.ringPubkeys.size() || ringSize != cin.ringCommitments.size()) {
@@ -2565,12 +2564,19 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
         }
       }
 
+      // Ring-size-1 carve-out: only valid when the single ring member
+      // points at a v5+ coinbase KeyOutput (txSlot 0 of the base tx in
+      // a block with majorVersion ≥ 5). Such outputs are publicly
+      // mined and carry no privacy expectation, so requiring decoys for
+      // them would only waste wallet bandwidth.
       if (ringSize == 1) {
         DbBlockMeta ringBlockMeta{};
         m_db.getBlockMeta(block, ringBlockMeta);
-        if (!ringMemberIsKey || txSlot != 0 || ringBlockMeta.majorVersion < CryptoNote::BLOCK_MAJOR_VERSION_5) {
+        if (!ringMemberIsKey || txSlot != 0 ||
+            ringBlockMeta.majorVersion < CryptoNote::BLOCK_MAJOR_VERSION_5) {
           logger(ERROR) << "CT validation: input " << i
-                        << " uses ring size 1 but does not reference a v5+ coinbase KeyOutput in tx " << txHash;
+                        << " uses ring size 1 but does not reference a v5+ coinbase KeyOutput in tx "
+                        << txHash;
           return false;
         }
       }
@@ -2620,7 +2626,13 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
   }
 
-  // Step 5: For each input: verify MLSAG ring signature
+  // Step 5: For each input: verify Triptych spend proof.
+  //
+  // Ring size is constrained to a Triptych-supported shape (1 / 4 / 8 / 16)
+  // by triptych_ring_size_supported above. The serializer pins n on the
+  // proof body to {0, 2, 3, 4}; here we additionally enforce the proof's
+  // shape matches the ring size for this specific input — a prover can't
+  // swap a Schnorr-shape body against a ring-size-4 input or vice versa.
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
     if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
       logger(ERROR) << "CT validation: input " << i << " is not ConfidentialInput in tx " << txHash;
@@ -2629,19 +2641,58 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
     const auto& sig = tx.ctSignatures[i];
 
-    Crypto::MLSAGSignature mlsag;
-    mlsag.c0 = sig.c0;
-    mlsag.ss = sig.ss;
+    const size_t ringSize = verifiedRingPubkeys[i].size();
+    if (!Crypto::triptych_ring_size_supported(ringSize)) {
+      logger(ERROR) << "CT validation: input " << i << " ring size " << ringSize
+                    << " is not a supported Triptych shape in tx " << txHash;
+      return false;
+    }
+    // Vector-length expectations:
+    //   ring_size = 1  → bits = 0, q_len = 1 (Schnorr branch)
+    //   ring_size = 4  → bits = 2, q_len = 2
+    //   ring_size = 8  → bits = 3, q_len = 3
+    //   ring_size = 16 → bits = 4, q_len = 4
+    const size_t expected_bits = (ringSize == 1) ? 0 :
+                                 (ringSize == 4) ? 2 :
+                                 (ringSize == 8) ? 3 : 4;
+    const size_t expected_q    = (ringSize == 1) ? 1 : expected_bits;
+    if (sig.I_bits.size() != expected_bits ||
+        sig.A.size()      != expected_bits || sig.B.size()      != expected_bits ||
+        sig.Q_P.size()    != expected_q    || sig.Q_M.size()    != expected_q    ||
+        sig.Q_U.size()    != expected_q    ||
+        sig.z.size()      != expected_bits || sig.za.size()     != expected_bits ||
+        sig.zb.size()     != expected_bits) {
+      logger(ERROR) << "CT validation: input " << i << " Triptych proof shape"
+                    << " mismatches ring size in tx " << txHash;
+      return false;
+    }
 
-    if (!Crypto::mlsag_verify(
+    // The Crypto layer owns its own struct so we hand it the proof field-by-
+    // field. Copies here are 32 bytes per scalar / 32 bytes per point — small
+    // next to the verifier's scalarmult cost.
+    Crypto::TriptychSignature proof;
+    proof.I_bits = sig.I_bits;
+    proof.A      = sig.A;
+    proof.B      = sig.B;
+    proof.Q_P    = sig.Q_P;
+    proof.Q_M    = sig.Q_M;
+    proof.Q_U    = sig.Q_U;
+    proof.z      = sig.z;
+    proof.za     = sig.za;
+    proof.zb     = sig.zb;
+    proof.f_P    = sig.f_P;
+    proof.f_M    = sig.f_M;
+    proof.f_U    = sig.f_U;
+
+    if (!Crypto::triptych_verify(
         ct_signing_hash,
         verifiedRingPubkeys[i].data(),
         verifiedRingCommitments[i].data(),
         cin.pseudoCommitment,
-        verifiedRingPubkeys[i].size(),
+        ringSize,
         cin.keyImage,
-        mlsag)) {
-      logger(ERROR) << "CT validation: input " << i << " MLSAG signature failed in tx " << txHash;
+        proof)) {
+      logger(ERROR) << "CT validation: input " << i << " Triptych proof failed in tx " << txHash;
       return false;
     }
   }
@@ -2746,7 +2797,7 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
 
 // Cheap structural CT validation used for transactions arriving inside a
 // confirmed checkpointed block. We trust the network's verdict on the block
-// itself, so we skip MLSAG, GK proofs, balance/kernel, DB ring resolution,
+// itself, so we skip Triptych, GK proofs, balance/kernel, DB ring resolution,
 // and unlock-time checks against ring members. We still validate:
 //   - version, container shapes and per-side count invariants
 //   - every commitment / target / pseudo-commitment / ring pubkey parses as a
@@ -2809,14 +2860,10 @@ bool Blockchain::checkConfidentialTransactionStructure(const Transaction& tx,
       logger(ERROR) << "CT structural validation: input " << i << " has empty ring in tx " << txHash;
       return false;
     }
-    if (ringSize != 1 && ringSize < CT_MIN_RING_SIZE) {
+    if (!Crypto::triptych_ring_size_supported(ringSize)) {
       logger(ERROR) << "CT structural validation: input " << i << " ring size " << ringSize
-                    << " below minimum " << CT_MIN_RING_SIZE << " in tx " << txHash;
-      return false;
-    }
-    if (ringSize > CT_MAX_RING_SIZE) {
-      logger(ERROR) << "CT structural validation: input " << i << " ring size " << ringSize
-                    << " above maximum " << CT_MAX_RING_SIZE << " in tx " << txHash;
+                    << " is not a supported Triptych shape (1, 4, 8, or 16)"
+                    << " in tx " << txHash;
       return false;
     }
     if (ringSize != cin.ringPubkeys.size() || ringSize != cin.ringCommitments.size()) {

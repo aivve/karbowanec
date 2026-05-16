@@ -529,6 +529,7 @@ int main() {
   printf("==========================\n\n");
 
   printf("Sign/verify (all supported ring sizes × all true indices):\n");
+  test_sign_verify(1, 0);   // Schnorr branch (v5+ coinbase carve-out)
   for (size_t N : {size_t(4), size_t(8), size_t(16)}) {
     for (size_t i = 0; i < N; ++i) {
       test_sign_verify(N, i);
@@ -536,6 +537,7 @@ int main() {
   }
 
   printf("\nShape: unsupported ring sizes:\n");
+  test_unsupported_ring_size(2);  // n=1 reserved as invalid (see serializer)
   test_unsupported_ring_size(3);
   test_unsupported_ring_size(5);
   test_unsupported_ring_size(6);

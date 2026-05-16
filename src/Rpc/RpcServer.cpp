@@ -2290,19 +2290,43 @@ bool RpcServer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRANSACTIO
         body += "<ol>\n";
         for (size_t i = 0; i < transactionsDetails.ctSignatures.size(); ++i) {
           const auto& signature = transactionsDetails.ctSignatures[i];
+          const size_t n = signature.I_bits.size();
+          const size_t ring_size = static_cast<size_t>(1) << n;
           body += "  <li>\n";
           body += "    <details open>\n";
-          body += "      <summary>Input " + std::to_string(i) + " MLSAG signature (" + std::to_string(signature.ss.size()) + " ring members)</summary>\n";
+          body += "      <summary>Input " + std::to_string(i) + " Triptych spend proof"
+                  " (n=" + std::to_string(n) + ", ring size " + std::to_string(ring_size) + ")</summary>\n";
           body += "      <ul>\n";
-          body += "        <li>c0: <span class=\"wrap\">" + Common::podToHex(signature.c0) + "</span></li>\n";
-          body += "        <li>ss\n";
-          body += "          <ol>\n";
-          for (const auto& row : signature.ss) {
-            body += "            <li>spend: <span class=\"wrap\">" + Common::podToHex(row[0]) + "</span><br/>"
-              "commitment: <span class=\"wrap\">" + Common::podToHex(row[1]) + "</span></li>\n";
-          }
-          body += "          </ol>\n";
-          body += "        </li>\n";
+
+          auto dumpPointArray =
+              [&](const std::vector<Crypto::EllipticCurvePoint>& arr, const char* label) {
+            body += "        <li>" + std::string(label) + "\n          <ol>\n";
+            for (const auto& p : arr) {
+              body += "            <li><span class=\"wrap\">" + Common::podToHex(p) + "</span></li>\n";
+            }
+            body += "          </ol>\n        </li>\n";
+          };
+          auto dumpScalarArray =
+              [&](const std::vector<Crypto::EllipticCurveScalar>& arr, const char* label) {
+            body += "        <li>" + std::string(label) + "\n          <ol>\n";
+            for (const auto& s : arr) {
+              body += "            <li><span class=\"wrap\">" + Common::podToHex(s) + "</span></li>\n";
+            }
+            body += "          </ol>\n        </li>\n";
+          };
+
+          dumpPointArray(signature.I_bits, "I_bits");
+          dumpPointArray(signature.A,      "A");
+          dumpPointArray(signature.B,      "B");
+          dumpPointArray(signature.Q_P,    "Q_P");
+          dumpPointArray(signature.Q_M,    "Q_M");
+          dumpPointArray(signature.Q_U,    "Q_U");
+          dumpScalarArray(signature.z,  "z");
+          dumpScalarArray(signature.za, "za");
+          dumpScalarArray(signature.zb, "zb");
+          body += "        <li>f_P: <span class=\"wrap\">" + Common::podToHex(signature.f_P) + "</span></li>\n";
+          body += "        <li>f_M: <span class=\"wrap\">" + Common::podToHex(signature.f_M) + "</span></li>\n";
+          body += "        <li>f_U: <span class=\"wrap\">" + Common::podToHex(signature.f_U) + "</span></li>\n";
           body += "      </ul>\n";
           body += "    </details>\n";
           body += "  </li>\n";

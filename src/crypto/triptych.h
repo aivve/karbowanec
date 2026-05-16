@@ -81,9 +81,35 @@
 
 namespace Crypto {
 
-// Per-input Triptych signature. Sizes scale with n = log2(ring_size).
-// All point and scalar arrays are exactly n entries long; sizing matches
-// what the prover writes and the verifier reads.
+// Per-input Triptych signature. Vector lengths follow this rule:
+//
+//   ring_size = 1  (n_bits = 0, Schnorr branch — see below)
+//     I_bits, A, B, z, za, zb : empty
+//     Q_P, Q_M, Q_U           : exactly 1 entry each (Schnorr nonce commits)
+//
+//   ring_size ∈ {4, 8, 16}  (n_bits = log2(ring_size); full Triptych)
+//     I_bits, A, B, z, za, zb : exactly n_bits entries
+//     Q_P, Q_M, Q_U           : exactly n_bits entries
+//
+// f_P, f_M, f_U are always present (three response scalars).
+//
+// Ring-size-1 (Schnorr) branch:
+//   The polynomial selector degenerates at n=0, so we cannot use the
+//   one-out-of-many algebra. Instead the proof reduces to three
+//   independent Schnorr proofs (one per relation) sharing the same
+//   Fiat-Shamir challenge:
+//     P_0 = x·G        — Schnorr over G              ↔  f_P, Q_P[0]
+//     M_0 = z·G        — Schnorr over G              ↔  f_M, Q_M[0]
+//     I   = x·Hp(P_0)  — Schnorr over Hp(P_0)        ↔  f_U, Q_U[0]
+//   The "same x" binding for equations 1 and 3 is implicit: a prover who
+//   could pass both with different x's would solve dlog of I in base
+//   Hp(P_0). The carve-out exists so v5+ coinbase outputs (which have no
+//   privacy expectation since they're publicly mined) can be spent
+//   without forcing the wallet to request decoys.
+//
+// Full Triptych branch:
+//   Standard logarithmic linkable one-out-of-many proof; see the
+//   protocol comment at the top of this file.
 struct TriptychSignature {
   std::vector<EllipticCurvePoint>  I_bits;   // commitments to secret index bits l_j
   std::vector<EllipticCurvePoint>  A;        // bitness aux commitments
@@ -105,7 +131,9 @@ struct TriptychSignature {
 // ring_pubkeys:    one-time public keys P_k of ring members (size = ring_size)
 // ring_commits:    Pedersen commitments C_k of ring members (size = ring_size)
 // pseudo_commit:   pseudo-output commitment C' = v·H + r'·G
-// ring_size:       number of ring members; MUST be a power of two in {4, 8, 16}
+// ring_size:       number of ring members; MUST be in {1, 4, 8, 16}.
+//                  ring_size = 1 reduces to a Schnorr-style proof (used for
+//                  v5+ coinbase carve-out — see TriptychSignature comment).
 // true_index:      index l of the real input within the ring
 // spend_privkey:   secret spend key x such that P_l = x·G
 // real_blinding:   blinding factor r of the real input's commitment C_l
@@ -147,7 +175,8 @@ bool triptych_verify(
   const KeyImage& key_image,
   const TriptychSignature& sig);
 
-// Returns true iff n is a supported ring size: 4, 8, or 16.
+// Returns true iff ring_size is supported: 1 (Schnorr branch — see the
+// TriptychSignature comment) or 4 / 8 / 16 (full Triptych).
 // Exposed so callers (TransactionBuilder, validation) can reject early
 // without ever entering the proof path on a malformed shape.
 bool triptych_ring_size_supported(size_t ring_size);

@@ -29,7 +29,7 @@ bool pedersen_commit(const EllipticCurveScalar& v,
 // point on the Ed25519 curve in the prime-order subgroup.
 bool point_valid_for_pedersen(const EllipticCurvePoint& P);
 
-// CT public keys are used inside subgroup-sensitive MLSAG and output checks.
+// CT public keys are used inside subgroup-sensitive Triptych and output checks.
 bool ct_public_key_valid(const PublicKey& key);
 
 } // namespace Crypto

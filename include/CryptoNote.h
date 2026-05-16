@@ -107,10 +107,26 @@ using TransactionInputs = std::vector<TransactionInput>;
 // CT proof body types (version 2 only — stored in Transaction, not prefix)
 // ---------------------------------------------------------------------------
 
-// Per-input MLSAG ring signature (two-row: spend key + commitment difference).
+// Per-input Triptych spend proof — logarithmic linkable one-out-of-many.
+//
+// All point/scalar vectors below have length n = log2(ring_size).
+// Supported ring sizes: 4 (n=2), 8 (n=3), 16 (n=4). On-wire serialization
+// rejects any other shape. The struct mirrors Crypto::TriptychSignature
+// field-for-field; the verifier reconstructs the in-memory proof by
+// decoding each EllipticCurvePoint into ge_p3 form before checking.
 struct CTInputSignature {
-  Crypto::EllipticCurveScalar              c0;   // initial challenge
-  std::vector<std::array<Crypto::EllipticCurveScalar, 2>> ss; // ss[ring_member][row]
+  std::vector<Crypto::EllipticCurvePoint>  I_bits;   // bit-decomposition commitments
+  std::vector<Crypto::EllipticCurvePoint>  A;        // bitness aux commitments
+  std::vector<Crypto::EllipticCurvePoint>  B;        // bitness aux commitments
+  std::vector<Crypto::EllipticCurvePoint>  Q_P;      // P-ring polynomial coefficients (G-base)
+  std::vector<Crypto::EllipticCurvePoint>  Q_M;      // M-ring polynomial coefficients (G-base)
+  std::vector<Crypto::EllipticCurvePoint>  Q_U;      // U-ring polynomial coefficients (I-base)
+  std::vector<Crypto::EllipticCurveScalar> z;        // bit-commitment responses
+  std::vector<Crypto::EllipticCurveScalar> za;       // opening responses for x·I_bits + A
+  std::vector<Crypto::EllipticCurveScalar> zb;       // opening responses for (x−z)·I_bits + B
+  Crypto::EllipticCurveScalar              f_P;      // spend witness response
+  Crypto::EllipticCurveScalar              f_M;      // balance witness response
+  Crypto::EllipticCurveScalar              f_U;      // image witness response
 };
 
 // Per-output GK denomination membership proof.
@@ -159,7 +175,7 @@ struct Transaction : public TransactionPrefix {
   std::vector<std::vector<Crypto::Signature>> signatures;
 
   // v2 (CT): proof body — separate from prefix so getTransactionPrefixHash() excludes them
-  std::vector<CTInputSignature> ctSignatures;  // per-input MLSAG signatures
+  std::vector<CTInputSignature> ctSignatures;  // per-input Triptych spend proofs
   std::vector<CTOutputProof>    ctProofs;      // per-output GK denomination proofs
   TransactionKernel             kernel;        // balance proof + Schnorr signature
 };

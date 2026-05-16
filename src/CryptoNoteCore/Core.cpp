@@ -524,8 +524,31 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
           return false;
         }
       }
-      if (tx.ctSignatures[i].ss.size() != ci.ringMembers.size()) {
-        logger(ERROR) << "CT tx input " << i << " MLSAG ss size mismatch with ring size, rejected for tx id= " << Common::podToHex(txHash);
+      // Triptych proof shape must match the ring size:
+      //   ring_size = 1  → bits = 0, q_len = 1 (Schnorr branch)
+      //   ring_size = 4  → bits = 2, q_len = 2
+      //   ring_size = 8  → bits = 3, q_len = 3
+      //   ring_size = 16 → bits = 4, q_len = 4
+      // The serializer pins n ∈ {0, 2, 3, 4} on each proof; here we cross-
+      // check it against the actual ring size of this input. The deep
+      // verifier (Blockchain::checkConfidentialTransaction) repeats this
+      // check too, but doing it at semantic-check time fails the mempool
+      // admission path earlier on malformed shapes.
+      const auto& s = tx.ctSignatures[i];
+      const size_t rs = ci.ringMembers.size();
+      const size_t expected_bits = (rs == 1)  ? 0 :
+                                   (rs == 4)  ? 2 :
+                                   (rs == 8)  ? 3 :
+                                   (rs == 16) ? 4 : SIZE_MAX;
+      const size_t expected_q    = (rs == 1)  ? 1 : expected_bits;
+      if (expected_bits == SIZE_MAX ||
+          s.I_bits.size() != expected_bits || s.A.size()   != expected_bits ||
+          s.B.size()      != expected_bits || s.Q_P.size() != expected_q    ||
+          s.Q_M.size()    != expected_q    || s.Q_U.size() != expected_q    ||
+          s.z.size()      != expected_bits || s.za.size()  != expected_bits ||
+          s.zb.size()     != expected_bits) {
+        logger(ERROR) << "CT tx input " << i << " Triptych proof shape mismatch with ring size, rejected for tx id= "
+                      << Common::podToHex(txHash);
         return false;
       }
     }

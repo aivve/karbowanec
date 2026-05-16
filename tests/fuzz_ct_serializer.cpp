@@ -71,7 +71,8 @@ std::vector<BinaryArray> buildSeedCorpus() {
     corpus.push_back(std::move(b));
   }
 
-  // Single CT input with a 1-member ring (carve-out shape).
+  // Single CT input with a 1-member ring (v5+ coinbase carve-out) +
+  // Triptych Schnorr proof body (n=0: 3 Q points + 3 scalars).
   {
     BinaryArray b;
     appendVarint(b, TRANSACTION_VERSION_CT);
@@ -90,9 +91,39 @@ std::vector<BinaryArray> buildSeedCorpus() {
     appendVarint(b, 0);                       // vout count
     appendVarint(b, 0);                       // extra size
     appendVarint(b, 1);                       // ct_signatures count
-    appendZeros(b, 32);                       // sig[0].c0
-    appendVarint(b, 1);                       // sig[0].ss.size
-    appendZeros(b, 64);                       // sig[0].ss[0] (2 scalars)
+    b.push_back(0x00);                        // sig[0].n = 0 (Schnorr branch)
+    appendZeros(b, 3 * 32);                   // Q_P[0], Q_M[0], Q_U[0]
+    appendZeros(b, 3 * 32);                   // f_P, f_M, f_U
+    appendVarint(b, 0);                       // ct_proofs count
+    appendZeros(b, 96);                       // kernel (excess+sigE+sigS)
+    corpus.push_back(std::move(b));
+  }
+
+  // Single CT input with a 4-member ring + corresponding Triptych proof
+  // (n = log2(4) = 2: 6×2 = 12 points, 3×2 + 3 = 9 scalars in the proof).
+  {
+    BinaryArray b;
+    appendVarint(b, TRANSACTION_VERSION_CT);
+    appendVarint(b, parameters::CT_MINIMUM_FEE);
+    appendVarint(b, 1);                       // vin count
+    b.push_back(0x04);                        // input tag = ConfidentialInput
+    appendVarint(b, 4);                       // ring_members count
+    for (int k = 0; k < 4; ++k) {
+      appendVarint(b, 1);                     // member[k].amount
+      appendVarint(b, static_cast<uint64_t>(k));  // member[k].outputIndex
+    }
+    appendVarint(b, 4);                       // ring_pubkeys count
+    appendZeros(b, 4 * 32);                   // 4 pubkeys
+    appendVarint(b, 4);                       // ring_commits count
+    appendZeros(b, 4 * 32);                   // 4 commits
+    appendZeros(b, 32);                       // pseudo_commit
+    appendZeros(b, 32);                       // key image
+    appendVarint(b, 0);                       // vout count
+    appendVarint(b, 0);                       // extra size
+    appendVarint(b, 1);                       // ct_signatures count
+    b.push_back(0x02);                        // sig[0].n = 2 (ring size 4)
+    appendZeros(b, 6 * 2 * 32);               // 6n=12 points (I_bits/A/B/Q_P/Q_M/Q_U)
+    appendZeros(b, (3 * 2 + 3) * 32);         // 3n+3=9 scalars (z/za/zb + f_P/f_M/f_U)
     appendVarint(b, 0);                       // ct_proofs count
     appendZeros(b, 96);                       // kernel (excess+sigE+sigS)
     corpus.push_back(std::move(b));

@@ -98,7 +98,7 @@ struct CTBuildOutput {
 //   3. For each input: choose random pseudo-blinding factor, compute pseudo-commitment
 //   4. Compute CT signing hash (excludes proof response fields)
 //   5. Generate GK denomination proofs for each output
-//   6. Generate MLSAG ring signatures for each input
+//   6. Generate Triptych spend proofs for each input
 //   7. Compute excess scalar, sign kernel Schnorr signature
 //
 // viewSecretKey:  wallet view secret key for deterministic tx key derivation.

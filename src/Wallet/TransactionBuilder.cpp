@@ -28,7 +28,7 @@
 #include "crypto/random.h"
 #include "crypto/ct_ecdh.h"
 #include "crypto/gk_proof.h"
-#include "crypto/mlsag.h"
+#include "crypto/triptych.h"
 #include "crypto/transaction_balance.h"
 #include "CryptoNoteConfig.h"
 
@@ -420,16 +420,22 @@ Transaction buildConfidentialTransaction(
     gkp.f = proof.f;
   }
 
-  // ── Step 6: Generate MLSAG ring signatures for each input ──────────────────
+  // ── Step 6: Generate Triptych spend proofs for each input ──────────────────
   tx.ctSignatures.resize(inputs.size());
   for (size_t i = 0; i < inputs.size(); ++i) {
-    Crypto::MLSAGSignature mlsag;
+    Crypto::TriptychSignature proof;
     Crypto::KeyImage ki;
 
-    // mlsag_sign wants flat pubkey / commitment arrays. Extract them from the
-    // canonicalised ringMembers in the same order as the consensus verifier
-    // will see them on chain.
+    // triptych_sign wants flat pubkey / commitment arrays. Extract them from
+    // the canonicalised ringMembers in the same order as the consensus
+    // verifier will see them on chain.
     const size_t ringSize = inputs[i].ringMembers.size();
+    if (!Crypto::triptych_ring_size_supported(ringSize)) {
+      throw std::runtime_error("Triptych: unsupported ring size " +
+                               std::to_string(ringSize) +
+                               " for input " + std::to_string(i));
+    }
+
     std::vector<Crypto::PublicKey> ringPubkeys;
     std::vector<Crypto::EllipticCurvePoint> ringCommitments;
     ringPubkeys.reserve(ringSize);
@@ -439,7 +445,7 @@ Transaction buildConfidentialTransaction(
       ringCommitments.push_back(m.commitment);
     }
 
-    if (!Crypto::mlsag_sign(
+    if (!Crypto::triptych_sign(
         signingHash,
         ringPubkeys.data(),
         ringCommitments.data(),
@@ -450,17 +456,30 @@ Transaction buildConfidentialTransaction(
         inputs[i].realBlinding,
         pseudoBlindings[i],
         ki,
-        mlsag)) {
-      throw std::runtime_error("MLSAG sign failed for input " + std::to_string(i));
+        proof)) {
+      throw std::runtime_error("Triptych sign failed for input " + std::to_string(i));
     }
 
     // Update key image in the prefix input
     auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
     cin.keyImage = ki;
 
-    // Copy MLSAG signature into transaction body
-    tx.ctSignatures[i].c0 = mlsag.c0;
-    tx.ctSignatures[i].ss = std::move(mlsag.ss);
+    // Copy Triptych proof into transaction body. The on-wire CTInputSignature
+    // struct mirrors Crypto::TriptychSignature field-for-field; we move the
+    // vectors over so we don't pay a copy on each n×32-byte payload.
+    auto& s = tx.ctSignatures[i];
+    s.I_bits = std::move(proof.I_bits);
+    s.A      = std::move(proof.A);
+    s.B      = std::move(proof.B);
+    s.Q_P    = std::move(proof.Q_P);
+    s.Q_M    = std::move(proof.Q_M);
+    s.Q_U    = std::move(proof.Q_U);
+    s.z      = std::move(proof.z);
+    s.za     = std::move(proof.za);
+    s.zb     = std::move(proof.zb);
+    s.f_P    = proof.f_P;
+    s.f_M    = proof.f_M;
+    s.f_U    = proof.f_U;
   }
 
   // ── Step 7: Compute excess and sign kernel ─────────────────────────────────

@@ -40,7 +40,7 @@ namespace CryptoNote {
   };
 
   // Where a transaction is being validated from. Lets the validator skip
-  // expensive cryptographic checks (MLSAG, GK proofs, balance kernel, ring
+  // expensive cryptographic checks (Triptych, GK proofs, balance kernel, ring
   // resolution) for transactions delivered inside an already-trusted
   // checkpointed block, while still running cheap structural sanity checks.
   enum class TxValidationContext {

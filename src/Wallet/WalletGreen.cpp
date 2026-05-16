@@ -2731,7 +2731,10 @@ std::vector<uint64_t> WalletGreen::chooseCtMixingBuckets(
   std::uniform_int_distribution<size_t> denomDist(0, CryptoNote::DENOMINATIONS.size() - 1);
 
   for (size_t i = 0; i < selectedTransfers.size(); ++i) {
-    // Skip ring-size-1 (coinbase carve-out) and below-threshold rings.
+    // Skip ring-size-1 (v5+ coinbase carve-out) and below-threshold rings.
+    // Coinbase outputs have no privacy expectation, so Triptych's Schnorr
+    // branch handles them with ring size 1; cross-bucket mixing only
+    // makes sense once the ring is big enough to mask the real input.
     if (inputMixins[i] == 0) continue;
     if (inputMixins[i] + 1 < CryptoNote::parameters::CT_MIN_RING_SIZE_FOR_MIXING) continue;
 

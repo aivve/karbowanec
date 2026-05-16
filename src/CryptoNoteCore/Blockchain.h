@@ -429,7 +429,7 @@ namespace CryptoNote {
     // Cheap structural-only CT checks used for transactions arriving inside a
     // confirmed checkpointed block. Validates sizes, point parseability /
     // subgroup membership, key-image domain, and global double-spend; skips
-    // MLSAG, GK proofs, balance kernel and DB ring resolution.
+    // Triptych, GK proofs, balance kernel and DB ring resolution.
     bool checkConfidentialTransactionStructure(const Transaction& tx, const Crypto::Hash& txHash);
 
     // Returns by value (deserialized from tx_entries)

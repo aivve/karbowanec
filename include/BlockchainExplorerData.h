@@ -128,7 +128,7 @@ struct TransactionDetails {
   uint64_t totalInputsAmount = 0;
   uint64_t totalOutputsAmount = 0;
   uint64_t mixin = 0;     // max ring size across inputs (legacy field)
-  uint64_t minMixin = 0;  // min ring size across inputs; differs from mixin when tx mixes ring-1 coinbase shielding inputs with normal CT inputs
+  uint64_t minMixin = 0;  // min ring size across inputs (CT rings must be a supported power of two: 4, 8, or 16)
   uint64_t unlockTime = 0;
   uint64_t timestamp = 0;
   uint8_t version = 0;
@@ -142,8 +142,8 @@ struct TransactionDetails {
   std::vector<transactionInputDetails2> inputs;
   std::vector<transactionOutputDetails2> outputs;
 
-  // CT (v4) proof body. Empty / value-initialized for non-CT transactions.
-  std::vector<CTInputSignature> ctSignatures; // per-input MLSAG
+  // CT (v2) proof body. Empty / value-initialized for non-CT transactions.
+  std::vector<CTInputSignature> ctSignatures; // per-input Triptych spend proof
   std::vector<CTOutputProof>    ctProofs;     // per-output GK denomination membership
   TransactionKernel             kernel;       // balance-equation excess + Schnorr
 };

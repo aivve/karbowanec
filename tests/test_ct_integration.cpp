@@ -8,7 +8,7 @@
 
 #include "crypto/gk_proof.h"
 #include "crypto/gk_denomination_table.h"
-#include "crypto/mlsag.h"
+#include "crypto/triptych.h"
 #include "crypto/pedersen.h"
 #include "crypto/transaction_balance.h"
 #include "crypto/ct_ecdh.h"
@@ -540,6 +540,34 @@ static void test_subgroup_valid_point_accepted() {
 // SECTION 6: KEY IMAGE REUSE REJECTION
 // =====================================================================
 
+// Build a ring of ring_size members with the real spend at true_index;
+// real commitment is to `amount` with `real_blinding`, pseudo is a fresh
+// commitment to the same amount. Decoys get random keypairs and random
+// (value, blinding) Pedersen commitments. Returns nothing — populates
+// the caller's flat arrays in place.
+static void build_triptych_ring(size_t ring_size, size_t true_index,
+                                uint64_t amount,
+                                const Crypto::PublicKey& real_pub,
+                                const Crypto::EllipticCurveScalar& real_blinding,
+                                Crypto::PublicKey* pubs,
+                                Crypto::EllipticCurvePoint* commits) {
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(amount, v_scalar);
+
+  pubs[true_index] = real_pub;
+  Crypto::pedersen_commit(v_scalar, real_blinding, commits[true_index]);
+
+  for (size_t i = 0; i < ring_size; ++i) {
+    if (i == true_index) continue;
+    Crypto::SecretKey dummy_sec;
+    gen_keypair(pubs[i], dummy_sec);
+    Crypto::EllipticCurveScalar dummy_r, dummy_v;
+    test_random_scalar(dummy_r);
+    test_random_scalar(dummy_v);
+    Crypto::pedersen_commit(dummy_v, dummy_r, commits[i]);
+  }
+}
+
 static void test_key_image_deterministic() {
   TEST("Key image: same key → same image across different rings");
 
@@ -548,28 +576,38 @@ static void test_key_image_deterministic() {
   Crypto::SecretKey sec;
   gen_keypair(pub, sec);
 
-  Crypto::EllipticCurveScalar v_scalar;
-  uint64_to_scalar(100, v_scalar);
-
-  // Two different rings with the same real key
+  // Two different rings (size 4 — the minimum supported by Triptych) with
+  // the same real key. Distinct decoys, distinct real and pseudo blindings,
+  // distinct messages — the key image must still match.
   Crypto::EllipticCurveScalar r1, r2, pr1, pr2;
   test_random_scalar(r1); test_random_scalar(r2);
   test_random_scalar(pr1); test_random_scalar(pr2);
 
-  Crypto::EllipticCurvePoint C1, C2, pseudo1, pseudo2;
-  Crypto::pedersen_commit(v_scalar, r1, C1);
-  Crypto::pedersen_commit(v_scalar, r2, C2);
+  Crypto::EllipticCurveScalar v_scalar;
+  uint64_to_scalar(100, v_scalar);
+
+  Crypto::PublicKey pubs1[4], pubs2[4];
+  Crypto::EllipticCurvePoint commits1[4], commits2[4];
+  build_triptych_ring(4, 0, 100, pub, r1, pubs1, commits1);
+  build_triptych_ring(4, 1, 100, pub, r2, pubs2, commits2);
+
+  Crypto::EllipticCurvePoint pseudo1, pseudo2;
   Crypto::pedersen_commit(v_scalar, pr1, pseudo1);
   Crypto::pedersen_commit(v_scalar, pr2, pseudo2);
 
-  Crypto::Hash msg;
-  random_hash(msg);
+  Crypto::Hash msg1, msg2;
+  random_hash(msg1);
+  random_hash(msg2);
 
   Crypto::KeyImage ki1, ki2;
-  Crypto::MLSAGSignature sig1, sig2;
+  Crypto::TriptychSignature sig1, sig2;
 
-  Crypto::mlsag_sign(msg, &pub, &C1, pseudo1, 1, 0, sec, r1, pr1, ki1, sig1);
-  Crypto::mlsag_sign(msg, &pub, &C2, pseudo2, 1, 0, sec, r2, pr2, ki2, sig2);
+  if (!Crypto::triptych_sign(msg1, pubs1, commits1, pseudo1, 4, 0, sec, r1, pr1, ki1, sig1)) {
+    FAIL("sign ring 1"); return;
+  }
+  if (!Crypto::triptych_sign(msg2, pubs2, commits2, pseudo2, 4, 1, sec, r2, pr2, ki2, sig2)) {
+    FAIL("sign ring 2"); return;
+  }
 
   if (memcmp(&ki1, &ki2, sizeof(Crypto::KeyImage)) != 0)
     FAIL("key images should match for same key");
@@ -589,9 +627,12 @@ static void test_key_image_different_keys() {
   test_random_scalar(r1); test_random_scalar(r2);
   test_random_scalar(pr1); test_random_scalar(pr2);
 
-  Crypto::EllipticCurvePoint C1, C2, pseudo1, pseudo2;
-  Crypto::pedersen_commit(v_scalar, r1, C1);
-  Crypto::pedersen_commit(v_scalar, r2, C2);
+  Crypto::PublicKey pubs1[4], pubs2[4];
+  Crypto::EllipticCurvePoint commits1[4], commits2[4];
+  build_triptych_ring(4, 0, 100, pub1, r1, pubs1, commits1);
+  build_triptych_ring(4, 0, 100, pub2, r2, pubs2, commits2);
+
+  Crypto::EllipticCurvePoint pseudo1, pseudo2;
   Crypto::pedersen_commit(v_scalar, pr1, pseudo1);
   Crypto::pedersen_commit(v_scalar, pr2, pseudo2);
 
@@ -599,10 +640,14 @@ static void test_key_image_different_keys() {
   random_hash(msg);
 
   Crypto::KeyImage ki1, ki2;
-  Crypto::MLSAGSignature sig1, sig2;
+  Crypto::TriptychSignature sig1, sig2;
 
-  Crypto::mlsag_sign(msg, &pub1, &C1, pseudo1, 1, 0, sec1, r1, pr1, ki1, sig1);
-  Crypto::mlsag_sign(msg, &pub2, &C2, pseudo2, 1, 0, sec2, r2, pr2, ki2, sig2);
+  if (!Crypto::triptych_sign(msg, pubs1, commits1, pseudo1, 4, 0, sec1, r1, pr1, ki1, sig1)) {
+    FAIL("sign 1"); return;
+  }
+  if (!Crypto::triptych_sign(msg, pubs2, commits2, pseudo2, 4, 0, sec2, r2, pr2, ki2, sig2)) {
+    FAIL("sign 2"); return;
+  }
 
   if (memcmp(&ki1, &ki2, sizeof(Crypto::KeyImage)) == 0)
     FAIL("key images should differ for different keys");
@@ -1021,7 +1066,7 @@ static void test_multi_output_decomposition_gk_proofs() {
 static void test_full_ct_transaction_simulation() {
   TEST("Combined: full CT tx simulation (2 in → 3 out + fee)");
 
-  // Simulate a complete CT transaction with balance, GK proofs, and MLSAG
+  // Simulate a complete CT transaction with balance, GK proofs, and Triptych.
 
   // Amounts: 2 inputs of canonical denominations, 3 outputs + fee
   // Input: 500 + 300 = 800
@@ -1040,10 +1085,9 @@ static void test_full_ct_transaction_simulation() {
   Crypto::EllipticCurveScalar r_pseudo[2];
   for (int i = 0; i < 2; ++i) test_random_scalar(r_pseudo[i]);
 
-  // Build commitments
-  Crypto::EllipticCurvePoint C_in[2], C_out[3], pseudo[2];
+  // Output commitments (inputs go via per-input ring builders below).
+  Crypto::EllipticCurvePoint C_out[3], pseudo[2];
   for (int i = 0; i < 2; ++i) {
-    make_commitment(amounts_in[i], r_in[i], C_in[i]);
     make_commitment(amounts_in[i], r_pseudo[i], pseudo[i]);
   }
   for (int i = 0; i < 3; ++i) {
@@ -1068,21 +1112,30 @@ static void test_full_ct_transaction_simulation() {
       FAIL("GK verify failed");
   }
 
-  // 2. MLSAG on inputs (trivial ring size 1 for this unit test)
-  Crypto::PublicKey pk_in[2];
-  Crypto::SecretKey sk_in[2];
+  // 2. Triptych on inputs (minimum ring size 4 — the new floor).
+  // Each input gets its own ring of 4 with the real spend at slot 0; the
+  // remaining three slots are decoys with fresh keypairs.
+  Crypto::PublicKey  pk_in[2];
+  Crypto::SecretKey  sk_in[2];
   for (int i = 0; i < 2; ++i) gen_keypair(pk_in[i], sk_in[i]);
 
-  Crypto::KeyImage ki[2];
-  Crypto::MLSAGSignature mlsag[2];
+  Crypto::PublicKey         ring_pubs[2][4];
+  Crypto::EllipticCurvePoint ring_commits[2][4];
   for (int i = 0; i < 2; ++i) {
-    if (!Crypto::mlsag_sign(tx_hash, &pk_in[i], &C_in[i], pseudo[i],
-                            1, 0, sk_in[i], r_in[i], r_pseudo[i],
-                            ki[i], mlsag[i]))
-      FAIL("MLSAG sign failed");
-    if (!Crypto::mlsag_verify(tx_hash, &pk_in[i], &C_in[i], pseudo[i],
-                              1, ki[i], mlsag[i]))
-      FAIL("MLSAG verify failed");
+    build_triptych_ring(4, 0, amounts_in[i], pk_in[i], r_in[i],
+                        ring_pubs[i], ring_commits[i]);
+  }
+
+  Crypto::KeyImage ki[2];
+  Crypto::TriptychSignature proof[2];
+  for (int i = 0; i < 2; ++i) {
+    if (!Crypto::triptych_sign(tx_hash, ring_pubs[i], ring_commits[i],
+                               pseudo[i], 4, 0, sk_in[i],
+                               r_in[i], r_pseudo[i], ki[i], proof[i]))
+      FAIL("Triptych sign failed");
+    if (!Crypto::triptych_verify(tx_hash, ring_pubs[i], ring_commits[i],
+                                 pseudo[i], 4, ki[i], proof[i]))
+      FAIL("Triptych verify failed");
   }
 
   // 3. Key images must differ
@@ -1158,8 +1211,8 @@ static void test_max_denomination_gk_in_balance() {
   PASS();
 }
 
-static void test_mlsag_ring_size_4() {
-  TEST("Combined: MLSAG with ring size 4 (min CT ring size)");
+static void test_triptych_ring_size_4() {
+  TEST("Combined: Triptych with ring size 4 (min CT ring size)");
 
   const size_t RING = 4;
   const size_t TRUE_IDX = 2;
@@ -1175,13 +1228,13 @@ static void test_mlsag_ring_size_4() {
   for (size_t i = 0; i < RING; ++i) {
     gen_keypair(pubs[i], secs[i]);
     test_random_scalar(blindings[i]);
-    // All decoys use random value (doesn't matter for MLSAG verification)
+    // Decoys: random (value, blinding) Pedersen commitments.
     Crypto::EllipticCurveScalar dummy_v;
     test_random_scalar(dummy_v);
     Crypto::pedersen_commit(dummy_v, blindings[i], commits[i]);
   }
 
-  // Override real entry
+  // Override real entry with a commitment to the real amount.
   Crypto::pedersen_commit(v_scalar, blindings[TRUE_IDX], commits[TRUE_IDX]);
 
   Crypto::EllipticCurveScalar pseudo_blind;
@@ -1193,27 +1246,30 @@ static void test_mlsag_ring_size_4() {
   random_hash(msg);
 
   Crypto::KeyImage ki;
-  Crypto::MLSAGSignature sig;
-  if (!Crypto::mlsag_sign(msg, pubs, commits, pseudo, RING, TRUE_IDX,
-                          secs[TRUE_IDX], blindings[TRUE_IDX], pseudo_blind, ki, sig))
+  Crypto::TriptychSignature sig;
+  if (!Crypto::triptych_sign(msg, pubs, commits, pseudo, RING, TRUE_IDX,
+                             secs[TRUE_IDX], blindings[TRUE_IDX], pseudo_blind, ki, sig))
     FAIL("sign failed");
-  if (!Crypto::mlsag_verify(msg, pubs, commits, pseudo, RING, ki, sig))
+  if (!Crypto::triptych_verify(msg, pubs, commits, pseudo, RING, ki, sig))
     FAIL("verify failed");
   PASS();
 }
 
-// Demonstrates that the MLSAG layer accepts a ring whose members come from
-// different "buckets" — i.e. the new per-member ring schema. Half the
-// decoys are transparent (commitment = amount*H, zero blinding), half are
-// confidential (commitment = v*H + r*G with random r). The real spend is
-// transparent at amount V; the pseudo-commitment also commits to V so the
-// commitment difference at the real index is a pure G multiple. Other
-// members' commitments need not match V — MLSAG simulates decoy responses
-// regardless of bucket.
-static void test_mlsag_mixed_transparent_and_ct_ring() {
-  TEST("Combined: MLSAG with mixed transparent + CT ring members");
+// Demonstrates that the Triptych layer accepts a ring whose members come
+// from different "buckets" — i.e. the per-member mixed-bucket schema.
+// Half the decoys are transparent (commitment = amount·H, zero blinding),
+// half are confidential (commitment = v·H + r·G with random r). The real
+// spend is transparent at amount V; the pseudo-commitment also commits to
+// V so the commitment difference at the real index is a pure G multiple.
+// Other members' commitments need not match V — Triptych's polynomial
+// selector simulates decoy responses regardless of bucket.
+//
+// Ring size 8 (n=3) is the smallest supported size that lets us include
+// both kinds of decoys and a real slot.
+static void test_triptych_mixed_transparent_and_ct_ring() {
+  TEST("Combined: Triptych with mixed transparent + CT ring members");
 
-  const size_t RING = 6;
+  const size_t RING = 8;
   const size_t TRUE_IDX = 3;
   const uint64_t REAL_AMOUNT = CryptoNote::DENOMINATIONS[10]; // some canonical denom
 
@@ -1227,16 +1283,18 @@ static void test_mlsag_mixed_transparent_and_ct_ring() {
   }
 
   // Build mixed-bucket commitments:
-  //   slots 0, 2, 5  → transparent, varying amounts (commitment = amount*H)
-  //   slots 1, 4     → confidential, random (commitment = v*H + r*G)
-  //   slot  3 (real) → transparent at REAL_AMOUNT (zero blinding)
+  //   slots 0, 2, 5, 6, 7 → transparent, varying amounts (commitment = amount*H)
+  //   slots 1, 4          → confidential, random (commitment = v*H + r*G)
+  //   slot  3 (real)      → transparent at REAL_AMOUNT (zero blinding)
   static const uint64_t kTransparentAmounts[RING] = {
     CryptoNote::DENOMINATIONS[5],  // slot 0
     0,                              // slot 1 (CT — unused)
     CryptoNote::DENOMINATIONS[20], // slot 2
     REAL_AMOUNT,                    // slot 3 (real)
     0,                              // slot 4 (CT — unused)
-    CryptoNote::DENOMINATIONS[40]  // slot 5
+    CryptoNote::DENOMINATIONS[40], // slot 5
+    CryptoNote::DENOMINATIONS[15], // slot 6
+    CryptoNote::DENOMINATIONS[50]  // slot 7
   };
 
   for (size_t i = 0; i < RING; ++i) {
@@ -1260,7 +1318,7 @@ static void test_mlsag_mixed_transparent_and_ct_ring() {
   memset(real_blinding.data, 0, 32);
 
   // Pseudo-commitment: v*H + r'*G with v = REAL_AMOUNT (must match real input
-  // amount or MLSAG cannot close).
+  // amount or the Triptych M-ring identity cannot close).
   Crypto::EllipticCurveScalar v_scalar;
   uint64_to_scalar(REAL_AMOUNT, v_scalar);
   Crypto::EllipticCurveScalar pseudo_blind;
@@ -1272,14 +1330,14 @@ static void test_mlsag_mixed_transparent_and_ct_ring() {
   random_hash(msg);
 
   Crypto::KeyImage ki;
-  Crypto::MLSAGSignature sig;
-  if (!Crypto::mlsag_sign(msg, pubs, commits, pseudo, RING, TRUE_IDX,
-                          secs[TRUE_IDX], real_blinding, pseudo_blind, ki, sig)) {
-    FAIL("mlsag_sign rejected mixed ring");
+  Crypto::TriptychSignature sig;
+  if (!Crypto::triptych_sign(msg, pubs, commits, pseudo, RING, TRUE_IDX,
+                             secs[TRUE_IDX], real_blinding, pseudo_blind, ki, sig)) {
+    FAIL("triptych_sign rejected mixed ring");
     return;
   }
-  if (!Crypto::mlsag_verify(msg, pubs, commits, pseudo, RING, ki, sig)) {
-    FAIL("mlsag_verify rejected mixed ring");
+  if (!Crypto::triptych_verify(msg, pubs, commits, pseudo, RING, ki, sig)) {
+    FAIL("triptych_verify rejected mixed ring");
     return;
   }
   PASS();
@@ -1665,8 +1723,8 @@ int main() {
   test_full_ct_transaction_simulation();
   test_ct_fee_bounds();
   test_max_denomination_gk_in_balance();
-  test_mlsag_ring_size_4();
-  test_mlsag_mixed_transparent_and_ct_ring();
+  test_triptych_ring_size_4();
+  test_triptych_mixed_transparent_and_ct_ring();
   test_ct_fork_height_decoupled();
 
   printf("\n[Batched GK proof verification]\n");
