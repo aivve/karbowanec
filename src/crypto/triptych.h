@@ -181,4 +181,36 @@ bool triptych_verify(
 // without ever entering the proof path on a malformed shape.
 bool triptych_ring_size_supported(size_t ring_size);
 
+// Batched verification of `count` Triptych spend proofs that all share a
+// single Fiat-Shamir message (typically the tx prefix hash of one
+// transaction). For each proof i, parallel arrays describe its inputs:
+//   ring_pubkeys[i]   — pointer to the ring of size ring_sizes[i]
+//   ring_commits[i]   — parallel ring of commitment points
+//   pseudo_commits[i] — pseudo-output commitment for input i
+//   ring_sizes[i]     — must be 1, 4, 8, or 16
+//   key_images[i]     — linking tag for input i
+//   sigs[i]           — Triptych proof struct
+//
+// Soundness: per-equation random α coefficients are sampled fresh on
+// every call (one per equation per proof), so a prover cannot pre-bias
+// the combined point sum. Any single broken equation flips the combined
+// sum to non-identity with overwhelming probability (~2⁻²⁵²).
+//
+// Returns true iff every proof verifies. On false, the caller is
+// expected to fall back to per-input triptych_verify() to pinpoint
+// which proof failed — the batched path has no per-proof diagnostic.
+//
+// On invalid structural input (bad ring size, malformed proof shape,
+// scalars out of range, points off the prime-order subgroup) the
+// function fails fast and returns false without proceeding to the MSM.
+bool triptych_verify_batch(
+  const Hash& message,
+  const PublicKey* const* ring_pubkeys,
+  const EllipticCurvePoint* const* ring_commits,
+  const EllipticCurvePoint* pseudo_commits,
+  const size_t* ring_sizes,
+  const KeyImage* key_images,
+  const TriptychSignature* sigs,
+  size_t count);
+
 } // namespace Crypto

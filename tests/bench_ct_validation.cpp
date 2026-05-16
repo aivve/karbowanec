@@ -287,27 +287,39 @@ static VerifyTiming verifyCtTx(const CtTxStub& tx) {
   return t;
 }
 
-// Same as verifyCtTx but uses Crypto::gk_verify_batch over all outputs
-// instead of looping gk_verify per output. The Triptych and balance steps
-// are identical; only the GK timing changes.
+// Same as verifyCtTx but uses Crypto::triptych_verify_batch over all
+// inputs and Crypto::gk_verify_batch over all outputs (the consensus
+// fast path). Balance step is identical.
 static VerifyTiming verifyCtTxBatchedGK(const CtTxStub& tx) {
   VerifyTiming t;
 
-  // Triptych verify per input (same path as the non-batched flow).
+  // Batched Triptych verify across all inputs in one Pippenger MSM.
   {
-    auto start = clock_t_::now();
+    std::vector<const Crypto::PublicKey*>           ring_pubkeys;
+    std::vector<const Crypto::EllipticCurvePoint*>  ring_commits;
+    std::vector<size_t>                             ring_sizes;
+    ring_pubkeys.reserve(tx.numInputs);
+    ring_commits.reserve(tx.numInputs);
+    ring_sizes.reserve(tx.numInputs);
     for (size_t i = 0; i < tx.numInputs; ++i) {
-      bool ok = Crypto::triptych_verify(tx.txHash,
-                                        tx.ringPubkeys[i].data(),
-                                        tx.ringCommits[i].data(),
-                                        tx.pseudoCommits[i],
-                                        tx.ringSize,
-                                        tx.keyImages[i],
-                                        tx.triptychSigs[i]);
-      if (!ok) {
-        t.allPassed = false;
-        std::fprintf(stderr, "[bench] Triptych verify FAILED at input %zu\n", i);
-      }
+      ring_pubkeys.push_back(tx.ringPubkeys[i].data());
+      ring_commits.push_back(tx.ringCommits[i].data());
+      ring_sizes.push_back(tx.ringSize);
+    }
+
+    auto start = clock_t_::now();
+    bool ok = Crypto::triptych_verify_batch(
+      tx.txHash,
+      ring_pubkeys.data(),
+      ring_commits.data(),
+      tx.pseudoCommits.data(),
+      ring_sizes.data(),
+      tx.keyImages.data(),
+      tx.triptychSigs.data(),
+      tx.numInputs);
+    if (!ok) {
+      t.allPassed = false;
+      std::fprintf(stderr, "[bench] BATCHED Triptych verify FAILED\n");
     }
     auto end = clock_t_::now();
     t.triptychMicros = std::chrono::duration<double, std::micro>(end - start).count();
@@ -434,8 +446,9 @@ static void runPreset(const Preset& p, bool batchedGK) {
   const double triptychPerInputUs = p.numInputs > 0 ? avgTriptych / p.numInputs : 0;
   const double gkPerOutputUs      = p.numOutputs > 0 ? avgGk / p.numOutputs : 0;
 
-  std::printf("  Triptych verify : %8.1f ms total  (%.1f us / input)\n",
-              avgTriptych / 1000.0, triptychPerInputUs);
+  std::printf("  Triptych verify : %8.1f ms total  (%.1f us / input)%s\n",
+              avgTriptych / 1000.0, triptychPerInputUs,
+              batchedGK ? "  [batched]" : "");
   std::printf("  GK       verify : %8.1f ms total  (%.1f us / output)%s\n",
               avgGk / 1000.0, gkPerOutputUs,
               batchedGK ? "  [batched]" : "");

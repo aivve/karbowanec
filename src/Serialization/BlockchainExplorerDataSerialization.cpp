@@ -202,9 +202,11 @@ void serialize(TransactionDetails& transaction, ISerializer& serializer) {
     }
   }
 
-  // CT (v4) proof body. Serialized only when transaction is CT — the vectors and
-  // kernel are value-initialized to empty/zero for non-CT, but emitting them
-  // unconditionally would clutter every transparent-tx response and waste bytes.
+  // CT (v2) proof body — Triptych spend proofs, GK denomination proofs,
+  // balance kernel. Serialized only when the transaction is CT; the
+  // vectors and kernel are value-initialized to empty/zero for non-CT,
+  // but emitting them unconditionally would clutter every transparent-tx
+  // response and waste bytes.
   if (transaction.version == TRANSACTION_VERSION_CT) {
     serializer(transaction.ctSignatures, "ctSignatures");
     serializer(transaction.ctProofs, "ctProofs");

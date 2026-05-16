@@ -522,6 +522,206 @@ static void test_ring_swap_rejected() {
   PASS();
 }
 
+// ── Batched verifier ───────────────────────────────────────────────────
+//
+// triptych_verify_batch random-α-scales every per-input verifier equation
+// and folds them into one Pippenger MSM. These tests cover:
+//   - degenerate batch sizes (n=0, n=1)
+//   - mixed ring sizes in one batch (1, 4, 8, 16) — exercises both the
+//     Schnorr and full-Triptych branches simultaneously
+//   - cross-check that legit batches verify
+//   - that ANY tampered input flips the batched check to false
+//   - empty batch is trivially true
+
+namespace batched {
+
+struct BatchInput {
+  TestRing                       ring;
+  size_t                         true_index;
+  Crypto::KeyImage               key_image;
+  Crypto::TriptychSignature      sig;
+};
+
+// Build a BatchInput at a given ring_size and true_index, sign with msg.
+// Returns false on any internal failure.
+static bool build_signed_input(size_t ring_size, size_t true_index,
+                               uint64_t amount, const Crypto::Hash& msg,
+                               BatchInput& out) {
+  out.true_index = true_index;
+  if (!build_test_ring(ring_size, true_index, amount, out.ring)) return false;
+  return sign_for_ring(out.ring, true_index, msg, out.key_image, out.sig);
+}
+
+// Call triptych_verify_batch with a vector<BatchInput>.
+static bool verify_batch(const Crypto::Hash& msg,
+                         const std::vector<BatchInput>& inputs) {
+  std::vector<const Crypto::PublicKey*>          ring_pubkeys;
+  std::vector<const Crypto::EllipticCurvePoint*> ring_commits;
+  std::vector<Crypto::EllipticCurvePoint>        pseudo_commits;
+  std::vector<size_t>                            ring_sizes;
+  std::vector<Crypto::KeyImage>                  key_images;
+  std::vector<Crypto::TriptychSignature>         sigs;
+  ring_pubkeys.reserve(inputs.size());
+  ring_commits.reserve(inputs.size());
+  pseudo_commits.reserve(inputs.size());
+  ring_sizes.reserve(inputs.size());
+  key_images.reserve(inputs.size());
+  sigs.reserve(inputs.size());
+  for (const auto& in : inputs) {
+    ring_pubkeys.push_back(in.ring.pubkeys.data());
+    ring_commits.push_back(in.ring.commits.data());
+    pseudo_commits.push_back(in.ring.pseudo_commit);
+    ring_sizes.push_back(in.ring.pubkeys.size());
+    key_images.push_back(in.key_image);
+    sigs.push_back(in.sig);
+  }
+  return Crypto::triptych_verify_batch(msg,
+    ring_pubkeys.data(), ring_commits.data(),
+    pseudo_commits.data(), ring_sizes.data(),
+    key_images.data(), sigs.data(), inputs.size());
+}
+
+} // namespace batched
+
+static void test_batch_empty() {
+  TEST("Batch: empty input returns true");
+  std::vector<batched::BatchInput> empty;
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+  if (!batched::verify_batch(msg, empty)) { FAIL("empty batch rejected"); return; }
+  PASS();
+}
+
+static void test_batch_single_per_size(size_t ring_size) {
+  char name[80];
+  snprintf(name, sizeof(name), "Batch: single input, ring=%zu", ring_size);
+  TEST(name);
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  std::vector<batched::BatchInput> batch(1);
+  if (!batched::build_signed_input(ring_size, 0, 1234, msg, batch[0])) {
+    FAIL("build/sign"); return;
+  }
+  if (!batched::verify_batch(msg, batch)) { FAIL("verify"); return; }
+  PASS();
+}
+
+static void test_batch_mixed_ring_sizes() {
+  TEST("Batch: mixed ring sizes (1, 4, 8, 16) in one batch");
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  std::vector<batched::BatchInput> batch(4);
+  if (!batched::build_signed_input(1,  0, 100, msg, batch[0])) { FAIL("build 1"); return; }
+  if (!batched::build_signed_input(4,  2, 200, msg, batch[1])) { FAIL("build 4"); return; }
+  if (!batched::build_signed_input(8,  5, 300, msg, batch[2])) { FAIL("build 8"); return; }
+  if (!batched::build_signed_input(16,11, 400, msg, batch[3])) { FAIL("build 16"); return; }
+
+  if (!batched::verify_batch(msg, batch)) { FAIL("verify"); return; }
+  PASS();
+}
+
+static void test_batch_many_inputs() {
+  TEST("Batch: 8 inputs at ring=16 (production-shape)");
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  std::vector<batched::BatchInput> batch(8);
+  for (size_t i = 0; i < 8; ++i) {
+    if (!batched::build_signed_input(16, i % 16, 100 + i, msg, batch[i])) {
+      FAIL("build"); return;
+    }
+  }
+  if (!batched::verify_batch(msg, batch)) { FAIL("verify"); return; }
+  PASS();
+}
+
+static void test_batch_one_tampered_response() {
+  TEST("Batch: one tampered f_P in any position fails");
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  // 4 valid inputs at various ring sizes.
+  std::vector<batched::BatchInput> batch(4);
+  if (!batched::build_signed_input(4,  0, 10, msg, batch[0])) { FAIL("build 0"); return; }
+  if (!batched::build_signed_input(8,  3, 20, msg, batch[1])) { FAIL("build 1"); return; }
+  if (!batched::build_signed_input(16, 7, 30, msg, batch[2])) { FAIL("build 2"); return; }
+  if (!batched::build_signed_input(1,  0, 40, msg, batch[3])) { FAIL("build 3"); return; }
+
+  // Tamper one input's f_P.
+  batch[1].sig.f_P.data[0] ^= 1;
+
+  if (batched::verify_batch(msg, batch)) { FAIL("tampered batch accepted"); return; }
+  PASS();
+}
+
+static void test_batch_one_tampered_point() {
+  TEST("Batch: one tampered Q_P point fails");
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  std::vector<batched::BatchInput> batch(3);
+  if (!batched::build_signed_input(8, 2, 1, msg, batch[0])) { FAIL("build 0"); return; }
+  if (!batched::build_signed_input(8, 4, 1, msg, batch[1])) { FAIL("build 1"); return; }
+  if (!batched::build_signed_input(8, 6, 1, msg, batch[2])) { FAIL("build 2"); return; }
+
+  batch[2].sig.Q_P[0].data[31] ^= 0x10;
+
+  if (batched::verify_batch(msg, batch)) { FAIL("tampered batch accepted"); return; }
+  PASS();
+}
+
+static void test_batch_one_wrong_message() {
+  TEST("Batch: wrong message on one input fails");
+
+  Crypto::Hash msg, wrong_msg;
+  Random::randomBytes(32, msg.data);
+  Random::randomBytes(32, wrong_msg.data);
+
+  // Build two inputs against msg, then try to verify them against
+  // wrong_msg — the batched FS challenge for both inputs is wrong.
+  std::vector<batched::BatchInput> batch(2);
+  if (!batched::build_signed_input(4, 0, 1, msg, batch[0])) { FAIL("build"); return; }
+  if (!batched::build_signed_input(4, 2, 1, msg, batch[1])) { FAIL("build"); return; }
+
+  if (batched::verify_batch(wrong_msg, batch)) { FAIL("wrong-msg batch accepted"); return; }
+  PASS();
+}
+
+static void test_batch_one_hidden_inflation() {
+  TEST("Batch: hidden-inflation attempt in any input fails");
+
+  Crypto::Hash msg;
+  Random::randomBytes(32, msg.data);
+
+  std::vector<batched::BatchInput> batch(3);
+  if (!batched::build_signed_input(4, 0, 1000, msg, batch[0])) { FAIL("build 0"); return; }
+  if (!batched::build_signed_input(4, 1, 2000, msg, batch[1])) { FAIL("build 1"); return; }
+  if (!batched::build_signed_input(4, 2, 3000, msg, batch[2])) { FAIL("build 2"); return; }
+
+  // For input 1, replace pseudo with a commitment to a DIFFERENT amount.
+  // Then re-sign so the signature is internally valid but the M-ring is
+  // not closed for the chosen amounts — exactly the inflation scenario.
+  Crypto::EllipticCurveScalar smaller_v;
+  uint64_to_scalar(1, smaller_v);
+  test_random_scalar(batch[1].ring.pseudo_blinding);
+  if (!Crypto::pedersen_commit(smaller_v, batch[1].ring.pseudo_blinding, batch[1].ring.pseudo_commit)) {
+    FAIL("recommit"); return;
+  }
+  if (!sign_for_ring(batch[1].ring, batch[1].true_index, msg, batch[1].key_image, batch[1].sig)) {
+    FAIL("re-sign"); return;
+  }
+
+  if (batched::verify_batch(msg, batch)) { FAIL("inflation in batch accepted"); return; }
+  PASS();
+}
+
 // ── Main ────────────────────────────────────────────────────────────────
 
 int main() {
@@ -565,6 +765,19 @@ int main() {
 
   printf("\nMisc:\n");
   test_domain_separation_marker();
+
+  printf("\nBatched verifier:\n");
+  test_batch_empty();
+  test_batch_single_per_size(1);
+  test_batch_single_per_size(4);
+  test_batch_single_per_size(8);
+  test_batch_single_per_size(16);
+  test_batch_mixed_ring_sizes();
+  test_batch_many_inputs();
+  test_batch_one_tampered_response();
+  test_batch_one_tampered_point();
+  test_batch_one_wrong_message();
+  test_batch_one_hidden_inflation();
 
   printf("\n%d/%d tests passed.\n", tests_passed, tests_run);
   return (tests_passed == tests_run) ? 0 : 1;

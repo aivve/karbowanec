@@ -2626,13 +2626,33 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     }
   }
 
-  // Step 5: For each input: verify Triptych spend proof.
+  // Step 5: Verify all CT input Triptych spend proofs in one batched MSM.
   //
-  // Ring size is constrained to a Triptych-supported shape (1 / 4 / 8 / 16)
-  // by triptych_ring_size_supported above. The serializer pins n on the
-  // proof body to {0, 2, 3, 4}; here we additionally enforce the proof's
-  // shape matches the ring size for this specific input — a prover can't
-  // swap a Schnorr-shape body against a ring-size-4 input or vice versa.
+  // Ring size for each input is constrained to a Triptych-supported shape
+  // (1 / 4 / 8 / 16) by triptych_ring_size_supported above. The serializer
+  // pins n on each proof body to {0, 2, 3, 4}; here we additionally
+  // enforce the proof's shape matches its input's ring size — a prover
+  // can't swap a Schnorr-shape body against a ring-size-4 input or vice
+  // versa.
+  //
+  // Batched path: triptych_verify_batch random-α-scales every verifier
+  // equation across every input and folds the lot into one Pippenger MSM.
+  // ~3-5× faster than per-input verify at txs with several inputs. On
+  // failure we fall back to per-input triptych_verify to identify which
+  // input is malformed.
+  std::vector<const Crypto::PublicKey*>           batch_ring_pubkeys;
+  std::vector<const Crypto::EllipticCurvePoint*>  batch_ring_commits;
+  std::vector<Crypto::EllipticCurvePoint>         batch_pseudo_commits;
+  std::vector<size_t>                             batch_ring_sizes;
+  std::vector<Crypto::KeyImage>                   batch_key_images;
+  std::vector<Crypto::TriptychSignature>          batch_proofs;
+  batch_ring_pubkeys.reserve(tx.inputs.size());
+  batch_ring_commits.reserve(tx.inputs.size());
+  batch_pseudo_commits.reserve(tx.inputs.size());
+  batch_ring_sizes.reserve(tx.inputs.size());
+  batch_key_images.reserve(tx.inputs.size());
+  batch_proofs.reserve(tx.inputs.size());
+
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
     if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
       logger(ERROR) << "CT validation: input " << i << " is not ConfidentialInput in tx " << txHash;
@@ -2667,9 +2687,8 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
       return false;
     }
 
-    // The Crypto layer owns its own struct so we hand it the proof field-by-
-    // field. Copies here are 32 bytes per scalar / 32 bytes per point — small
-    // next to the verifier's scalarmult cost.
+    // The Crypto layer owns its own struct so we hand it the proof field-
+    // by-field. Copies here are 32 bytes per scalar / 32 bytes per point.
     Crypto::TriptychSignature proof;
     proof.I_bits = sig.I_bits;
     proof.A      = sig.A;
@@ -2684,17 +2703,46 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     proof.f_M    = sig.f_M;
     proof.f_U    = sig.f_U;
 
-    if (!Crypto::triptych_verify(
-        ct_signing_hash,
-        verifiedRingPubkeys[i].data(),
-        verifiedRingCommitments[i].data(),
-        cin.pseudoCommitment,
-        ringSize,
-        cin.keyImage,
-        proof)) {
-      logger(ERROR) << "CT validation: input " << i << " Triptych proof failed in tx " << txHash;
-      return false;
+    batch_ring_pubkeys.push_back(verifiedRingPubkeys[i].data());
+    batch_ring_commits.push_back(verifiedRingCommitments[i].data());
+    batch_pseudo_commits.push_back(cin.pseudoCommitment);
+    batch_ring_sizes.push_back(ringSize);
+    batch_key_images.push_back(cin.keyImage);
+    batch_proofs.push_back(std::move(proof));
+  }
+
+  if (!batch_proofs.empty() &&
+      !Crypto::triptych_verify_batch(
+          ct_signing_hash,
+          batch_ring_pubkeys.data(),
+          batch_ring_commits.data(),
+          batch_pseudo_commits.data(),
+          batch_ring_sizes.data(),
+          batch_key_images.data(),
+          batch_proofs.data(),
+          batch_proofs.size())) {
+    // Slow diagnostic path: identify the first offending input so the
+    // log doesn't just say "the batch failed". Only runs on rejection.
+    for (size_t i = 0; i < batch_proofs.size(); ++i) {
+      if (!Crypto::triptych_verify(
+              ct_signing_hash,
+              batch_ring_pubkeys[i],
+              batch_ring_commits[i],
+              batch_pseudo_commits[i],
+              batch_ring_sizes[i],
+              batch_key_images[i],
+              batch_proofs[i])) {
+        logger(ERROR) << "CT validation: input " << i
+                      << " Triptych proof failed in tx " << txHash;
+        return false;
+      }
     }
+    // All inputs verify individually but the batch failed — should be
+    // statistically impossible (~2⁻²⁵²). Log as a soundness anomaly.
+    logger(ERROR) << "CT validation: batched Triptych verify failed but every"
+                  << " input verifies individually in tx " << txHash
+                  << " (soundness anomaly — investigate)";
+    return false;
   }
 
   // Step 6: Verify all key images are unique and absent from global spent-key set
