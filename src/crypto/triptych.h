@@ -4,6 +4,19 @@
 // transaction inputs. Replaces the linear-size MLSAG with a logarithmic
 // (in ring size) Groth-Kohlweiss-descended construction.
 //
+// Algorithmic references (the C++ implementation here is original; the
+// underlying protocol is academic prior art):
+//   - Jens Groth and Markulf Kohlweiss, "One-out-of-Many Proofs:
+//     Or How to Leak a Secret and Spend a Coin," EUROCRYPT 2015.
+//     ePrint 2014/764. Source for the bit-decomposition selector
+//     polynomial p_k(X), the Q-polynomial track, and the bit-commitment
+//     proof (the I_bits/A/B + z/za/zb response structure).
+//   - Sarang Noether, Brandon Goodell, Surae Noether, "Triptych:
+//     logarithmic-sized linkable ring signatures with applications,"
+//     2020. ePrint 2020/018. Source for the linkable-tag construction
+//     and the I-base blinding trick (Q_U[m] = σ_U[m]·I + ψ_U[m]) that
+//     lets the response scalar f_U carry x⁻¹ without ever exposing it.
+//
 // Public statement, per CT input:
 //   Ring (P_k, C_k) for k = 0..N-1 with N = 2^n in {4, 8, 16}.
 //   Pseudo-output commitment C'.
