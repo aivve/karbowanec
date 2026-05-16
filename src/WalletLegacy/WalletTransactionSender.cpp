@@ -130,19 +130,30 @@ std::vector<uint64_t> WalletTransactionSender::chooseInputMixins(
     return inputMixins;
   }
 
+  // Triptych supports ring sizes {1, 4, 8, 16}. Round the requested mixin
+  // up to the next supported ring size; coinbase outputs go through the
+  // Schnorr branch (ring size 1) — see WalletGreen::chooseInputMixins for
+  // the same logic on the modern wallet path.
   const uint64_t minCtMixin = CryptoNote::parameters::CT_MIN_RING_SIZE - 1;
   const uint64_t maxCtMixin = CryptoNote::parameters::CT_MAX_RING_SIZE - 1;
   const uint64_t normalMixin = std::max<uint64_t>(requestedMixin, minCtMixin);
+  if (normalMixin > maxCtMixin) {
+    throw std::system_error(make_error_code(error::MIXIN_COUNT_TOO_BIG));
+  }
+  auto roundUpToTriptychMixin = [](uint64_t mixin) -> uint64_t {
+    const uint64_t ringSize = mixin + 1;
+    if (ringSize <= 4)  return 3;
+    if (ringSize <= 8)  return 7;
+    return 15;
+  };
+  const uint64_t roundedMixin = roundUpToTriptychMixin(normalMixin);
 
   size_t i = 0;
   for (const auto& output : selectedTransfers) {
     if (isCoinbaseOutput(output)) {
       inputMixins[i++] = 0;
     } else {
-      if (normalMixin > maxCtMixin) {
-        throw std::system_error(make_error_code(error::MIXIN_COUNT_TOO_BIG));
-      }
-      inputMixins[i++] = normalMixin;
+      inputMixins[i++] = roundedMixin;
     }
   }
 

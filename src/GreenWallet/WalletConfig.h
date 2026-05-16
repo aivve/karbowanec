@@ -47,7 +47,10 @@ namespace WalletConfig
     const long unsigned int addressLength = 95;
 
 
-    /* Decoy count used by default; CT_MAX_RING_SIZE - 1 gives ring size 16. */
+    /* Decoy count used by default; CT_MAX_RING_SIZE - 1 = 15 gives ring
+       size 16, which is the largest Triptych ring size. The other CT-
+       supported sizes are 4 (mixin 3) and 8 (mixin 7); any other request
+       gets rounded up by the wallet to the next supported shape. */
     const uint64_t defaultMixin = CryptoNote::parameters::DEFAULT_TX_MIXIN;
 
     /* The default fee value to use with transactions (in ATOMIC units!) */

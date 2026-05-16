@@ -61,7 +61,7 @@ struct RingMemberRef {
 
 // Confidential transaction input (version 2) — prefix portion only.
 // Contains the ring of public keys and commitments, a pseudo-output commitment,
-// and key image. MLSAG signatures are stored separately in Transaction body.
+// and key image. Triptych spend proofs are stored separately in Transaction body.
 //
 // Ring members may be of mixed type (transparent + confidential) and mixed
 // amount: see RingMemberRef. ringMembers[i] corresponds to ringPubkeys[i]

@@ -692,12 +692,14 @@ simple_wallet::simple_wallet(System::Dispatcher& dispatcher, const CryptoNote::C
   m_consoleHandler.setHandler("transfer", std::bind(&simple_wallet::transfer, this, std::placeholders::_1),
     "transfer <addr_1> <amount_1> [<addr_2> <amount_2> ... <addr_N> <amount_N>] [-p payment_id] [-f fee] [-m mixin_count]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. "
-    "<mixin_count> defaults to ring size 16 and can be overridden with -m.");
+    "CT transactions accept mixin 3 / 7 / 15 (ring size 4 / 8 / 16); any other value rounds up to the next supported size. "
+    "<mixin_count> defaults to 15 (ring 16) and can be overridden with -m.");
   m_consoleHandler.setHandler("dust_sweep", std::bind(&simple_wallet::dust_sweep, this, std::placeholders::_1),
     "dust_sweep [max_inputs] - Consolidate non-aligned transparent outputs to your wallet address");
   m_consoleHandler.setHandler("prepare", std::bind(&simple_wallet::prepare_tx, this, std::placeholders::_1),
     "Prepare raw transaction in hex format but do not relay, e.g. for manual relay <addr_1> <amount_1> ... <addr_N> <amount_N> [-p payment_id] [-f fee] [-m mixin_count]"
-    " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. ");
+    " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. "
+    "CT mixin 3 / 7 / 15 (ring size 4 / 8 / 16); other values round up.");
   m_consoleHandler.setHandler("set_log", std::bind(&simple_wallet::set_log, this, std::placeholders::_1), "set_log <level> - Change current log level, <level> is a number 0-4");
   m_consoleHandler.setHandler("address", std::bind(&simple_wallet::print_address, this, std::placeholders::_1), "Show current wallet public address");
   m_consoleHandler.setHandler("save_address", std::bind(&simple_wallet::save_address_to_file, this, std::placeholders::_1), "Save current wallet public address to file");
