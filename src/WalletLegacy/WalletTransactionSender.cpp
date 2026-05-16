@@ -73,6 +73,35 @@ bool isTransparentNonCanonicalCtAmount(const TransactionOutputInformation& outpu
          output.amount % CryptoNote::MIN_CT_DENOMINATION != 0;
 }
 
+// chooseCtMixingBuckets leaves mixingBuckets[i] = 0 for inputs that skip
+// cross-bucket mixing (e.g. ring-size-1 coinbase). The daemon's
+// getRandomOutsByAmounts treats amount=0 as an empty bucket and logs an
+// error per zero entry — we drop those slots from the wire request and
+// then restore alignment on the response.
+void filterMixingAmounts(const std::vector<uint64_t>& mixingBuckets,
+                         std::vector<uint64_t>& filteredAmounts,
+                         std::vector<size_t>& originalIndex) {
+  filteredAmounts.reserve(mixingBuckets.size());
+  originalIndex.reserve(mixingBuckets.size());
+  for (size_t i = 0; i < mixingBuckets.size(); ++i) {
+    if (mixingBuckets[i] != 0) {
+      filteredAmounts.push_back(mixingBuckets[i]);
+      originalIndex.push_back(i);
+    }
+  }
+}
+
+void expandMixingOuts(
+    std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& rawOuts,
+    const std::vector<size_t>& originalIndex,
+    size_t totalInputs,
+    std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& mixingOuts) {
+  mixingOuts.assign(totalInputs, CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount{});
+  for (size_t k = 0; k < rawOuts.size() && k < originalIndex.size(); ++k) {
+    mixingOuts[originalIndex[k]] = std::move(rawOuts[k]);
+  }
+}
+
 } //namespace
 
 namespace CryptoNote {
@@ -331,12 +360,16 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
     // back to all-native rings instead of aborting the build.
     if (std::any_of(context->mixingBuckets.begin(), context->mixingBuckets.end(),
                     [](uint64_t b) { return b != 0; })) {
-      std::vector<uint64_t> mixingAmounts(context->mixingBuckets);
+      std::vector<uint64_t> filteredAmounts;
+      std::vector<size_t> originalIndex;
+      filterMixingAmounts(context->mixingBuckets, filteredAmounts, originalIndex);
+
+      std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount> rawOuts;
       auto mixingCompleted = std::promise<std::error_code>();
       auto mixingFuture = mixingCompleted.get_future();
-      m_node.getRandomOutsByAmounts(std::move(mixingAmounts),
+      m_node.getRandomOutsByAmounts(std::move(filteredAmounts),
         CryptoNote::parameters::CT_MIXING_DECOYS_PER_INPUT + 1,
-        std::ref(context->mixingOuts),
+        std::ref(rawOuts),
         [&mixingCompleted](std::error_code ec) {
           auto detached = std::move(mixingCompleted);
           detached.set_value(ec);
@@ -344,6 +377,9 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
       auto mixingEc = mixingFuture.get();
       if (mixingEc) {
         context->mixingOuts.clear(); // best-effort: silently drop on error
+      } else {
+        expandMixingOuts(rawOuts, originalIndex,
+                         context->mixingBuckets.size(), context->mixingOuts);
       }
     }
   }
@@ -430,9 +466,11 @@ void WalletTransactionSender::sendTransactionRandomOutsByAmount(std::shared_ptr<
   // runs doSendTransaction with both native and mixing decoys.
   if (std::any_of(context->mixingBuckets.begin(), context->mixingBuckets.end(),
                   [](uint64_t b) { return b != 0; })) {
-    std::vector<uint64_t> mixingAmounts(context->mixingBuckets);
+    std::vector<uint64_t> filteredAmounts;
+    filterMixingAmounts(context->mixingBuckets, filteredAmounts, context->mixingOriginalIndex);
+    context->mixingOutsRaw.clear();
     nextRequest = std::make_shared<WalletGetMixingOutsByAmountsRequest>(
-      mixingAmounts,
+      filteredAmounts,
       CryptoNote::parameters::CT_MIXING_DECOYS_PER_INPUT + 1,
       context,
       std::bind(&WalletTransactionSender::sendTransactionMixingOutsByAmount,
@@ -454,7 +492,12 @@ void WalletTransactionSender::sendTransactionMixingOutsByAmount(std::shared_ptr<
   // native-bucket-only ring rather than aborting the user's spend.
   if (ec) {
     context->mixingOuts.clear();
+  } else {
+    expandMixingOuts(context->mixingOutsRaw, context->mixingOriginalIndex,
+                     context->mixingBuckets.size(), context->mixingOuts);
   }
+  context->mixingOutsRaw.clear();
+  context->mixingOriginalIndex.clear();
 
   std::shared_ptr<WalletRequest> req = doSendTransaction(context, events);
   if (req)

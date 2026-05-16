@@ -60,9 +60,11 @@ private:
   Callback m_cb;
 };
 
-// Second-stage request for CT cross-bucket decoy sampling. Stores its result
-// into SendTransactionContext::mixingOuts so the final tx-build callback can
-// merge it with the primary native-bucket response.
+// Second-stage request for CT cross-bucket decoy sampling. The caller pre-
+// filters zero-bucket inputs (the daemon rejects amount=0) and records the
+// original-index map in the context; this request writes the daemon's raw
+// response into context->mixingOutsRaw. The follow-up callback in
+// WalletTransactionSender expands raw → mixingOuts using the index map.
 class WalletGetMixingOutsByAmountsRequest: public WalletRequest
 {
 public:
@@ -73,7 +75,7 @@ public:
 
   virtual void perform(INode& node, std::function<void (WalletRequest::Callback, std::error_code)> cb) override
   {
-    node.getRandomOutsByAmounts(std::move(m_amounts), m_outsCount, std::ref(m_context->mixingOuts), std::bind(cb, m_cb, std::placeholders::_1));
+    node.getRandomOutsByAmounts(std::move(m_amounts), m_outsCount, std::ref(m_context->mixingOutsRaw), std::bind(cb, m_cb, std::placeholders::_1));
   };
 
 private:

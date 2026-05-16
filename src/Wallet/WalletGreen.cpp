@@ -2777,18 +2777,22 @@ void WalletGreen::requestCtMixingDecoys(
     throw std::runtime_error("requestCtMixingDecoys: mixingBuckets size mismatch");
   }
 
-  // Build the amounts list for the daemon RPC. We always include one entry
-  // per input so the response stays positionally aligned with selectedTransfers,
-  // even when an input opted out (bucket == 0) — those entries are filled
-  // with empty results client-side.
-  std::vector<uint64_t> amounts;
-  amounts.reserve(selectedTransfers.size());
-  bool haveAny = false;
-  for (uint64_t bucket : mixingBuckets) {
-    amounts.push_back(bucket);
-    if (bucket != 0) haveAny = true;
+  // Build the filtered amounts list for the daemon RPC. The daemon rejects
+  // amount=0 (logged as "not outs for amount 0"), so inputs that opted out
+  // of cross-bucket mixing (bucket == 0) are dropped from the wire request.
+  // We restore positional alignment with selectedTransfers below using
+  // originalIndex.
+  std::vector<uint64_t> filteredAmounts;
+  std::vector<size_t> originalIndex;
+  filteredAmounts.reserve(selectedTransfers.size());
+  originalIndex.reserve(selectedTransfers.size());
+  for (size_t i = 0; i < mixingBuckets.size(); ++i) {
+    if (mixingBuckets[i] != 0) {
+      filteredAmounts.push_back(mixingBuckets[i]);
+      originalIndex.push_back(i);
+    }
   }
-  if (!haveAny) {
+  if (filteredAmounts.empty()) {
     mixingResult.clear();
     return;
   }
@@ -2802,15 +2806,16 @@ void WalletGreen::requestCtMixingDecoys(
   // dedup.
   const uint64_t requestCount = CryptoNote::parameters::CT_MIXING_DECOYS_PER_INPUT + 1;
 
-  m_logger(DEBUGGING) << "Requesting CT mixing decoys, buckets="
-    << std::count_if(mixingBuckets.begin(), mixingBuckets.end(), [](uint64_t b) { return b != 0; });
+  m_logger(DEBUGGING) << "Requesting CT mixing decoys, buckets=" << filteredAmounts.size();
+
+  std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount> rawOuts;
   try {
     System::EventLock lk(m_readyEvent);
 
-    System::RemoteContext<std::error_code> context(m_dispatcher, [this, &amounts, requestCount, &mixingResult]() {
+    System::RemoteContext<std::error_code> context(m_dispatcher, [this, &filteredAmounts, requestCount, &rawOuts]() {
       std::promise<std::error_code> p;
       auto f = p.get_future();
-      m_node.getRandomOutsByAmounts(std::vector<uint64_t>(amounts), requestCount, mixingResult,
+      m_node.getRandomOutsByAmounts(std::vector<uint64_t>(filteredAmounts), requestCount, rawOuts,
         [&p](std::error_code ec) mutable { p.set_value(ec); });
       return f.get();
     });
@@ -2827,6 +2832,14 @@ void WalletGreen::requestCtMixingDecoys(
       << " — falling back to all-native rings";
     mixingResult.clear();
     return;
+  }
+
+  // Expand the filtered response back into a vector aligned with
+  // selectedTransfers; opted-out slots stay default-constructed (empty outs).
+  mixingResult.assign(selectedTransfers.size(),
+    CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount{});
+  for (size_t k = 0; k < rawOuts.size() && k < originalIndex.size(); ++k) {
+    mixingResult[originalIndex[k]] = std::move(rawOuts[k]);
   }
 
   m_logger(DEBUGGING) << "CT mixing decoys received";

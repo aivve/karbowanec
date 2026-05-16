@@ -50,8 +50,17 @@ struct SendTransactionContext
   // alternative bucket for CT input i (0 if no mixing). `mixingOuts[i]`
   // is the daemon's per-input mixing decoy response, parallel to
   // selectedTransfers. Both populated only on the CT path.
+  //
+  // The daemon's getRandomOutsByAmounts rejects amount=0 and inputs that
+  // skip cross-bucket mixing leave mixingBuckets[i]=0, so the request must
+  // be filtered before going on the wire. mixingOriginalIndex maps each
+  // entry of the filtered request back to its slot in selectedTransfers;
+  // mixingOutsRaw holds the daemon's raw response (filtered shape) until
+  // the callback expands it back into mixingOuts.
   std::vector<uint64_t> mixingBuckets;
   std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount> mixingOuts;
+  std::vector<CryptoNote::COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount> mixingOutsRaw;
+  std::vector<size_t> mixingOriginalIndex;
   Crypto::SecretKey tx_key = NULL_SECRET_KEY;
 };
 
