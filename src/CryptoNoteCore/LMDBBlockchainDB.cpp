@@ -25,6 +25,56 @@
 
 namespace CryptoNote {
 
+namespace {
+
+#pragma pack(push, 1)
+struct LegacyDbBlockMeta {
+  uint8_t  hash[32];
+  uint8_t  prevHash[32];
+  uint64_t timestamp;
+  uint64_t cumulativeDifficulty;
+  uint64_t alreadyGeneratedCoins;
+  uint32_t blockCumulativeSize;
+  uint32_t height;
+  uint16_t txCount;
+  uint8_t  majorVersion;
+  uint8_t  minorVersion;
+};
+#pragma pack(pop)
+static_assert(sizeof(LegacyDbBlockMeta) == 100, "LegacyDbBlockMeta must be 100 bytes");
+
+bool decodeBlockMeta(const MDB_val& value, DbBlockMeta& meta) {
+  meta = {};
+
+  if (value.mv_size >= sizeof(DbBlockMeta)) {
+    std::memcpy(&meta, value.mv_data, sizeof(DbBlockMeta));
+    return true;
+  }
+
+  if (value.mv_size == sizeof(LegacyDbBlockMeta)) {
+    LegacyDbBlockMeta legacy{};
+    std::memcpy(&legacy, value.mv_data, sizeof(LegacyDbBlockMeta));
+
+    std::memcpy(meta.hash, legacy.hash, sizeof(meta.hash));
+    std::memcpy(meta.prevHash, legacy.prevHash, sizeof(meta.prevHash));
+    meta.timestamp = legacy.timestamp;
+    meta.cumulativeDifficulty = legacy.cumulativeDifficulty;
+    meta.alreadyGeneratedCoins = legacy.alreadyGeneratedCoins;
+    meta.confidentialSupply = 0;
+    meta.pqPlainSupply = 0;
+    meta.blockCumulativeSize = legacy.blockCumulativeSize;
+    meta.height = legacy.height;
+    meta.txCount = legacy.txCount;
+    meta.majorVersion = legacy.majorVersion;
+    meta.minorVersion = legacy.minorVersion;
+    return true;
+  }
+
+  return false;
+}
+
+} // namespace
+
 // ─── Big-endian helpers ────────────────────────────────────────────────────
 
 void LMDBBlockchainDB::encBE32(uint8_t* out, uint32_t v) {
@@ -364,8 +414,7 @@ bool LMDBBlockchainDB::getBlockMeta(uint32_t height, DbBlockMeta& meta) const {
   int rc = mdb_get(guard.txn, m_dbiBlockMeta, &k, &v);
   if (rc == MDB_NOTFOUND) return false;
   checkRc(rc, "getBlockMeta");
-  std::memcpy(&meta, v.mv_data, sizeof(DbBlockMeta));
-  return true;
+  return decodeBlockMeta(v, meta);
 }
 
 bool LMDBBlockchainDB::getBlockMetaRange(uint32_t fromHeight, uint32_t toHeight,
@@ -384,10 +433,11 @@ bool LMDBBlockchainDB::getBlockMetaRange(uint32_t fromHeight, uint32_t toHeight,
   while (rc == 0) {
     uint32_t h = decBE32(static_cast<const uint8_t*>(k.mv_data));
     if (h > toHeight) break;
-    if (v.mv_size >= sizeof(DbBlockMeta)) {
+    if (v.mv_size >= sizeof(DbBlockMeta) || v.mv_size == sizeof(LegacyDbBlockMeta)) {
       DbBlockMeta m{};
-      std::memcpy(&m, v.mv_data, sizeof(DbBlockMeta));
-      out.push_back(m);
+      if (decodeBlockMeta(v, m)) {
+        out.push_back(m);
+      }
     }
     rc = mdb_cursor_get(cur, &k, &v, MDB_NEXT);
   }

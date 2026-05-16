@@ -2,12 +2,15 @@
 #include "CryptoNoteCore/Core.h"
 #include "CryptoNoteCore/CoreConfig.h"
 #include "CryptoNoteCore/Currency.h"
+#include "CryptoNoteCore/LMDBBlockchainDB.h"
 #include "CryptoNoteCore/MinerConfig.h"
 #include "Logging/ConsoleLogger.h"
 #include "System/Dispatcher.h"
 #include "TestGenerator/TestGenerator.h"
+#include "liblmdb/lmdb.h"
 
 #include <ctime>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <list>
@@ -22,6 +25,131 @@ bool expect(bool condition, const std::string& message) {
     std::cerr << "[FAIL] " << message << std::endl;
     return false;
   }
+  return true;
+}
+
+#pragma pack(push, 1)
+struct LegacyDbBlockMeta {
+  uint8_t  hash[32];
+  uint8_t  prevHash[32];
+  uint64_t timestamp;
+  uint64_t cumulativeDifficulty;
+  uint64_t alreadyGeneratedCoins;
+  uint32_t blockCumulativeSize;
+  uint32_t height;
+  uint16_t txCount;
+  uint8_t  majorVersion;
+  uint8_t  minorVersion;
+};
+#pragma pack(pop)
+static_assert(sizeof(LegacyDbBlockMeta) == 100, "LegacyDbBlockMeta must be 100 bytes");
+
+void encodeBE32(uint8_t* out, uint32_t value) {
+  out[0] = static_cast<uint8_t>((value >> 24) & 0xFF);
+  out[1] = static_cast<uint8_t>((value >> 16) & 0xFF);
+  out[2] = static_cast<uint8_t>((value >> 8) & 0xFF);
+  out[3] = static_cast<uint8_t>(value & 0xFF);
+}
+
+bool writeLegacyBlockMeta(const std::filesystem::path& dataDir, uint32_t height) {
+  MDB_env* env = nullptr;
+  MDB_txn* txn = nullptr;
+  MDB_dbi blockMetaDbi = 0;
+
+  int rc = mdb_env_create(&env);
+  if (rc != 0) return false;
+
+  rc = mdb_env_set_maxdbs(env, 16);
+  if (rc == 0) rc = mdb_env_set_mapsize(env, size_t(1) << 20);
+  if (rc == 0) rc = mdb_env_open(env, dataDir.string().c_str(), MDB_NORDAHEAD, 0664);
+  if (rc == 0) rc = mdb_txn_begin(env, nullptr, 0, &txn);
+  if (rc == 0) rc = mdb_dbi_open(txn, "block_meta", MDB_CREATE, &blockMetaDbi);
+
+  LegacyDbBlockMeta legacy{};
+  for (size_t i = 0; i < sizeof(legacy.hash); ++i) {
+    legacy.hash[i] = static_cast<uint8_t>(i + 1);
+    legacy.prevHash[i] = static_cast<uint8_t>(0xF0 - i);
+  }
+  legacy.timestamp = 123456;
+  legacy.cumulativeDifficulty = 789;
+  legacy.alreadyGeneratedCoins = 456;
+  legacy.blockCumulativeSize = 321;
+  legacy.height = height;
+  legacy.txCount = 2;
+  legacy.majorVersion = CryptoNote::BLOCK_MAJOR_VERSION_1;
+  legacy.minorVersion = CryptoNote::BLOCK_MINOR_VERSION_0;
+
+  uint8_t keyBuf[4];
+  encodeBE32(keyBuf, height);
+  MDB_val key{sizeof(keyBuf), keyBuf};
+  MDB_val value{sizeof(legacy), &legacy};
+  if (rc == 0) rc = mdb_put(txn, blockMetaDbi, &key, &value, 0);
+
+  if (rc == 0) {
+    rc = mdb_txn_commit(txn);
+    txn = nullptr;
+  }
+
+  if (txn != nullptr) {
+    mdb_txn_abort(txn);
+  }
+  if (env != nullptr) {
+    mdb_env_close(env);
+  }
+
+  return rc == 0;
+}
+
+bool runLegacyMetaReadScenario() {
+  const std::filesystem::path dataDir =
+      std::filesystem::path("lmdb_legacy_meta_test_data");
+  std::error_code ec;
+  std::filesystem::remove_all(dataDir, ec);
+  std::filesystem::create_directories(dataDir, ec);
+  if (ec) {
+    std::cerr << "[FAIL] could not create legacy metadata test directory: " << ec.message() << std::endl;
+    return false;
+  }
+
+  constexpr uint32_t legacyHeight = 60000;
+  if (!expect(writeLegacyBlockMeta(dataDir, legacyHeight), "failed to write legacy block_meta record")) {
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  CryptoNote::LMDBBlockchainDB db;
+  if (!expect(db.open(dataDir.string()), "failed to open legacy metadata DB")) {
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  CryptoNote::DbBlockMeta meta{};
+  if (!expect(db.getBlockMeta(legacyHeight, meta), "failed to decode legacy block_meta record")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+  if (!expect(meta.height == legacyHeight, "legacy block_meta height mismatch") ||
+      !expect(meta.majorVersion == CryptoNote::BLOCK_MAJOR_VERSION_1, "legacy block_meta major version mismatch") ||
+      !expect(meta.minorVersion == CryptoNote::BLOCK_MINOR_VERSION_0, "legacy block_meta minor version mismatch") ||
+      !expect(meta.confidentialSupply == 0, "legacy block_meta confidential supply should default to zero") ||
+      !expect(meta.pqPlainSupply == 0, "legacy block_meta PQ plain supply should default to zero")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  std::vector<CryptoNote::DbBlockMeta> metas;
+  if (!expect(db.getBlockMetaRange(legacyHeight, legacyHeight, metas), "failed to range-read legacy block_meta record") ||
+      !expect(metas.size() == 1, "legacy block_meta range read returned wrong count") ||
+      !expect(metas.front().majorVersion == CryptoNote::BLOCK_MAJOR_VERSION_1, "legacy block_meta range major version mismatch")) {
+    db.close();
+    std::filesystem::remove_all(dataDir, ec);
+    return false;
+  }
+
+  db.close();
+  std::filesystem::remove_all(dataDir, ec);
   return true;
 }
 
@@ -301,10 +429,14 @@ bool runReorgScenario() {
 } // namespace
 
 int main() {
+  if (!runLegacyMetaReadScenario()) {
+    return 1;
+  }
+
   if (!runReorgScenario()) {
     return 1;
   }
 
-  std::cout << "[PASS] LMDB reorg scenario" << std::endl;
+  std::cout << "[PASS] LMDB legacy metadata and reorg scenarios" << std::endl;
   return 0;
 }
