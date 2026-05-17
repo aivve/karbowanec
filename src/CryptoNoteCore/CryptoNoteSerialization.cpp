@@ -504,6 +504,11 @@ void serialize(ConfidentialOutput& output, ISerializer& serializer) {
 void serialize(CTInputSignature& sig, ISerializer& serializer) {
   // Triptych signature shape, controlled by a single header byte n:
   //
+  //   n = 0xFF (empty slot — matching tx.inputs[i] is a v2 KeyInput, whose
+  //            authorization lives in tx.signatures[i] as a legacy ring sig).
+  //     All vectors empty, no body bytes after the header.
+  //     wire: 1 byte
+  //
   //   n = 0  (ring_size = 1, Schnorr branch — v5+ coinbase carve-out)
   //     I_bits / A / B / z / za / zb : empty
   //     Q_P / Q_M / Q_U              : 1 entry each (Schnorr nonce commits)
@@ -524,9 +529,9 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
   // wallet behavior consistent with consensus.
   //
   // Cross-validation that n matches the matching ConfidentialInput's
-  // ring_size lives in Blockchain::checkConfidentialTransaction and the
-  // semantic check in Core.cpp; this serializer enforces only the
-  // on-wire shape.
+  // ring_size, and that empty (n=0xFF) slots align with KeyInputs,
+  // lives in Blockchain::checkConfidentialTransaction and the semantic
+  // check in Core.cpp; this serializer enforces only the on-wire shape.
 
   auto n_bits_for = [](uint8_t n) -> size_t {
     // I_bits/A/B/z/za/zb length for a given header byte.
@@ -575,28 +580,49 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
     return;
   }
 
+  constexpr uint8_t kEmptySlot = 0xFF;
+
   uint8_t n = 0;
   if (serializer.type() == ISerializer::OUTPUT) {
-    // Determine n from the proof shape.
+    // Determine n from the proof shape. A fully-empty CTInputSignature means
+    // the matching tx.inputs[i] is a v2 KeyInput; we emit only the sentinel
+    // header (1 byte), no body.
     const size_t bits_len = sig.I_bits.size();
     const size_t q_len    = sig.Q_P.size();
-    if (bits_len == 0 && q_len == 1) {
+    if (bits_len == 0 && q_len == 0 &&
+        sig.A.empty()  && sig.B.empty()  &&
+        sig.Q_M.empty() && sig.Q_U.empty() &&
+        sig.z.empty()  && sig.za.empty() && sig.zb.empty()) {
+      n = kEmptySlot;
+    } else if (bits_len == 0 && q_len == 1) {
       n = 0;
     } else if ((bits_len == 2 || bits_len == 3 || bits_len == 4) && q_len == bits_len) {
       n = static_cast<uint8_t>(bits_len);
     } else {
       throw std::runtime_error("CTInputSignature: invalid shape on serialize");
     }
-    const size_t expected_bits = n_bits_for(n);
-    const size_t expected_q    = n_q_for(n);
-    if (sig.A.size()   != expected_bits || sig.B.size()   != expected_bits ||
-        sig.Q_P.size() != expected_q    || sig.Q_M.size() != expected_q    || sig.Q_U.size() != expected_q ||
-        sig.z.size()   != expected_bits || sig.za.size()  != expected_bits || sig.zb.size()  != expected_bits) {
-      throw std::runtime_error("CTInputSignature: vector length mismatch on serialize");
+    if (n != kEmptySlot) {
+      const size_t expected_bits = n_bits_for(n);
+      const size_t expected_q    = n_q_for(n);
+      if (sig.A.size()   != expected_bits || sig.B.size()   != expected_bits ||
+          sig.Q_P.size() != expected_q    || sig.Q_M.size() != expected_q    || sig.Q_U.size() != expected_q ||
+          sig.z.size()   != expected_bits || sig.za.size()  != expected_bits || sig.zb.size()  != expected_bits) {
+        throw std::runtime_error("CTInputSignature: vector length mismatch on serialize");
+      }
     }
   }
   serializer.binary(&n, sizeof(n), "n");
   if (serializer.type() == ISerializer::INPUT) {
+    if (n == kEmptySlot) {
+      sig.I_bits.clear();
+      sig.A.clear(); sig.B.clear();
+      sig.Q_P.clear(); sig.Q_M.clear(); sig.Q_U.clear();
+      sig.z.clear(); sig.za.clear(); sig.zb.clear();
+      std::memset(&sig.f_P, 0, sizeof(sig.f_P));
+      std::memset(&sig.f_M, 0, sizeof(sig.f_M));
+      std::memset(&sig.f_U, 0, sizeof(sig.f_U));
+      return;
+    }
     if (n != 0 && n != 2 && n != 3 && n != 4) {
       throw std::runtime_error("CTInputSignature: unsupported proof size on deserialize");
     }
@@ -611,6 +637,10 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
     sig.z.resize(bits_len);
     sig.za.resize(bits_len);
     sig.zb.resize(bits_len);
+  }
+
+  if (n == kEmptySlot) {
+    return; // OUTPUT path for an empty slot: header only, no body bytes.
   }
 
   const size_t bits_len = n_bits_for(n);
