@@ -2554,6 +2554,11 @@ CryptoNote::Transaction WalletGreen::makeConfidentialTransaction(
 
     cti.realBlinding = ki.realOutputBlinding;
     cti.amount = ki.realOutputAmount;
+    // Route transparent dust (real KeyOutput) as a v2 KeyInput so the
+    // shielded value enters the CT pool visibly. ConfidentialOutput inputs
+    // stay confidential — Triptych is only useful when the real amount is
+    // genuinely hidden.
+    cti.isTransparent = !ki.realOutputIsConfidential;
 
     // Store ephKeys back for caller
     input.ephKeys = ephKeys;
@@ -2761,8 +2766,9 @@ std::vector<uint64_t> WalletGreen::chooseCtMixingBuckets(
       // for this input.
       mixingBuckets[i] = CryptoNote::DENOMINATIONS[denomDist(rng)];
     } else {
-      // Native bucket is transparent; mix in CT decoys.
-      mixingBuckets[i] = CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT;
+      // Transparent reals route to KeyInput in v2 mixed mode; the legacy ring
+      // sig only resolves a single-bucket transparent ring, so cross-bucket
+      // mixing isn't available here.
     }
   }
   return mixingBuckets;

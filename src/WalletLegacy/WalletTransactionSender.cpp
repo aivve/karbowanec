@@ -213,9 +213,12 @@ std::vector<uint64_t> WalletTransactionSender::chooseCtMixingBuckets(
 
     const bool realIsConfidential = transfer.type == TransactionTypes::OutputType::Confidential;
     if (realIsConfidential) {
+      // ConfidentialInput rings may mix in transparent decoys from any bucket.
       mixingBuckets[i] = CryptoNote::DENOMINATIONS[denomDist(rng)];
     } else {
-      mixingBuckets[i] = CryptoNote::parameters::CT_CONFIDENTIAL_OUTPUT_AMOUNT;
+      // Transparent reals are routed to KeyInput in v2 mixed mode (shielding),
+      // whose rings are constrained to a single transparent bucket. Skip
+      // cross-bucket mixing — the ring must be pure same-amount KeyOutputs.
     }
     ++i;
   }
@@ -616,6 +619,11 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
         cti.spendPrivkey = ephKeys.secretKey;
         cti.realBlinding = ki.realOutputBlinding;
         cti.amount = ki.realOutputAmount;
+        // Route transparent dust (real KeyOutput) as a v2 KeyInput so the
+        // shielded value enters the CT pool visibly. ConfidentialOutput
+        // inputs stay confidential — Triptych is only useful when the real
+        // amount is genuinely hidden.
+        cti.isTransparent = !ki.realOutputIsConfidential;
         ctInputs.push_back(std::move(cti));
       }
 
