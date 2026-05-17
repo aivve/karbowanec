@@ -904,8 +904,18 @@ bool RpcServer::on_query_blocks_lite(const COMMAND_RPC_QUERY_BLOCKS_LITE::reques
   uint32_t startHeight;
   uint32_t currentHeight;
   uint32_t fullOffset;
-  if (!m_core.queryBlocksLite(req.blockIds, req.timestamp, startHeight, currentHeight, fullOffset, res.items)) {
-    res.status = "Failed to perform query";
+  try {
+    if (!m_core.queryBlocksLite(req.blockIds, req.timestamp, startHeight, currentHeight, fullOffset, res.items)) {
+      res.status = "Failed to perform query";
+      return false;
+    }
+  } catch (const std::exception& e) {
+    // queryBlocksLite goes through transactionByIndex which deserializes the
+    // stored tx blob — surface the exception in the daemon log instead of
+    // letting it bubble through the HTTP layer as an opaque 500 (which the
+    // wallet only sees as "Network error").
+    logger(Logging::ERROR, Logging::BRIGHT_RED) << "queryBlocksLite threw: " << e.what();
+    res.status = std::string("Failed to perform query: ") + e.what();
     return false;
   }
 
