@@ -2051,8 +2051,8 @@ void simple_wallet::synchronizationCompleted(std::error_code result) {
       }
       if (dustCount > 0) {
         logger(INFO, BRIGHT_YELLOW)
-          << "\nNote: " << dustCount << " sub-MIN_CT output(s) totaling "
-          << m_currency.formatAmount(dustTotal) << " KRB.\n"
+          << "\nNote: " << dustCount << " dust output(s) totaling "
+          << m_currency.formatAmount(dustTotal) << " KRB (below 0.01 KRB each).\n"
           << "These are spendable but will be absorbed into transaction fees rather than"
           << " becoming confidential outputs.";
       }
@@ -2158,8 +2158,8 @@ bool simple_wallet::show_balance(const std::vector<std::string>& args/* = std::v
   }
   if (dustCount > 0) {
     logger(INFO, BRIGHT_YELLOW)
-      << "Note: " << dustCount << " sub-MIN_CT output(s) totaling "
-      << m_currency.formatAmount(dustTotal) << " KRB.\n"
+      << "Note: " << dustCount << " dust output(s) totaling "
+      << m_currency.formatAmount(dustTotal) << " KRB (below 0.01 KRB each).\n"
       << "Spendable, but will be absorbed into fees rather than becoming confidential outputs.";
   }
 

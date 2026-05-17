@@ -210,8 +210,9 @@ void balance(CryptoNote::INode &node, CryptoNote::WalletGreen &wallet,
         if (dustCount > 0) {
             std::cout << std::endl
                       << InformationMsg("Note: " + std::to_string(dustCount)
-                         + " sub-MIN_CT output(s) totaling "
-                         + Common::Format::formatAmount(dustTotal) + " KRB.")
+                         + " dust output(s) totaling "
+                         + Common::Format::formatAmount(dustTotal)
+                         + " KRB (below 0.01 KRB each).")
                       << std::endl
                       << InformationMsg("Spendable, but will be absorbed into fees"
                          " rather than becoming confidential outputs.")
