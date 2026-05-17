@@ -444,16 +444,12 @@ bool Core::check_tx_unmixable(const Transaction& tx, const Crypto::Hash& txHash,
       logger(ERROR) << "Invalid decomposed output amount " << out.amount << " for tx id= " << Common::podToHex(txHash);
       return false;
     }
-
-    // Post-CT-fork: transparent outputs in non-coinbase transactions must be >= MIN_CT_DENOMINATION
-    // (this function is only invoked for non-coinbase txs). Coinbase remains the dust sink and
-    // may carry sub-floor fee residue. CT outputs are validated structurally via the GK proof.
-    if (m_currency.isConfidentialTransactionsActivated(height) &&
-        out.amount > 0 && out.amount < CryptoNote::MIN_CT_DENOMINATION) {
-      logger(ERROR) << "Transparent output below MIN_CT_DENOMINATION for tx id= " << Common::podToHex(txHash);
-      return false;
-    }
   }
+  // MIN_CT_DENOMINATION alignment is only meaningful for v2 mixed outputs that
+  // interact with the CT pool (transparent change/unshield from a CT tx).
+  // checkConfidentialTransaction enforces it on those. Legacy v1 plain txs keep
+  // the original CN {1,2,5}*10^k decomposition unchanged so --legacy-tx mode
+  // and pre-CT wallets continue to work after the CT fork.
   return true;
 }
 
