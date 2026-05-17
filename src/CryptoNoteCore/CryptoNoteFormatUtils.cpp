@@ -151,7 +151,11 @@ uint32_t get_block_height(const Block& b) {
 bool check_inputs_types_supported(const TransactionPrefix& tx) {
   for (const auto& in : tx.inputs) {
     if (tx.version == TRANSACTION_VERSION_CT) {
-      if (in.type() != typeid(ConfidentialInput)) {
+      // v2 CT allows mixed inputs: KeyInput for transparent shielding into
+      // the CT pool, ConfidentialInput for CT-to-CT or transparent-decoy
+      // spends. The per-shape validation lives in check_tx_semantic and
+      // checkConfidentialTransaction.
+      if (in.type() != typeid(KeyInput) && in.type() != typeid(ConfidentialInput)) {
         return false;
       }
     } else {
