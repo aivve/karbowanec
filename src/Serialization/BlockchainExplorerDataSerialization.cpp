@@ -121,7 +121,13 @@ void serialize(ConfidentialInputDetails& ctIn, ISerializer& serializer) {
     ctIn.ringMembers.resize(ringSize);
   }
   for (size_t i = 0; i < ringSize; ++i) {
-    serialize(ctIn.ringMembers[i], serializer);
+    // Each ring member has two differently-typed fields (amount, outputIndex).
+    // The JSON / KV-binary array protocol requires each element to be a
+    // self-contained object — calling the free serialize() directly emits
+    // the fields flat at array-element level, which leaves the
+    // standalone explorer seeing members[k] without an outputIndex.
+    // Routing through serializer() wraps each element in begin/endObject.
+    serializer(ctIn.ringMembers[i], "");
   }
   serializer.endArray();
   serializer(ctIn.outputs, "outputs");
