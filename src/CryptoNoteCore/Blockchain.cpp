@@ -2416,11 +2416,47 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
   }
 
   // Step 4: For each input, validate on-chain ring member binding and subgroup checks.
+  // CT v2 supports mixed inputs:
+  //   - KeyInput: transparent shielding into the CT pool. Verified here via
+  //     check_tx_input (legacy ring signature). Does not participate in the
+  //     batched Triptych verify; its verifiedRingPubkeys/Commitments slot is
+  //     left empty.
+  //   - ConfidentialInput: CT-to-CT or transparent-decoy spend. Ring members
+  //     resolved here and fed into the batched Triptych verify in Step 5.
   std::vector<std::vector<Crypto::PublicKey>> verifiedRingPubkeys(tx.inputs.size());
   std::vector<std::vector<Crypto::EllipticCurvePoint>> verifiedRingCommitments(tx.inputs.size());
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    if (tx.inputs[i].type() == typeid(KeyInput)) {
+      const auto& ki = boost::get<KeyInput>(tx.inputs[i]);
+      if (ki.amount == 0) {
+        logger(ERROR) << "CT validation: KeyInput " << i << " has zero amount in tx " << txHash;
+        return false;
+      }
+      if (ki.outputIndexes.empty()) {
+        logger(ERROR) << "CT validation: KeyInput " << i << " has empty ring in tx " << txHash;
+        return false;
+      }
+      if (tx.signatures.size() != tx.inputs.size() ||
+          tx.signatures[i].size() != ki.outputIndexes.size()) {
+        logger(ERROR) << "CT validation: KeyInput " << i << " ring sig count mismatch in tx " << txHash;
+        return false;
+      }
+      // Legacy ring sig + key-image-not-spent + ring-member existence /
+      // unlock-time / pubkey resolution. ct_signing_hash is the prefix hash,
+      // identical to what check_tx_input expects for the legacy path.
+      if (have_tx_keyimg_as_spent(ki.keyImage)) {
+        logger(DEBUGGING) << "CT validation: KeyInput " << i << " key image already spent in tx " << txHash;
+        return false;
+      }
+      if (!check_tx_input(ki, ct_signing_hash, tx.signatures[i], pmax_used_block_height)) {
+        logger(ERROR) << "CT validation: KeyInput " << i << " ring sig check failed in tx " << txHash;
+        return false;
+      }
+      continue;
+    }
+
     if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
-      logger(ERROR) << "CT validation: input " << i << " is not ConfidentialInput in tx " << txHash;
+      logger(ERROR) << "CT validation: input " << i << " has unsupported type in tx " << txHash;
       return false;
     }
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
@@ -2654,9 +2690,12 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
   batch_proofs.reserve(tx.inputs.size());
 
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
-    if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
-      logger(ERROR) << "CT validation: input " << i << " is not ConfidentialInput in tx " << txHash;
-      return false;
+    if (tx.inputs[i].type() == typeid(KeyInput)) {
+      // KeyInput is verified by check_tx_input above. It does not participate
+      // in the batched Triptych verify — Schnorr-on-G against amount*H + 0*G
+      // would be redundant with the legacy ring sig that already binds the
+      // input to a real on-chain KeyOutput.
+      continue;
     }
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
     const auto& sig = tx.ctSignatures[i];
@@ -2745,10 +2784,13 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
     return false;
   }
 
-  // Step 6: Verify all key images are unique and absent from global spent-key set
-  // (Intra-transaction uniqueness is already checked by check_tx_inputs_keyimages_diff
-  //  in Core::check_tx_semantic; here we check against the blockchain)
+  // Step 6: Verify all ConfidentialInput key images are absent from global
+  // spent-key set. KeyInput key images were already checked in Step 4 via the
+  // have_tx_keyimg_as_spent / check_tx_input pair, so we skip them here.
+  // (Intra-transaction uniqueness across both input types is already checked
+  // by check_tx_inputs_keyimages_diff in Core::check_tx_semantic.)
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    if (tx.inputs[i].type() != typeid(ConfidentialInput)) continue;
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);
     if (have_tx_keyimg_as_spent(cin.keyImage)) {
       logger(DEBUGGING) << "CT validation: input " << i << " key image already spent in tx " << txHash;
@@ -2763,12 +2805,28 @@ bool Blockchain::checkConfidentialTransaction(const Transaction& tx, const Crypt
 
   // Step 8: Verify balance equation: sum(C_in) - sum(C_out) - fee*H = excess_commitment
   {
-    // Collect input commitments (pseudo-commitments C'_i from each input)
+    // Collect input commitments per input type:
+    //   ConfidentialInput → sender-chosen pseudoCommitment v*H + r*G
+    //   KeyInput          → deterministic transparent_amount_to_commitment(amount)
+    //                       = amount*H + 0*G  (visible plain value entering pool)
+    // The excess kernel reflects only ConfidentialInput blindings; KeyInput
+    // contributes blinding 0 on both the input side (here) and the wallet's
+    // excess computation.
     std::vector<Crypto::EllipticCurvePoint> input_commits;
     input_commits.reserve(tx.inputs.size());
     for (const auto& txin : tx.inputs) {
-      const auto& cin = boost::get<ConfidentialInput>(txin);
-      input_commits.push_back(cin.pseudoCommitment);
+      if (txin.type() == typeid(KeyInput)) {
+        const auto& ki = boost::get<KeyInput>(txin);
+        Crypto::EllipticCurvePoint c;
+        if (!Crypto::transparent_amount_to_commitment(ki.amount, c)) {
+          logger(ERROR) << "CT validation: KeyInput amount-to-commitment failed in tx " << txHash;
+          return false;
+        }
+        input_commits.push_back(c);
+      } else {
+        const auto& cin = boost::get<ConfidentialInput>(txin);
+        input_commits.push_back(cin.pseudoCommitment);
+      }
     }
 
     // Collect output commitments
@@ -2896,9 +2954,33 @@ bool Blockchain::checkConfidentialTransactionStructure(const Transaction& tx,
   }
 
   for (size_t i = 0; i < tx.inputs.size(); ++i) {
+    if (tx.inputs[i].type() == typeid(KeyInput)) {
+      // Structural-only check for v2 KeyInput slots: outputIndexes non-empty,
+      // amount non-zero, key image in valid domain, not double-spent. The
+      // ring sig itself is trusted under a confirmed checkpoint.
+      const auto& ki = boost::get<KeyInput>(tx.inputs[i]);
+      if (ki.amount == 0 || ki.outputIndexes.empty()) {
+        logger(ERROR) << "CT structural validation: KeyInput " << i
+                      << " malformed in tx " << txHash;
+        return false;
+      }
+      if (!(Crypto::scalarmultKey(ki.keyImage, Crypto::EllipticCurveScalar2KeyImage(Crypto::L))
+            == Crypto::EllipticCurveScalar2KeyImage(Crypto::I))) {
+        logger(ERROR) << "CT structural validation: KeyInput " << i
+                      << " key image not in valid domain in tx " << txHash;
+        return false;
+      }
+      if (have_tx_keyimg_as_spent(ki.keyImage)) {
+        logger(DEBUGGING) << "CT structural validation: KeyInput " << i
+                          << " key image already spent in tx " << txHash;
+        return false;
+      }
+      continue;
+    }
+
     if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
       logger(ERROR) << "CT structural validation: input " << i
-                    << " is not ConfidentialInput in tx " << txHash;
+                    << " has unsupported type in tx " << txHash;
       return false;
     }
     const auto& cin = boost::get<ConfidentialInput>(tx.inputs[i]);

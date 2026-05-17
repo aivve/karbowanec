@@ -478,13 +478,12 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
       logger(ERROR) << "CT tx with non-zero unlockTime, rejected for tx id= " << Common::podToHex(txHash);
       return false;
     }
-    // CT tx must not have legacy signatures
-    if (!tx.signatures.empty()) {
-      logger(ERROR) << "CT tx must not have legacy signatures, rejected for tx id= " << Common::podToHex(txHash);
-      return false;
-    }
 
-    // Validate proof body counts match input/output counts
+    // Validate proof body counts match input/output counts. CT v2 supports
+    // mixed inputs: KeyInput slots carry a legacy ring signature in
+    // tx.signatures[i] (parallel to inputs), ConfidentialInput slots carry a
+    // Triptych proof in tx.ctSignatures[i]. Both arrays are sized to inputs;
+    // the unused slot for each input type is left empty.
     if (tx.ctSignatures.size() != tx.inputs.size()) {
       logger(ERROR) << "CT tx ctSignatures count mismatch, rejected for tx id= " << Common::podToHex(txHash);
       return false;
@@ -493,11 +492,54 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
       logger(ERROR) << "CT tx ctProofs count mismatch, rejected for tx id= " << Common::podToHex(txHash);
       return false;
     }
+    if (!tx.signatures.empty() && tx.signatures.size() != tx.inputs.size()) {
+      logger(ERROR) << "CT tx signatures count mismatch, rejected for tx id= " << Common::podToHex(txHash);
+      return false;
+    }
 
-    // Validate each CT input has consistent sizes
+    // Validate each CT input has consistent sizes. Mixed inputs allowed:
+    //   KeyInput        → transparent shielding into the CT pool. Authorized
+    //                     by a legacy ring signature; CT proof slot empty.
+    //   ConfidentialInput → CT-to-CT or transparent-decoy spend. Authorized
+    //                     by a Triptych proof; legacy sig slot empty.
     for (size_t i = 0; i < tx.inputs.size(); ++i) {
+      const auto& s = tx.ctSignatures[i];
+
+      if (tx.inputs[i].type() == typeid(KeyInput)) {
+        const auto& ki = boost::get<KeyInput>(tx.inputs[i]);
+        if (ki.amount == 0) {
+          logger(ERROR) << "CT tx KeyInput " << i << " has zero amount, rejected for tx id= "
+                        << Common::podToHex(txHash);
+          return false;
+        }
+        if (ki.outputIndexes.empty()) {
+          logger(ERROR) << "CT tx KeyInput " << i << " has empty ring, rejected for tx id= "
+                        << Common::podToHex(txHash);
+          return false;
+        }
+        // The Triptych slot for a KeyInput is unused and must be empty —
+        // otherwise the prover could attach a Triptych body that fools a
+        // verifier into double-checking against the wrong ring.
+        if (!s.I_bits.empty() || !s.A.empty() || !s.B.empty() ||
+            !s.Q_P.empty() || !s.Q_M.empty() || !s.Q_U.empty() ||
+            !s.z.empty() || !s.za.empty() || !s.zb.empty()) {
+          logger(ERROR) << "CT tx KeyInput " << i << " has non-empty Triptych proof, rejected for tx id= "
+                        << Common::podToHex(txHash);
+          return false;
+        }
+        // KeyInput requires a legacy ring signature in tx.signatures[i] sized
+        // to ki.outputIndexes.size(). The deep check is in check_tx_input.
+        if (tx.signatures.empty() || tx.signatures[i].size() != ki.outputIndexes.size()) {
+          logger(ERROR) << "CT tx KeyInput " << i << " ring sig count mismatch, rejected for tx id= "
+                        << Common::podToHex(txHash);
+          return false;
+        }
+        continue;
+      }
+
       if (tx.inputs[i].type() != typeid(ConfidentialInput)) {
-        logger(ERROR) << "CT tx input " << i << " is not ConfidentialInput, rejected for tx id= " << Common::podToHex(txHash);
+        logger(ERROR) << "CT tx input " << i << " has unsupported type, rejected for tx id= "
+                      << Common::podToHex(txHash);
         return false;
       }
       const auto& ci = boost::get<ConfidentialInput>(tx.inputs[i]);
@@ -520,6 +562,12 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
           return false;
         }
       }
+      // The legacy-sig slot for a ConfidentialInput must be empty.
+      if (!tx.signatures.empty() && !tx.signatures[i].empty()) {
+        logger(ERROR) << "CT tx ConfidentialInput " << i << " has non-empty legacy ring sig, rejected for tx id= "
+                      << Common::podToHex(txHash);
+        return false;
+      }
       // Triptych proof shape must match the ring size:
       //   ring_size = 1  → bits = 0, q_len = 1 (Schnorr branch)
       //   ring_size = 4  → bits = 2, q_len = 2
@@ -530,7 +578,6 @@ bool Core::check_tx_semantic(const Transaction& tx, const Crypto::Hash& txHash, 
       // verifier (Blockchain::checkConfidentialTransaction) repeats this
       // check too, but doing it at semantic-check time fails the mempool
       // admission path earlier on malformed shapes.
-      const auto& s = tx.ctSignatures[i];
       const size_t rs = ci.ringMembers.size();
       const size_t expected_bits = (rs == 1)  ? 0 :
                                    (rs == 4)  ? 2 :

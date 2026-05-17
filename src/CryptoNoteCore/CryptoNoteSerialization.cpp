@@ -279,6 +279,55 @@ void serialize(TransactionPrefix& txP, ISerializer& serializer) {
 void serialize(Transaction& tx, ISerializer& serializer) {
   serialize(static_cast<TransactionPrefix&>(tx), serializer);
 
+  // Per-input ring signatures (transparent KeyInput slots only). v2 mixed
+  // CT txs use this section for KeyInput shielding signatures alongside
+  // ConfidentialInput Triptych proofs in ct_signatures. ConfidentialInput
+  // slots write zero bytes here (getSignaturesCount returns 0), so the
+  // on-wire byte stream for a pure-CT v2 tx (all ConfidentialInputs) is
+  // identical with or without this section running.
+  {
+    size_t sigSize = tx.inputs.size();
+
+    // ignore base transaction
+    if (serializer.type() == ISerializer::INPUT && !(sigSize == 1 && tx.inputs[0].type() == typeid(BaseInput))) {
+      tx.signatures.resize(sigSize);
+    }
+
+    bool signaturesNotExpected = tx.signatures.empty();
+    if (!signaturesNotExpected && tx.inputs.size() != tx.signatures.size()) {
+      throw std::runtime_error("Serialization error: unexpected signatures size");
+    }
+
+    for (size_t i = 0; i < tx.inputs.size(); ++i) {
+      size_t signatureSize = getSignaturesCount(tx.inputs[i]);
+      if (signaturesNotExpected) {
+        if (signatureSize == 0) {
+          continue;
+        } else {
+          throw std::runtime_error("Serialization error: signatures are not expected");
+        }
+      }
+
+      if (serializer.type() == ISerializer::OUTPUT) {
+        if (signatureSize != tx.signatures[i].size()) {
+          throw std::runtime_error("Serialization error: unexpected signatures size");
+        }
+
+        for (Crypto::Signature& sig : tx.signatures[i]) {
+          serializePod(sig, "", serializer);
+        }
+
+      } else {
+        std::vector<Crypto::Signature> signatures(signatureSize);
+        for (Crypto::Signature& sig : signatures) {
+          serializePod(sig, "", serializer);
+        }
+
+        tx.signatures[i] = std::move(signatures);
+      }
+    }
+  }
+
   if (tx.version == TRANSACTION_VERSION_CT) {
     // Version 2 (CT): proof body — Triptych spend proofs, GK denomination proofs, kernel.
     // These are in Transaction body (not prefix) so getTransactionPrefixHash() excludes them.
@@ -315,49 +364,6 @@ void serialize(Transaction& tx, ISerializer& serializer) {
 
     // Kernel (balance proof)
     serialize(tx.kernel, serializer);
-    return;
-  }
-
-  // Version 1 (transparent): per-input ring signatures
-  size_t sigSize = tx.inputs.size();
-
-  // ignore base transaction
-  if (serializer.type() == ISerializer::INPUT && !(sigSize == 1 && tx.inputs[0].type() == typeid(BaseInput))) {
-    tx.signatures.resize(sigSize);
-  }
-
-  bool signaturesNotExpected = tx.signatures.empty();
-  if (!signaturesNotExpected && tx.inputs.size() != tx.signatures.size()) {
-    throw std::runtime_error("Serialization error: unexpected signatures size");
-  }
-
-  for (size_t i = 0; i < tx.inputs.size(); ++i) {
-    size_t signatureSize = getSignaturesCount(tx.inputs[i]);
-    if (signaturesNotExpected) {
-      if (signatureSize == 0) {
-        continue;
-      } else {
-        throw std::runtime_error("Serialization error: signatures are not expected");
-      }
-    }
-
-    if (serializer.type() == ISerializer::OUTPUT) {
-      if (signatureSize != tx.signatures[i].size()) {
-        throw std::runtime_error("Serialization error: unexpected signatures size");
-      }
-
-      for (Crypto::Signature& sig : tx.signatures[i]) {
-        serializePod(sig, "", serializer);
-      }
-
-    } else {
-      std::vector<Crypto::Signature> signatures(signatureSize);
-      for (Crypto::Signature& sig : signatures) {
-        serializePod(sig, "", serializer);
-      }
-
-      tx.signatures[i] = std::move(signatures);
-    }
   }
 }
 
