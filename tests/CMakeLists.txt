@@ -46,6 +46,11 @@ add_executable(CTBench bench_ct_validation.cpp)
 # and drop the CTFUZZER_STANDALONE define so LLVMFuzzerTestOneInput becomes the entrypoint.
 add_executable(CTFuzz fuzz_ct_serializer.cpp)
 target_compile_definitions(CTFuzz PRIVATE CTFUZZER_STANDALONE=1)
+add_executable(MixedV2Roundtrip test_mixed_v2_roundtrip.cpp)
+target_link_libraries(MixedV2Roundtrip CryptoNoteCore Serialization Crypto Common Logging ${Boost_LIBRARIES})
+if(MSVC)
+  target_link_libraries(MixedV2Roundtrip legacy_stdio_definitions.lib)
+endif()
 
 target_link_libraries(CoreTests TestGenerator Wallet CryptoNoteCore Serialization System Logging Common Crypto BlockchainExplorer ${Boost_LIBRARIES})
 target_link_libraries(IntegrationTests IntegrationTestLibrary Wallet NodeRpcProxy InProcessNode P2P Rpc Http Transfers Serialization System CryptoNoteCore Logging Common Crypto BlockchainExplorer gtest Mnemonics upnpc-static ${Boost_LIBRARIES})
