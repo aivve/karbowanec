@@ -533,6 +533,8 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
   // lives in Blockchain::checkConfidentialTransaction and the semantic
   // check in Core.cpp; this serializer enforces only the on-wire shape.
 
+  constexpr uint8_t kEmptySlot = 0xFF;
+
   auto n_bits_for = [](uint8_t n) -> size_t {
     // I_bits/A/B/z/za/zb length for a given header byte.
     return (n == 0) ? 0 : static_cast<size_t>(n);
@@ -545,9 +547,17 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
   if (dynamic_cast<JsonOutputStreamSerializer*>(&serializer) != nullptr) {
     // JSON: emit n explicitly, named arrays for the rest. The decoder
     // path uses the binary one; JSON is read-only by explorer / RPC.
-    uint8_t n_json = sig.I_bits.empty()
-        ? (sig.Q_P.empty() ? uint8_t(0) : uint8_t(0))
-        : static_cast<uint8_t>(sig.I_bits.size());
+    //   n = 0xFF → empty slot (matching tx.inputs[i] is a v2 KeyInput)
+    //   n = 0    → Schnorr branch (ring size 1, q_len=1, bits_len=0)
+    //   n ∈ {2,3,4} → full Triptych (ring size 4/8/16)
+    uint8_t n_json;
+    if (sig.I_bits.empty() && sig.Q_P.empty()) {
+      n_json = kEmptySlot;
+    } else if (sig.I_bits.empty()) {
+      n_json = 0;
+    } else {
+      n_json = static_cast<uint8_t>(sig.I_bits.size());
+    }
     serializer(n_json, "n");
 
     auto emitPointArray = [&](std::vector<Crypto::EllipticCurvePoint>& arr,
@@ -579,8 +589,6 @@ void serialize(CTInputSignature& sig, ISerializer& serializer) {
     serializePod(sig.f_U, "f_U", serializer);
     return;
   }
-
-  constexpr uint8_t kEmptySlot = 0xFF;
 
   uint8_t n = 0;
   if (serializer.type() == ISerializer::OUTPUT) {
