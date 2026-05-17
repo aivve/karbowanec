@@ -189,10 +189,29 @@ struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_request {
   }
 };
 
-#pragma pack(push, 1)
 struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry {
   uint64_t global_amount_index;
   Crypto::PublicKey out_key;
+  Crypto::EllipticCurvePoint commitment;
+  uint32_t block_height;
+  uint8_t is_coinbase;
+  uint8_t output_type;
+};
+
+// Wire-compatible legacy shape (40 bytes — must match pre-CT layout exactly,
+// or old wallets fail to deserialize the binary `outs` blob). Sent under the
+// original "outs" tag.
+#pragma pack(push, 1)
+struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry_wire_legacy {
+  uint64_t global_amount_index;
+  Crypto::PublicKey out_key;
+};
+
+// Wire-only CT metadata (38 bytes per entry, parallel-indexed with the
+// legacy array). Sent under the new "outs_extra" tag so pre-CT wallets
+// silently ignore it (KVBinaryInputStreamSerializer::binary returns false
+// on missing key, leaving the parsed vector empty).
+struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry_wire_extra {
   Crypto::EllipticCurvePoint commitment;
   uint32_t block_height;
   uint8_t is_coinbase;
@@ -215,9 +234,48 @@ struct COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_outs_for_amount {
   uint64_t amount;
   std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry> outs;
 
+  // Split the in-memory `outs` into two wire-binary arrays for backward
+  // compat. Pre-CT wallets only know the legacy `outs` tag (40-byte
+  // entries: global_idx + out_key) and ignore `outs_extra`. New wallets
+  // read both arrays in parallel and reassemble the full out_entry shape.
+  // When the peer is a pre-CT daemon, `outs_extra` is absent and the
+  // extras stay zero-initialized — callers must reconstruct the commitment
+  // from the resolved KeyOutput's amount in that case.
   void serialize(ISerializer &s) {
     KV_MEMBER(amount)
-    serializeAsBinary(outs, "outs", s);
+
+    std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry_wire_legacy> wireLegacy;
+    std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry_wire_extra>  wireExtra;
+
+    if (s.type() == ISerializer::OUTPUT) {
+      wireLegacy.resize(outs.size());
+      wireExtra.resize(outs.size());
+      for (size_t i = 0; i < outs.size(); ++i) {
+        wireLegacy[i].global_amount_index = outs[i].global_amount_index;
+        wireLegacy[i].out_key              = outs[i].out_key;
+        wireExtra[i].commitment            = outs[i].commitment;
+        wireExtra[i].block_height          = outs[i].block_height;
+        wireExtra[i].is_coinbase           = outs[i].is_coinbase;
+        wireExtra[i].output_type           = outs[i].output_type;
+      }
+    }
+
+    serializeAsBinary(wireLegacy, "outs",       s);
+    serializeAsBinary(wireExtra,  "outs_extra", s);
+
+    if (s.type() == ISerializer::INPUT) {
+      outs.assign(wireLegacy.size(), COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS_out_entry{});
+      for (size_t i = 0; i < wireLegacy.size(); ++i) {
+        outs[i].global_amount_index = wireLegacy[i].global_amount_index;
+        outs[i].out_key              = wireLegacy[i].out_key;
+        if (i < wireExtra.size()) {
+          outs[i].commitment   = wireExtra[i].commitment;
+          outs[i].block_height = wireExtra[i].block_height;
+          outs[i].is_coinbase  = wireExtra[i].is_coinbase;
+          outs[i].output_type  = wireExtra[i].output_type;
+        }
+      }
+    }
   }
 };
 
