@@ -436,8 +436,17 @@ void serialize(ConfidentialInput& input, ISerializer& serializer) {
     input.ringMembers.resize(ringSize);
   }
   for (size_t i = 0; i < ringSize; ++i) {
+    // Each element is a (amount, offset) struct with two differently-typed
+    // fields. The KV-binary array protocol pins one element type per array
+    // from the first write, so the only safe shape for heterogeneous
+    // elements is OBJECT — wrap each member in an explicit object scope.
+    // beginObject/endObject are no-ops on the binary stream serializer
+    // (LMDB / on-chain), so the wire bytes for the stored tx blob are
+    // unchanged; this only fixes KV-binary RPC round-trip.
+    serializer.beginObject("");
     serializer(input.ringMembers[i].amount, "amount");
     serializer(input.ringMembers[i].outputIndex, "offset");
+    serializer.endObject();
   }
   serializer.endArray();
 
