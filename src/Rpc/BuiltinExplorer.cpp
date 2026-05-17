@@ -795,63 +795,54 @@ bool BuiltinExplorer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRAN
     body += "</tbody>\n";
     body += "</table>\n";
 
-    // no signatures e.g. in coinbase
-    if (!transactionsDetails.signatures.empty()) {
-      body += "<h3>Signatures</h3>\n";
-
+    // Unified "Input signatures" section. Each input gets one entry whose
+    // body is either the legacy ring signature (v1 tx, or v2 KeyInput
+    // shielding) or the Triptych spend proof (v2 ConfidentialInput).
+    // An empty CTInputSignature slot (all vectors empty) marks a v2
+    // KeyInput; we fall back to tx.signatures[i] for that slot.
+    const auto& sigs   = transactionsDetails.signatures;
+    const auto& ctSigs = transactionsDetails.ctSignatures;
+    const size_t inputCount = std::max(sigs.size(), ctSigs.size());
+    if (inputCount > 0) {
+      body += "<h3>Input signatures</h3>\n";
       body += "<ol>\n";
-      for (const auto& s0 : transactionsDetails.signatures) {
-        body += "  <li>\n";
-        body += "    <ol>\n";
-        for (const auto& s1 : s0) {
-          body += "      <li class=\"wrap\">\n";
-          body += "    " + Common::podToHex(s1) + "\n";
-          body += "      </li>\n";
+
+      auto dumpPointArray =
+          [&](const std::vector<Crypto::EllipticCurvePoint>& arr, const char* label) {
+        body += "        <li>" + std::string(label) + "\n          <ol>\n";
+        for (const auto& p : arr) {
+          body += "            <li><span class=\"wrap\">" + Common::podToHex(p) + "</span></li>\n";
         }
-        body += "    </ol>\n";
-        body += "  </li>\n";
-      }
-      body += "</ol>\n";
-    }
+        body += "          </ol>\n        </li>\n";
+      };
+      auto dumpScalarArray =
+          [&](const std::vector<Crypto::EllipticCurveScalar>& arr, const char* label) {
+        body += "        <li>" + std::string(label) + "\n          <ol>\n";
+        for (const auto& s : arr) {
+          body += "            <li><span class=\"wrap\">" + Common::podToHex(s) + "</span></li>\n";
+        }
+        body += "          </ol>\n        </li>\n";
+      };
 
-    if (transactionsDetails.version == TRANSACTION_VERSION_CT) {
-      body += "<h3>CT kernel</h3>\n";
-      body += "<ul>\n";
-      body += "  <li>Excess commitment: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.excessCommitment) + "</span></li>\n";
-      body += "  <li>Signature e: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.sigE) + "</span></li>\n";
-      body += "  <li>Signature s: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.sigS) + "</span></li>\n";
-      body += "</ul>\n";
+      for (size_t i = 0; i < inputCount; ++i) {
+        const bool hasCt = i < ctSigs.size();
+        const bool ctSlotEmpty = hasCt
+            && ctSigs[i].I_bits.empty() && ctSigs[i].Q_P.empty()
+            && ctSigs[i].A.empty()      && ctSigs[i].B.empty();
+        const bool useTriptych = hasCt && !ctSlotEmpty;
 
-      if (!transactionsDetails.ctSignatures.empty()) {
-        body += "<h3>CT input signatures</h3>\n";
-        body += "<ol>\n";
-        for (size_t i = 0; i < transactionsDetails.ctSignatures.size(); ++i) {
-          const auto& signature = transactionsDetails.ctSignatures[i];
+        body += "  <li>\n";
+        body += "    <details open>\n";
+
+        if (useTriptych) {
+          const auto& signature = ctSigs[i];
           const size_t n = signature.I_bits.size();
-          const size_t ring_size = static_cast<size_t>(1) << n;
-          body += "  <li>\n";
-          body += "    <details open>\n";
-          body += "      <summary>Input " + std::to_string(i) + " Triptych spend proof"
-                  " (n=" + std::to_string(n) + ", ring size " + std::to_string(ring_size) + ")</summary>\n";
+          const size_t ring_size = (n == 0) ? 1 : (static_cast<size_t>(1) << n);
+          body += "      <summary>Input " + std::to_string(i) +
+                  " &mdash; Triptych spend proof"
+                  " (n=" + std::to_string(n) +
+                  ", ring size " + std::to_string(ring_size) + ")</summary>\n";
           body += "      <ul>\n";
-
-          auto dumpPointArray =
-              [&](const std::vector<Crypto::EllipticCurvePoint>& arr, const char* label) {
-            body += "        <li>" + std::string(label) + "\n          <ol>\n";
-            for (const auto& p : arr) {
-              body += "            <li><span class=\"wrap\">" + Common::podToHex(p) + "</span></li>\n";
-            }
-            body += "          </ol>\n        </li>\n";
-          };
-          auto dumpScalarArray =
-              [&](const std::vector<Crypto::EllipticCurveScalar>& arr, const char* label) {
-            body += "        <li>" + std::string(label) + "\n          <ol>\n";
-            for (const auto& s : arr) {
-              body += "            <li><span class=\"wrap\">" + Common::podToHex(s) + "</span></li>\n";
-            }
-            body += "          </ol>\n        </li>\n";
-          };
-
           dumpPointArray(signature.I_bits, "I_bits");
           dumpPointArray(signature.A,      "A");
           dumpPointArray(signature.B,      "B");
@@ -865,11 +856,37 @@ bool BuiltinExplorer::on_get_explorer_tx_by_hash(const COMMAND_EXPLORER_GET_TRAN
           body += "        <li>f_M: <span class=\"wrap\">" + Common::podToHex(signature.f_M) + "</span></li>\n";
           body += "        <li>f_U: <span class=\"wrap\">" + Common::podToHex(signature.f_U) + "</span></li>\n";
           body += "      </ul>\n";
-          body += "    </details>\n";
-          body += "  </li>\n";
+        } else {
+          // Legacy ring signature: v1 transparent input, or v2 KeyInput
+          // shielding into the CT pool (CT slot is empty, n=0xFF).
+          const bool isV2KeyInput = (transactionsDetails.version == TRANSACTION_VERSION_CT);
+          body += "      <summary>Input " + std::to_string(i) +
+                  " &mdash; " +
+                  (isV2KeyInput ? "transparent shielding (legacy ring signature)"
+                                : "legacy ring signature") +
+                  "</summary>\n";
+          body += "      <ol>\n";
+          if (i < sigs.size()) {
+            for (const auto& s1 : sigs[i]) {
+              body += "        <li class=\"wrap\">" + Common::podToHex(s1) + "</li>\n";
+            }
+          }
+          body += "      </ol>\n";
         }
-        body += "</ol>\n";
+
+        body += "    </details>\n";
+        body += "  </li>\n";
       }
+      body += "</ol>\n";
+    }
+
+    if (transactionsDetails.version == TRANSACTION_VERSION_CT) {
+      body += "<h3>CT kernel</h3>\n";
+      body += "<ul>\n";
+      body += "  <li>Excess commitment: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.excessCommitment) + "</span></li>\n";
+      body += "  <li>Signature e: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.sigE) + "</span></li>\n";
+      body += "  <li>Signature s: <span class=\"wrap\">" + Common::podToHex(transactionsDetails.kernel.sigS) + "</span></li>\n";
+      body += "</ul>\n";
 
       if (!transactionsDetails.ctProofs.empty()) {
         body += "<h3>CT output proofs</h3>\n";
