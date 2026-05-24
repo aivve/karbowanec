@@ -123,8 +123,8 @@ bool NetNodeConfig::init(const boost::program_options::variables_map& vm)
   }
 
   if (command_line::has_arg(vm, arg_p2p_seed_node)) {
-    if (!parsePeersAndAddToContainer(vm, arg_p2p_seed_node, seedNodes))
-      return false;
+    std::vector<std::string> seeds = command_line::get_arg(vm, arg_p2p_seed_node);
+    seedNodeStrings.insert(seedNodeStrings.end(), seeds.begin(), seeds.end());
   }
 
   if (command_line::has_arg(vm, arg_p2p_hide_my_port)) {
@@ -205,6 +205,10 @@ std::vector<NetworkAddress> NetNodeConfig::getSeedNodes() const {
   return seedNodes;
 }
 
+std::vector<std::string> NetNodeConfig::getSeedNodeStrings() const {
+  return seedNodeStrings;
+}
+
 std::vector<uint32_t> NetNodeConfig::getBanList() const {
   return banList;
 }
@@ -255,6 +259,10 @@ void NetNodeConfig::setExclusiveNodes(const std::vector<NetworkAddress>& address
 
 void NetNodeConfig::setSeedNodes(const std::vector<NetworkAddress>& addresses) {
   seedNodes = addresses;
+}
+
+void NetNodeConfig::setSeedNodeStrings(const std::vector<std::string>& addresses) {
+  seedNodeStrings = addresses;
 }
 
 void NetNodeConfig::setHideMyPort(bool hide) {

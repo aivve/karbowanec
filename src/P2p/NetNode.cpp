@@ -425,6 +425,13 @@ namespace CryptoNote
     auto seedNodes = config.getSeedNodes();
     std::copy(seedNodes.begin(), seedNodes.end(), std::back_inserter(m_seed_nodes));
 
+    auto seedNodeStrings = config.getSeedNodeStrings();
+    for (const auto& seed : seedNodeStrings) {
+      if (!append_net_address(m_seed_nodes, seed)) {
+        return false;
+      }
+    }
+
     m_hide_my_port = config.getHideMyPort();
 
     std::vector<uint32_t> ban_list = config.getBanList();
