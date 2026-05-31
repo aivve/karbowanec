@@ -608,6 +608,10 @@ bool ICoreStub::getblockEntry(uint32_t height, uint64_t& block_cumulative_size, 
   return false;
 }
 
+bool ICoreStub::getBlockStats(uint32_t startHeight, uint32_t endHeight, std::vector<CryptoNote::BlockStatsEntry>& stats) {
+  return false;
+}
+
 void ICoreStub::rollbackBlockchain(const uint32_t height) {
 }
 

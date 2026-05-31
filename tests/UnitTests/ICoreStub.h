@@ -114,6 +114,7 @@ public:
   virtual uint8_t getCurrentBlockMajorVersion() override;
   virtual size_t getAlternativeBlocksCount() override;
   virtual bool getblockEntry(uint32_t height, uint64_t& block_cumulative_size, CryptoNote::difficulty_type& difficulty, uint64_t& already_generated_coins, uint64_t& reward, uint64_t& transactions_count, uint64_t& timestamp) override;
+  virtual bool getBlockStats(uint32_t startHeight, uint32_t endHeight, std::vector<CryptoNote::BlockStatsEntry>& stats) override;
   virtual void rollbackBlockchain(const uint32_t height) override;
   virtual bool getBlockLongHash(Crypto::cn_context &context, const CryptoNote::Block& b, Crypto::Hash& res) override;
   virtual bool getMixin(const CryptoNote::Transaction& transaction, uint64_t& mixin) override;

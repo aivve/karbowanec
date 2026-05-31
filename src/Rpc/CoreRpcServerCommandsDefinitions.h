@@ -1376,28 +1376,6 @@ struct block_stats_entry {
   }
 };
 
-struct COMMAND_RPC_GET_STATS_BY_HEIGHTS {
-  struct request {
-    std::vector<uint32_t> heights;
-
-    void serialize(ISerializer& s) {
-      KV_MEMBER(heights);
-    }
-  };
-
-  struct response {
-    std::vector<block_stats_entry> stats;
-    double duration;
-    std::string status;
-
-    void serialize(ISerializer& s) {
-      KV_MEMBER(stats);
-      KV_MEMBER(duration);
-      KV_MEMBER(status);
-    }
-  };
-};
-
 struct COMMAND_RPC_GET_STATS_BY_HEIGHTS_RANGE {
   struct request {
     uint32_t start_height;

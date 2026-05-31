@@ -172,6 +172,10 @@ bool Core::getblockEntry(uint32_t height, uint64_t& block_cumulative_size, diffi
   return m_blockchain.getblockEntry(static_cast<size_t>(height), block_cumulative_size, difficulty, already_generated_coins, reward, transactions_count, timestamp);
 }
 
+bool Core::getBlockStats(uint32_t startHeight, uint32_t endHeight, std::vector<BlockStatsEntry>& stats) {
+  return m_blockchain.getBlockStats(startHeight, endHeight, stats);
+}
+
 std::time_t Core::getStartTime() const {
   return start_time;
 }

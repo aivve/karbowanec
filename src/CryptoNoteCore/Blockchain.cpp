@@ -3147,6 +3147,60 @@ bool Blockchain::getblockEntry(size_t i, uint64_t& block_cumulative_size,
   return true;
 }
 
+bool Blockchain::getBlockStats(uint32_t startHeight, uint32_t endHeight, std::vector<BlockStatsEntry>& stats) {
+  std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
+
+  const uint32_t chainHeight = m_db.getChainHeight();
+  if (startHeight > endHeight || endHeight >= chainHeight) {
+    logger(ERROR, BRIGHT_RED) << "wrong block range [" << startHeight << ", " << endHeight
+      << "] at Blockchain::getBlockStats(), blockchain height = " << chainHeight;
+    return false;
+  }
+
+  const uint32_t fromHeight = startHeight == 0 ? 0 : startHeight - 1;
+  std::vector<DbBlockMeta> metas;
+  if (!m_db.getBlockMetaRange(fromHeight, endHeight, metas)) {
+    logger(ERROR, BRIGHT_RED) << "failed to read block meta range [" << fromHeight << ", " << endHeight
+      << "] at Blockchain::getBlockStats()";
+    return false;
+  }
+
+  const size_t expectedMetas = static_cast<size_t>(endHeight) - fromHeight + 1;
+  if (metas.size() != expectedMetas) {
+    logger(ERROR, BRIGHT_RED) << "incomplete block meta range [" << fromHeight << ", " << endHeight
+      << "] at Blockchain::getBlockStats(): expected " << expectedMetas << ", got " << metas.size();
+    return false;
+  }
+
+  stats.clear();
+  stats.reserve(static_cast<size_t>(endHeight) - startHeight + 1);
+
+  for (uint32_t height = startHeight; height <= endHeight; ++height) {
+    const size_t metaIndex = static_cast<size_t>(height) - fromHeight;
+    const DbBlockMeta& meta = metas[metaIndex];
+
+    BlockStatsEntry entry{};
+    entry.height = height;
+    entry.blockSize = meta.blockCumulativeSize;
+    entry.alreadyGeneratedCoins = meta.alreadyGeneratedCoins;
+    entry.timestamp = meta.timestamp;
+    entry.transactionsCount = meta.txCount > 0 ? meta.txCount - 1 : 0;
+
+    if (height == 0) {
+      entry.difficulty = meta.cumulativeDifficulty;
+      entry.reward = meta.alreadyGeneratedCoins;
+    } else {
+      const DbBlockMeta& prevMeta = metas[metaIndex - 1];
+      entry.difficulty = meta.cumulativeDifficulty - prevMeta.cumulativeDifficulty;
+      entry.reward = meta.alreadyGeneratedCoins - prevMeta.alreadyGeneratedCoins;
+    }
+
+    stats.push_back(entry);
+  }
+
+  return true;
+}
+
 // ─── Transaction pool integration ────────────────────────────────────────────
 
 bool Blockchain::loadTransactions(const Block& block, std::vector<Transaction>& transactions) {
