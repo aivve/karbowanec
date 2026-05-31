@@ -31,6 +31,9 @@ public:
     ITransfersObserver& transfersObserver,
     Crypto::PublicKey& viewPublicKey,
     Crypto::SecretKey& viewSecretKey,
+    AddressGenerationMode& addressGenerationMode,
+    Crypto::SecretKey& deterministicSeed,
+    uint32_t& nextDeterministicIndex,
     uint64_t& actualBalance,
     uint64_t& pendingBalance,
     WalletsContainer& walletsContainer,
@@ -50,10 +53,14 @@ public:
   std::unordered_set<Crypto::PublicKey>& deletedKeys();
 
   static const uint8_t MIN_VERSION = 6;
-  static const uint8_t SERIALIZATION_VERSION = 6;
+  static const uint8_t SERIALIZATION_VERSION = 7;
 
 private:
-  void loadKeyListAndBalances(CryptoNote::ISerializer& serializer, bool saveCache);
+  void loadAddressGenerationState(CryptoNote::ISerializer& serializer, uint8_t version);
+  void saveAddressGenerationState(CryptoNote::ISerializer& serializer);
+  void normalizeAddressGenerationState();
+
+  void loadKeyListAndBalances(CryptoNote::ISerializer& serializer, bool saveCache, uint8_t version);
   void saveKeyListAndBalances(CryptoNote::ISerializer& serializer, bool saveCache);
     
   void loadTransactions(CryptoNote::ISerializer& serializer);
@@ -69,6 +76,9 @@ private:
   void saveUnlockTransactionsJobs(CryptoNote::ISerializer& serializer);
 
   ITransfersObserver& m_transfersObserver;
+  AddressGenerationMode& m_addressGenerationMode;
+  Crypto::SecretKey& m_deterministicSeed;
+  uint32_t& m_nextDeterministicIndex;
   uint64_t& m_actualBalance;
   uint64_t& m_pendingBalance;
   WalletsContainer& m_walletsContainer;

@@ -64,7 +64,11 @@ public:
   virtual KeyPair getAddressSpendKey(size_t index) const override;
   virtual KeyPair getAddressSpendKey(const std::string& address) const override;
   virtual KeyPair getViewKey() const override;
+  virtual AddressGenerationMode getAddressGenerationMode() const override;
+  virtual Crypto::SecretKey getDeterministicSeed() const override;
+  virtual void setAddressGenerationMode(AddressGenerationMode mode, const Crypto::SecretKey& deterministicSeed) override;
   virtual std::string createAddress() override;
+  virtual std::string createAddress(uint32_t scanHeight) override;
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, bool reset = true) override;
   virtual std::string createAddress(const Crypto::PublicKey& spendPublicKey, bool reset = true) override;
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, const uint64_t& creationTimestamp) override;
@@ -134,6 +138,7 @@ protected:
     Crypto::PublicKey spendPublicKey;
     Crypto::SecretKey spendSecretKey;
     uint64_t creationTimestamp;
+    uint32_t hdIndex = WALLET_INVALID_HD_INDEX;
   };
 
   void throwIfNotInitialized() const;
@@ -152,7 +157,9 @@ protected:
   static void incIv(Crypto::chacha8_iv& iv);
   void incNextIv();
   void initWithKeys(const std::string& path, const std::string& password, const Crypto::PublicKey& viewPublicKey, const Crypto::SecretKey& viewSecretKey, const uint64_t& _creationTimestamp);
-  std::string doCreateAddress(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp);
+  CryptoNote::KeyPair deriveHdSpendKey(uint32_t hdIndex) const;
+  NewAddressData createHdAddressData(uint64_t creationTimestamp);
+  std::string doCreateAddress(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp, uint32_t hdIndex = WALLET_INVALID_HD_INDEX);
   std::vector<std::string> doCreateAddressList(const std::vector<NewAddressData>& addressDataList);
 
   Crypto::SecretKey getTransactionDeterministicSecretKey(Crypto::Hash& transactionHash) const;
@@ -244,7 +251,7 @@ protected:
   const WalletRecord& getWalletRecord(CryptoNote::ITransfersContainer* container) const;
 
   CryptoNote::AccountPublicAddress parseAddress(const std::string& address) const;
-  std::string addWallet(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp);
+  std::string addWallet(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp, uint32_t hdIndex = WALLET_INVALID_HD_INDEX);
   AccountKeys makeAccountKeys(const WalletRecord& wallet) const;
   size_t getTransactionId(const Crypto::Hash& transactionHash) const;
   void pushEvent(const WalletEvent& event);
@@ -396,6 +403,9 @@ protected:
 
   Crypto::PublicKey m_viewPublicKey;
   Crypto::SecretKey m_viewSecretKey;
+  AddressGenerationMode m_addressGenerationMode;
+  Crypto::SecretKey m_deterministicSeed;
+  uint32_t m_nextDeterministicIndex;
 
   uint64_t m_actualBalance;
   uint64_t m_pendingBalance;

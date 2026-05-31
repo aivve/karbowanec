@@ -53,6 +53,11 @@ enum class WalletSaveLevel : uint8_t {
   SAVE_ALL
 };
 
+enum class AddressGenerationMode : uint8_t {
+  HD_DETERMINISTIC = 0,
+  INDEPENDENT_SPEND_KEYS = 1
+};
+
 struct WalletTransactionCreatedData {
   size_t transactionIndex;
 };
@@ -157,8 +162,12 @@ public:
   virtual KeyPair getAddressSpendKey(size_t index) const = 0;
   virtual KeyPair getAddressSpendKey(const std::string& address) const = 0;
   virtual KeyPair getViewKey() const = 0;
+  virtual AddressGenerationMode getAddressGenerationMode() const = 0;
+  virtual Crypto::SecretKey getDeterministicSeed() const = 0;
+  virtual void setAddressGenerationMode(AddressGenerationMode mode, const Crypto::SecretKey& deterministicSeed) = 0;
 
   virtual std::string createAddress() = 0;
+  virtual std::string createAddress(uint32_t scanHeight) = 0;
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, bool reset = true) = 0;
   virtual std::string createAddress(const Crypto::PublicKey& spendPublicKey, bool reset = true) = 0;
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, const uint64_t& creationTimestamp) = 0;

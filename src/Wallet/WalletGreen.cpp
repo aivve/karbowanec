@@ -29,6 +29,7 @@
 #include <set>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include <System/EventLock.h>
 #include <System/RemoteContext.h>
@@ -159,6 +160,9 @@ WalletGreen::WalletGreen(System::Dispatcher& dispatcher, const Currency& currenc
   m_eventOccurred(m_dispatcher),
   m_readyEvent(m_dispatcher),
   m_state(WalletState::NOT_INITIALIZED),
+  m_addressGenerationMode(AddressGenerationMode::INDEPENDENT_SPEND_KEYS),
+  m_deterministicSeed(NULL_SECRET_KEY),
+  m_nextDeterministicIndex(0),
   m_actualBalance(0),
   m_pendingBalance(0),
   m_transactionSoftLockTime(transactionSoftLockTime)
@@ -238,6 +242,9 @@ void WalletGreen::doShutdown() {
 
   m_containerStorage.close();
   m_walletsContainer.clear();
+  m_addressGenerationMode = AddressGenerationMode::INDEPENDENT_SPEND_KEYS;
+  m_deterministicSeed = NULL_SECRET_KEY;
+  m_nextDeterministicIndex = 0;
   clearCaches(true, true);
 
   std::queue<WalletEvent> noEvents;
@@ -608,6 +615,9 @@ void WalletGreen::loadWalletCache(std::unordered_set<Crypto::PublicKey>& addedKe
     *this,
     m_viewPublicKey,
     m_viewSecretKey,
+    m_addressGenerationMode,
+    m_deterministicSeed,
+    m_nextDeterministicIndex,
     m_actualBalance,
     m_pendingBalance,
     m_walletsContainer,
@@ -658,6 +668,9 @@ void WalletGreen::saveWalletCache(ContainerStorage& storage, const Crypto::chach
     *this,
     m_viewPublicKey,
     m_viewSecretKey,
+    m_addressGenerationMode,
+    m_deterministicSeed,
+    m_nextDeterministicIndex,
     m_actualBalance,
     m_pendingBalance,
     m_walletsContainer,
@@ -1015,12 +1028,138 @@ KeyPair WalletGreen::getViewKey() const {
   return {m_viewPublicKey, m_viewSecretKey};
 }
 
+AddressGenerationMode WalletGreen::getAddressGenerationMode() const {
+  throwIfNotInitialized();
+  throwIfStopped();
+
+  return m_addressGenerationMode;
+}
+
+Crypto::SecretKey WalletGreen::getDeterministicSeed() const {
+  throwIfNotInitialized();
+  throwIfStopped();
+
+  if (m_addressGenerationMode != AddressGenerationMode::HD_DETERMINISTIC || m_deterministicSeed == NULL_SECRET_KEY) {
+    m_logger(ERROR, BRIGHT_RED) << "Container does not have an HD deterministic seed";
+    throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+  }
+
+  return m_deterministicSeed;
+}
+
+void WalletGreen::setAddressGenerationMode(AddressGenerationMode mode, const Crypto::SecretKey& deterministicSeed) {
+  throwIfNotInitialized();
+  throwIfStopped();
+
+  if (!m_walletsContainer.get<RandomAccessIndex>().empty()) {
+    m_logger(ERROR, BRIGHT_RED) << "Address generation mode can only be set before addresses are added";
+    throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+  }
+
+  if (mode == AddressGenerationMode::HD_DETERMINISTIC) {
+    if (deterministicSeed == NULL_SECRET_KEY) {
+      m_logger(ERROR, BRIGHT_RED) << "HD deterministic mode requires a non-null seed";
+      throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+    }
+
+    Crypto::PublicKey spendPublicKey;
+    if (!Crypto::secret_key_to_public_key(deterministicSeed, spendPublicKey)) {
+      m_logger(ERROR, BRIGHT_RED) << "HD deterministic seed cannot be converted to a public spend key";
+      throw std::system_error(make_error_code(CryptoNote::error::KEY_GENERATION_ERROR));
+    }
+
+    Crypto::SecretKey deterministicViewSecretKey;
+    CryptoNote::AccountBase::generateViewFromSpend(deterministicSeed, deterministicViewSecretKey);
+    if (deterministicViewSecretKey != m_viewSecretKey) {
+      m_logger(ERROR, BRIGHT_RED) << "HD deterministic seed does not match the container view key";
+      throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+    }
+
+    m_addressGenerationMode = AddressGenerationMode::HD_DETERMINISTIC;
+    m_deterministicSeed = deterministicSeed;
+    m_nextDeterministicIndex = 0;
+    return;
+  }
+
+  if (mode == AddressGenerationMode::INDEPENDENT_SPEND_KEYS) {
+    m_addressGenerationMode = AddressGenerationMode::INDEPENDENT_SPEND_KEYS;
+    m_deterministicSeed = NULL_SECRET_KEY;
+    m_nextDeterministicIndex = 0;
+    return;
+  }
+
+  m_logger(ERROR, BRIGHT_RED) << "Unknown address generation mode";
+  throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+}
+
+CryptoNote::KeyPair WalletGreen::deriveHdSpendKey(uint32_t hdIndex) const {
+  if (m_addressGenerationMode != AddressGenerationMode::HD_DETERMINISTIC || m_deterministicSeed == NULL_SECRET_KEY ||
+      hdIndex == WALLET_INVALID_HD_INDEX) {
+    m_logger(ERROR, BRIGHT_RED) << "HD spend key derivation requested for an invalid wallet state or index";
+    throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+  }
+
+  KeyPair spendKey;
+  if (hdIndex == 0) {
+    spendKey.secretKey = m_deterministicSeed;
+  } else {
+    static const char domain[] = "Karbo walletd HD spend v1";
+    std::vector<uint8_t> derivationData;
+    derivationData.reserve(sizeof(domain) - 1 + sizeof(m_deterministicSeed.data) + sizeof(m_viewSecretKey.data) + sizeof(hdIndex));
+    const uint8_t* domainData = reinterpret_cast<const uint8_t*>(domain);
+    derivationData.insert(derivationData.end(), domainData, domainData + sizeof(domain) - 1);
+    derivationData.insert(derivationData.end(), m_deterministicSeed.data, m_deterministicSeed.data + sizeof(m_deterministicSeed.data));
+    derivationData.insert(derivationData.end(), m_viewSecretKey.data, m_viewSecretKey.data + sizeof(m_viewSecretKey.data));
+    derivationData.push_back(static_cast<uint8_t>(hdIndex));
+    derivationData.push_back(static_cast<uint8_t>(hdIndex >> 8));
+    derivationData.push_back(static_cast<uint8_t>(hdIndex >> 16));
+    derivationData.push_back(static_cast<uint8_t>(hdIndex >> 24));
+    Crypto::hash_to_scalar(derivationData.data(), derivationData.size(), spendKey.secretKey);
+  }
+
+  if (!Crypto::secret_key_to_public_key(spendKey.secretKey, spendKey.publicKey)) {
+    m_logger(ERROR, BRIGHT_RED) << "Failed to derive HD spend public key at index " << hdIndex;
+    throw std::system_error(make_error_code(CryptoNote::error::KEY_GENERATION_ERROR));
+  }
+
+  return spendKey;
+}
+
+WalletGreen::NewAddressData WalletGreen::createHdAddressData(uint64_t creationTimestamp) {
+  for (;;) {
+    if (m_nextDeterministicIndex == WALLET_INVALID_HD_INDEX) {
+      m_logger(ERROR, BRIGHT_RED) << "HD address index space is exhausted";
+      throw std::system_error(make_error_code(error::WRONG_PARAMETERS));
+    }
+
+    const uint32_t hdIndex = m_nextDeterministicIndex++;
+    KeyPair spendKey = deriveHdSpendKey(hdIndex);
+    if (m_walletsContainer.get<KeysIndex>().find(spendKey.publicKey) == m_walletsContainer.get<KeysIndex>().end()) {
+      return NewAddressData{ spendKey.publicKey, spendKey.secretKey, creationTimestamp, hdIndex };
+    }
+  }
+}
 
 std::string WalletGreen::createAddress() {
+  if (m_addressGenerationMode == AddressGenerationMode::HD_DETERMINISTIC) {
+    return doCreateAddressList({ createHdAddressData(static_cast<uint64_t>(time(nullptr))) }).front();
+  }
+
   KeyPair spendKey;
   Crypto::generate_keys(spendKey.publicKey, spendKey.secretKey);
   uint64_t creationTimestamp = static_cast<uint64_t>(time(nullptr));
 
+  return doCreateAddress(spendKey.publicKey, spendKey.secretKey, creationTimestamp);
+}
+
+std::string WalletGreen::createAddress(uint32_t scanHeight) {
+  const uint64_t creationTimestamp = scanHeightToTimestamp(scanHeight);
+  if (m_addressGenerationMode == AddressGenerationMode::HD_DETERMINISTIC) {
+    return doCreateAddressList({ createHdAddressData(creationTimestamp) }).front();
+  }
+
+  KeyPair spendKey;
+  Crypto::generate_keys(spendKey.publicKey, spendKey.secretKey);
   return doCreateAddress(spendKey.publicKey, spendKey.secretKey, creationTimestamp);
 }
 
@@ -1144,11 +1283,11 @@ std::vector<std::string> WalletGreen::createAddressList(const std::vector<Crypto
   return doCreateAddressList(addressDataList);
 }
 
-std::string WalletGreen::doCreateAddress(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp) {
+std::string WalletGreen::doCreateAddress(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp, uint32_t hdIndex) {
   assert(creationTimestamp <= std::numeric_limits<uint64_t>::max() - m_currency.blockFutureTimeLimit());
 
   std::vector<NewAddressData> addressDataList;
-  addressDataList.push_back(NewAddressData{ spendPublicKey, spendSecretKey, creationTimestamp });
+  addressDataList.push_back(NewAddressData{ spendPublicKey, spendSecretKey, creationTimestamp, hdIndex });
   std::vector<std::string> addresses = doCreateAddressList(addressDataList);
   assert(addresses.size() == 1);
 
@@ -1179,7 +1318,7 @@ std::vector<std::string> WalletGreen::doCreateAddressList(const std::vector<NewA
 
       for (auto& addressData : addressDataList) {
         assert(addressData.creationTimestamp <= std::numeric_limits<uint64_t>::max() - m_currency.blockFutureTimeLimit());
-        std::string address = addWallet(addressData.spendPublicKey, addressData.spendSecretKey, addressData.creationTimestamp);
+        std::string address = addWallet(addressData.spendPublicKey, addressData.spendSecretKey, addressData.creationTimestamp, addressData.hdIndex);
         m_logger(INFO, BRIGHT_WHITE) << "New wallet added " << address << ", creation timestamp " << addressData.creationTimestamp;
         addresses.push_back(std::move(address));
 
@@ -1206,7 +1345,7 @@ std::vector<std::string> WalletGreen::doCreateAddressList(const std::vector<NewA
   return addresses;
 }
 
-std::string WalletGreen::addWallet(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp) {
+std::string WalletGreen::addWallet(const Crypto::PublicKey& spendPublicKey, const Crypto::SecretKey& spendSecretKey, uint64_t creationTimestamp, uint32_t hdIndex) {
   auto& index = m_walletsContainer.get<KeysIndex>();
 
   auto trackingMode = getTrackingMode();
@@ -1246,6 +1385,7 @@ std::string WalletGreen::addWallet(const Crypto::PublicKey& spendPublicKey, cons
     wallet.spendSecretKey = spendSecretKey;
     wallet.container = container;
     wallet.creationTimestamp = static_cast<time_t>(creationTimestamp);
+    wallet.hdIndex = hdIndex;
     trSubscription.addObserver(this);
 
     index.insert(insertIt, std::move(wallet));

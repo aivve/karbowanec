@@ -66,6 +66,7 @@ struct Configuration {
   bool generateNewContainer;
   bool changePassword;
   bool generateDeterministic;
+  bool independentAddresses;
   bool daemonize;
   bool registerService;
   bool unregisterService;
@@ -75,6 +76,7 @@ struct Configuration {
   size_t logLevel;
 
   uint32_t scanHeight;
+  uint32_t restoreAddressCount;
 };
 
 } //namespace PaymentService

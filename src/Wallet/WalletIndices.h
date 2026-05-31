@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <limits>
 #include <map>
 #include <unordered_map>
 
@@ -36,6 +37,7 @@
 namespace CryptoNote {
 
 const uint64_t ACCOUNT_CREATE_TIME_ACCURACY = 60 * 60 * 24;
+const uint32_t WALLET_INVALID_HD_INDEX = std::numeric_limits<uint32_t>::max();
 
 struct WalletRecord {
   Crypto::PublicKey spendPublicKey;
@@ -44,6 +46,7 @@ struct WalletRecord {
   uint64_t pendingBalance = 0;
   uint64_t actualBalance = 0;
   time_t creationTimestamp;
+  uint32_t hdIndex = WALLET_INVALID_HD_INDEX;
 };
 
 #pragma pack(push, 1)
