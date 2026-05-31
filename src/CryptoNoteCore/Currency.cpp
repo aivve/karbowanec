@@ -607,6 +607,20 @@ namespace CryptoNote {
 
     const int64_t  T = static_cast<int64_t>(m_difficultyTarget);
     int64_t  N = difficultyBlocksCount3();
+
+    // Low-height / short-window guard. The LWMA loop below indexes
+    // timestamps[1..N], so N must not exceed the history actually supplied. On
+    // mainnet the full window is always present (N unchanged); at low testnet
+    // heights fewer blocks exist, and without this clamp the loop reads past the
+    // vector — yielding a garbage (huge) difficulty that no test block can meet.
+    // Mirrors the equivalent clamps in nextDifficultyV3 / nextDifficultyV5.
+    if (static_cast<int64_t>(timestamps.size()) - 1 < N) {
+      N = static_cast<int64_t>(timestamps.size()) - 1;
+    }
+    if (N < 1) {
+      return 1;
+    }
+
     int64_t  L(0), ST, sum_3_ST(0);
     uint64_t next_D, prev_D;
 
