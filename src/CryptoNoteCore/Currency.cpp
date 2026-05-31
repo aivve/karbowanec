@@ -582,13 +582,17 @@ namespace CryptoNote {
     harmonic_mean_D = N / sum_inverse_D * adjust;
     nextDifficulty = harmonic_mean_D * T / LWMA;
     next_difficulty = static_cast<uint64_t>(nextDifficulty);
-    
+
     // minimum limit
     if (!isTestnet() && next_difficulty < 100000) {
       next_difficulty = 100000;
     }
 
-    return next_difficulty;
+    // Never return 0. On testnet the 100000 floor above is skipped, and the
+    // static_cast<uint64_t> of a sub-1.0 LWMA result can truncate to 0 in the
+    // difficulty-1 regime of a fresh chain — which trips Blockchain's
+    // "difficulty overhead" reject. Mainnet is unaffected (already >= 100000).
+    return std::max<difficulty_type>(1, next_difficulty);
   }
 
   template <typename T>
@@ -665,7 +669,12 @@ namespace CryptoNote {
       next_D = 100000;
     }
 
-    return next_D;
+    // Never return 0. On testnet the 100000 floor above is skipped, and the
+    // clamp lower bound (prev_D*67/100) integer-underflows to 0 for small
+    // prev_D (e.g. the difficulty-1 regime of a fresh test chain), so next_D
+    // can land on 0 — which trips Blockchain's "difficulty overhead" reject.
+    // Mainnet is unaffected (already >= 100000). Mirrors nextDifficultyV5.
+    return std::max<difficulty_type>(1, next_D);
   }
 
   difficulty_type Currency::nextDifficultyV5(uint32_t height, uint8_t blockMajorVersion,
