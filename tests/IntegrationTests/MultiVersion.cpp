@@ -56,7 +56,7 @@ public:
     stashAddress.generate();
     auto stashAddressStr = m_currency.accountAddressAsString(stashAddress);
 
-    unlockMoney(stashAddressStr);
+    unlockMoney(stashAddress.getAccountKeys());
 
     std::vector<uint64_t> balances;
     for (auto& o : m_observers) {
@@ -91,7 +91,7 @@ public:
       }
     }
 
-    nodeDaemons[0]->startMining(1, stashAddressStr);
+    nodeDaemons[0]->startMining(1, stashAddress.getAccountKeys());
 
     for (size_t i = 0; i < m_nodeCount; ++i) {
       uint64_t total;
@@ -121,7 +121,7 @@ public:
         }
 
         logger(INFO) << "Starting mining at height " << prevHeight;
-        nodeDaemons[i]->startMining(1, m_wallets[shift]->getAddress());
+        nodeDaemons[i]->startMining(1, Tests::accountKeysFromWallet(*m_wallets[shift]));
 
         uint64_t newHeight = 0;
 
@@ -145,11 +145,11 @@ public:
     }
   }
 
-  void unlockMoney(const std::string& miningAddress) {
+  void unlockMoney(const CryptoNote::AccountKeys& minerKeys) {
     logger(INFO, BRIGHT_YELLOW) << "Starting to mine blocks to unlock money";
 
     // unlock money
-    nodeDaemons[0]->startMining(1, miningAddress);
+    nodeDaemons[0]->startMining(1, minerKeys);
     for (auto& o : m_observers) {
       o->waitActualBalanceChange();
     }
@@ -211,7 +211,7 @@ public:
 
   void startShiftedMining(size_t shift) {
     for (size_t i = 0; i < m_nodeCount; ++i) {
-      nodeDaemons[i]->startMining(1, m_wallets[(i + shift) % m_nodeCount]->getAddress());
+      nodeDaemons[i]->startMining(1, Tests::accountKeysFromWallet(*m_wallets[(i + shift) % m_nodeCount]));
     }
   }
 

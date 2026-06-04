@@ -151,7 +151,7 @@ namespace Tests {
       void stopNode(size_t index);
 
       bool makeWallet(std::unique_ptr<CryptoNote::IWalletLegacy> & wallet, std::unique_ptr<CryptoNote::INode>& node, const std::string& password = "pass");
-      bool mineBlocks(TestNode& node, const CryptoNote::AccountPublicAddress& address, size_t blockCount);
+      bool mineBlocks(TestNode& node, const CryptoNote::AccountKeys& minerKeys, size_t blockCount);
       bool mineBlock(std::unique_ptr<CryptoNote::IWalletLegacy>& wallet);
       bool mineBlock();
       bool startMining(size_t threads);

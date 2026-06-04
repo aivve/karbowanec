@@ -46,9 +46,13 @@ gen_upgrade::gen_upgrade() : m_invalidBlockIndex(0), m_checkBlockTemplateVersion
     m_coinsInCirculationBeforeUpgrade(0), m_coinsInCirculationAfterUpgrade(0) {
   CryptoNote::CurrencyBuilder currencyBuilder(m_logger);
   currencyBuilder.maxBlockSizeInitial(std::numeric_limits<size_t>::max() / 2);
+  currencyBuilder.testnet(true);
   currencyBuilder.upgradeHeightV2(UpgradeDetectorBase::UNDEF_HEIGHT);
-  // Disable voting and never upgrade to v.3.0
+  // Disable voting and never upgrade past v.2.0 in this synthetic test.
   currencyBuilder.upgradeHeightV3(CryptoNote::parameters::CRYPTONOTE_MAX_BLOCK_NUMBER);
+  currencyBuilder.upgradeHeightV4(CryptoNote::parameters::CRYPTONOTE_MAX_BLOCK_NUMBER);
+  currencyBuilder.upgradeHeightV5(CryptoNote::parameters::CRYPTONOTE_MAX_BLOCK_NUMBER);
+  currencyBuilder.upgradeHeightV6(CryptoNote::parameters::CRYPTONOTE_MAX_BLOCK_NUMBER);
   m_currency = currencyBuilder.currency();
 
   REGISTER_CALLBACK_METHOD(gen_upgrade, markInvalidBlock);
@@ -133,7 +137,7 @@ bool gen_upgrade::checkBeforeUpgrade(std::vector<test_event_entry>& events, test
   // Checking 1: get_block_templare returns block with major version 1
   DO_CALLBACK(events, "checkBlockTemplateVersionIsV1");
 
-  // Checking 2: penalty doesn't apply to transactions fee
+  // Checking 2: maximum-size blocks burn the transaction fee under current fee penalty rules
   if (checkReward) {
     // Add block to the blockchain, later it become an alternative
     DO_CALLBACK(events, "rememberCoinsInCirculationBeforeUpgrade");
@@ -227,9 +231,9 @@ bool gen_upgrade::checkBlockRewardEqFee(CryptoNote::core& c, size_t evIndex, con
 
   Block blk = boost::get<Block>(events[evIndex - 1]);
   uint64_t blockReward = get_outs_money_amount(blk.baseTransaction);
-  CHECK_EQ(blockReward, m_currency.minimumFee());
+  CHECK_EQ(blockReward, 0);
 
-  CHECK_EQ(m_coinsInCirculationBeforeUpgrade, c.getTotalGeneratedAmount());
+  CHECK_EQ(m_coinsInCirculationBeforeUpgrade - m_currency.minimumFee(), c.getTotalGeneratedAmount());
 
   return true;
 }

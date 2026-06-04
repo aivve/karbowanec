@@ -29,6 +29,7 @@ public:
     assert(blockMajorVersion == CryptoNote::BLOCK_MAJOR_VERSION_1 || blockMajorVersion == CryptoNote::BLOCK_MAJOR_VERSION_2);
 
     CryptoNote::CurrencyBuilder currencyBuilder(m_logger);
+    currencyBuilder.testnet(true);
     currencyBuilder.upgradeHeightV2(blockMajorVersion == CryptoNote::BLOCK_MAJOR_VERSION_1 ? UNDEF_HEIGHT : UINT64_C(0));
     m_currency = currencyBuilder.currency();
 
@@ -72,6 +73,7 @@ struct CheckBlockAccepted : public test_chain_unit_base {
     assert(blockMajorVersion == CryptoNote::BLOCK_MAJOR_VERSION_1 || blockMajorVersion == CryptoNote::BLOCK_MAJOR_VERSION_2);
 
     CryptoNote::CurrencyBuilder currencyBuilder(m_logger);
+    currencyBuilder.testnet(true);
     currencyBuilder.upgradeHeightV2(blockMajorVersion == CryptoNote::BLOCK_MAJOR_VERSION_1 ? UNDEF_HEIGHT : UINT64_C(0));
     m_currency = currencyBuilder.currency();
 

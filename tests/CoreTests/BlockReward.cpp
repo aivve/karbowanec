@@ -164,7 +164,7 @@ bool gen_block_reward::check_block_verification_context(const CryptoNote::block_
   if (m_invalid_block_index == event_idx)
   {
     m_invalid_block_index = 0;
-    return bvc.m_verification_failed;
+    return bvc.m_verification_failed || bvc.m_marked_as_orphaned;
   }
   else
   {
@@ -210,7 +210,7 @@ bool gen_block_reward::check_block_rewards(CryptoNote::core& /*c*/, size_t /*ev_
   CHECK_EQ(blk_rewards[6] + (5 + 7) * m_currency.minimumFee(), get_tx_out_amount(blk_n2.baseTransaction));
 
   Block blk_n3 = boost::get<Block>(events[m_checked_blocks_indices[7]]);
-  CHECK_EQ((11 + 13) * m_currency.minimumFee(), get_tx_out_amount(blk_n3.baseTransaction));
+  CHECK_EQ(0, get_tx_out_amount(blk_n3.baseTransaction));
 
   return true;
 }

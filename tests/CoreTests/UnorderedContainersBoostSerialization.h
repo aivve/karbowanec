@@ -111,32 +111,6 @@ namespace boost
       }
     }
 
-    template <class Archive, class hval>
-    inline void save(Archive &a, const ::google::sparse_hash_set<hval> &x, const boost::serialization::version_type ver)
-    {
-      size_t s = x.size();
-      a << s;
-      BOOST_FOREACH(auto& v, x)
-      {
-        a << v;
-      }
-    }
-
-    template <class Archive, class hval>
-    inline void load(Archive &a, ::google::sparse_hash_set<hval> &x, const boost::serialization::version_type ver)
-    {
-      x.clear();
-      size_t s = 0;
-      a >> s;
-      x.resize(s);
-      for(size_t i = 0; i != s; i++)
-      {
-        hval v;
-        a >> v;
-        x.insert(v);
-      }
-    }
-
     template <class Archive, class h_key, class hval, class hfunc>
     inline void serialize(Archive &a, std::unordered_map<h_key, hval, hfunc> &x, const boost::serialization::version_type ver)
     {

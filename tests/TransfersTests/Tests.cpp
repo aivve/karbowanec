@@ -75,7 +75,7 @@ public:
     m_transactions.erase(it, m_transactions.end());
   }
 
-  virtual bool onNewBlocks(const CompleteBlock* blocks, uint32_t startHeight, uint32_t count) override {
+  virtual uint32_t onNewBlocks(const CompleteBlock* blocks, uint32_t startHeight, uint32_t count) override {
     std::lock_guard<std::mutex> lk(m_mutex);
     for(size_t i = 0; i < count; ++i) {
       for (const auto& tx : blocks[i].transactions) {
@@ -83,7 +83,7 @@ public:
       }
     }
     m_cv.notify_all();
-    return true;
+    return count;
   }
 
   bool waitForTransaction(const Hash& txHash) {
@@ -326,8 +326,8 @@ TEST_F(TransfersTest, base) {
   Tests::Common::TestWalletLegacy wallet1(m_dispatcher, m_currency, *node1);
   ASSERT_FALSE(static_cast<bool>(wallet1.init()));
   wallet1.wallet()->addObserver(&walletObserver);
-  ASSERT_TRUE(mineBlocks(*nodeDaemons[0], wallet1.address(), 1));
-  ASSERT_TRUE(mineBlocks(*nodeDaemons[0], wallet1.address(), currency.minedMoneyUnlockWindow()));
+  ASSERT_TRUE(mineBlocks(*nodeDaemons[0], wallet1.accountKeys(), 1));
+  ASSERT_TRUE(mineBlocks(*nodeDaemons[0], wallet1.accountKeys(), currency.minedMoneyUnlockWindow()));
   wallet1.waitForSynchronizationToHeight(static_cast<uint32_t>(2 + currency.minedMoneyUnlockWindow()));
 
   // start syncing and wait for a transfer
@@ -337,7 +337,7 @@ TEST_F(TransfersTest, base) {
 
   Hash txId;
   ASSERT_FALSE(static_cast<bool>(wallet1.sendTransaction(currency.accountAddressAsString(dstAcc), TRANSFER_AMOUNT, txId)));
-  ASSERT_TRUE(mineBlocks(*nodeDaemons[0], wallet1.address(), 1));
+  ASSERT_TRUE(mineBlocks(*nodeDaemons[0], wallet1.accountKeys(), 1));
 
   ASSERT_TRUE(waitFuture.get());
   transferObserverInterrupter.cancel();

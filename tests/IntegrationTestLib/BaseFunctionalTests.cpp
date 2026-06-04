@@ -307,12 +307,12 @@ namespace {
   };
 }
 
-bool BaseFunctionalTests::mineBlocks(TestNode& node, const CryptoNote::AccountPublicAddress& address, size_t blockCount) {
+bool BaseFunctionalTests::mineBlocks(TestNode& node, const CryptoNote::AccountKeys& minerKeys, size_t blockCount) {
   for (size_t i = 0; i < blockCount; ++i) {
     Block blockTemplate;
     uint64_t difficulty;
 
-    if (!node.getBlockTemplate(m_currency.accountAddressAsString(address), blockTemplate, difficulty)) {
+    if (!node.getBlockTemplate(minerKeys, blockTemplate, difficulty)) {
       return false;
     }
 
@@ -362,7 +362,9 @@ bool BaseFunctionalTests::mineBlock(std::unique_ptr<CryptoNote::IWalletLegacy> &
   Semaphore gotReward;
   WaitForCoinBaseObserver cbo(gotReward, *wallet.get());
   wallet->addObserver(&cbo);
-  if (!nodeDaemons.front()->startMining(1, wallet->getAddress()))
+  CryptoNote::AccountKeys minerKeys;
+  wallet->getAccountKeys(minerKeys);
+  if (!nodeDaemons.front()->startMining(1, minerKeys))
     return false;
   gotReward.wait();
   if (!nodeDaemons.front()->stopMining())
@@ -378,7 +380,9 @@ bool BaseFunctionalTests::mineBlock() {
 bool BaseFunctionalTests::startMining(size_t threads) {
   if (nodeDaemons.empty() || !workingWallet) return false;
   if(!stopMining()) return false;
-  return nodeDaemons.front()->startMining(threads, workingWallet->getAddress());
+  CryptoNote::AccountKeys minerKeys;
+  workingWallet->getAccountKeys(minerKeys);
+  return nodeDaemons.front()->startMining(threads, minerKeys);
 }
 
 bool BaseFunctionalTests::stopMining() {

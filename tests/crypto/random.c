@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with Karbo.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "crypto/random.c"
-
 #include "crypto-tests.h"
 
 void setup_random(void) {
-    memset(&state, 42, sizeof(union hash_state));
+  // The old deterministic crypto/random.c PRNG was removed; current random
+  // bytes come from Random::randomBytes and are intentionally not seedable.
 }
