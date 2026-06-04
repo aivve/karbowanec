@@ -133,7 +133,10 @@ WalletConfiguration PaymentGateService::getWalletConfig() const {
     config.gateConfiguration.secretViewKey,
     config.gateConfiguration.secretSpendKey,
     config.gateConfiguration.mnemonicSeed,
-    config.gateConfiguration.generateDeterministic
+    config.gateConfiguration.generateDeterministic,
+    config.gateConfiguration.scanHeight,
+    config.gateConfiguration.independentAddresses,
+    config.gateConfiguration.restoreAddressCount
   };
 }
 

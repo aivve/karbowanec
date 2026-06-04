@@ -335,11 +335,42 @@ void generateNewWallet(const CryptoNote::Currency& currency, const WalletConfigu
   std::unique_ptr<CryptoNote::IWallet> walletGuard(wallet);
 
   std::string address;
+  const uint32_t restoreAddressCount = conf.restoreAddressCount == 0 ? 1 : conf.restoreAddressCount;
+
+  auto initializeWithViewKey = [&wallet, &conf](const Crypto::SecretKey& privateViewKey) {
+    if (conf.scanHeight != 0) {
+      wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, privateViewKey, conf.scanHeight);
+    } else {
+      wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, privateViewKey);
+    }
+  };
+
+  auto createDefaultAddress = [&wallet, &conf]() {
+    return conf.scanHeight != 0 ? wallet->createAddress(conf.scanHeight) : wallet->createAddress();
+  };
+
+  auto createHdAddressBatch = [&wallet, &conf, restoreAddressCount]() {
+    std::string firstAddress;
+    for (uint32_t i = 0; i < restoreAddressCount; ++i) {
+      std::string generatedAddress = conf.scanHeight != 0 ? wallet->createAddress(conf.scanHeight) : wallet->createAddress();
+      if (i == 0) {
+        firstAddress = generatedAddress;
+      }
+    }
+
+    return firstAddress;
+  };
 
   if (conf.secretSpendKey.empty() && conf.secretViewKey.empty() && conf.mnemonicSeed.empty())
   {
-    if (conf.generateDeterministic) {
-      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Generating new deterministic wallet";
+    if (conf.independentAddresses) {
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Generating new independent-address wallet";
+      wallet->initialize(conf.walletFile, conf.walletPassword);
+      wallet->setAddressGenerationMode(AddressGenerationMode::INDEPENDENT_SPEND_KEYS, NULL_SECRET_KEY);
+      address = createDefaultAddress();
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "New independent-address wallet is generated. Address: " << address;
+    } else {
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Generating new HD deterministic wallet";
 
       Crypto::SecretKey private_view_key;
       CryptoNote::KeyPair spendKey;
@@ -347,20 +378,16 @@ void generateNewWallet(const CryptoNote::Currency& currency, const WalletConfigu
       Crypto::generate_keys(spendKey.publicKey, spendKey.secretKey);
       CryptoNote::AccountBase::generateViewFromSpend(spendKey.secretKey, private_view_key);
 
-      wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, private_view_key);
-      address = wallet->createAddress(spendKey.secretKey);
+      initializeWithViewKey(private_view_key);
+      wallet->setAddressGenerationMode(AddressGenerationMode::HD_DETERMINISTIC, spendKey.secretKey);
+      address = createHdAddressBatch();
 
-      log(Logging::INFO, Logging::BRIGHT_WHITE) << "New deterministic wallet is generated. Address: " << address;
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "New HD wallet is generated. First address: " << address
+        << ", address count: " << restoreAddressCount;
     }
-    else {
-      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Generating new non-deterministic wallet";
-      wallet->initialize(conf.walletFile, conf.walletPassword);
-      address = wallet->createAddress();
-      log(Logging::INFO, Logging::BRIGHT_WHITE) << "New non-deterministic wallet is generated. Address: " << address;
-    }
-  } 
+  }
   else if (!conf.mnemonicSeed.empty()) {
-      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Importing wallet from mnemonic seed";
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Importing HD wallet from mnemonic seed";
 
       Crypto::SecretKey private_spend_key;
       Crypto::SecretKey private_view_key;
@@ -374,14 +401,11 @@ void generateNewWallet(const CryptoNote::Currency& currency, const WalletConfigu
 
       CryptoNote::AccountBase::generateViewFromSpend(private_spend_key, private_view_key);
 
-      if (conf.scanHeight != 0) {
-        wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, private_view_key, conf.scanHeight);
-      }
-      else {
-        wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, private_view_key);
-      }
-      address = wallet->createAddress(private_spend_key);
-      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Imported wallet successfully.";
+      initializeWithViewKey(private_view_key);
+      wallet->setAddressGenerationMode(AddressGenerationMode::HD_DETERMINISTIC, private_spend_key);
+      address = createHdAddressBatch();
+      log(Logging::INFO, Logging::BRIGHT_WHITE) << "Imported HD wallet successfully. First address: " << address
+        << ", address count: " << restoreAddressCount;
   }
   else {
     if ((!conf.secretViewKey.empty() && conf.secretSpendKey.empty())
@@ -404,13 +428,9 @@ void generateNewWallet(const CryptoNote::Currency& currency, const WalletConfigu
       Crypto::SecretKey private_spend_key = *(struct Crypto::SecretKey *) &private_spend_key_hash;
       Crypto::SecretKey private_view_key = *(struct Crypto::SecretKey *) &private_view_key_hash;
 
-      if (conf.scanHeight != 0) {
-        wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, private_view_key, conf.scanHeight);
-      }
-      else {
-        wallet->initializeWithViewKey(conf.walletFile, conf.walletPassword, private_view_key);
-      }
-      address = wallet->createAddress(private_spend_key);
+      initializeWithViewKey(private_view_key);
+      wallet->setAddressGenerationMode(AddressGenerationMode::INDEPENDENT_SPEND_KEYS, NULL_SECRET_KEY);
+      address = conf.scanHeight != 0 ? wallet->createAddress(private_spend_key, conf.scanHeight) : wallet->createAddress(private_spend_key);
       log(Logging::INFO, Logging::BRIGHT_WHITE) << "Wallet imported successfully.";
     }
   }
@@ -945,6 +965,12 @@ std::error_code WalletService::getViewKey(std::string& viewSecretKey) {
 std::error_code WalletService::getMnemonicSeed(const std::string& address, std::string& mnemonicSeed) {
   try {
     System::EventLock lk(readyEvent);
+
+    if (wallet.getAddressGenerationMode() == AddressGenerationMode::HD_DETERMINISTIC) {
+      Crypto::ElectrumWords::bytes_to_words(wallet.getDeterministicSeed(), mnemonicSeed, "English");
+      return std::error_code();
+    }
+
     CryptoNote::KeyPair key = wallet.getAddressSpendKey(address);
     CryptoNote::KeyPair viewKey = wallet.getViewKey();
 

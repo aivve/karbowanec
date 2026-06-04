@@ -72,7 +72,11 @@ struct IWalletBaseStub : public CryptoNote::IWallet {
   virtual KeyPair getAddressSpendKey(size_t index) const override { return KeyPair(); }
   virtual KeyPair getAddressSpendKey(const std::string& address) const override { return KeyPair(); }
   virtual KeyPair getViewKey() const override { return KeyPair(); }
+  virtual AddressGenerationMode getAddressGenerationMode() const override { return AddressGenerationMode::INDEPENDENT_SPEND_KEYS; }
+  virtual Crypto::SecretKey getDeterministicSeed() const override { return Crypto::SecretKey(); }
+  virtual void setAddressGenerationMode(AddressGenerationMode mode, const Crypto::SecretKey& deterministicSeed) override { }
   virtual std::string createAddress() override { return ""; }
+  virtual std::string createAddress(uint32_t scanHeight) override { return ""; }
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, bool reset) override { return ""; }
   virtual std::string createAddress(const Crypto::PublicKey& spendPublicKey, bool reset) override { return ""; }
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, const uint64_t& creationTimestamp) override { return ""; }
@@ -205,6 +209,7 @@ struct WalletCreateAddressStub: public IWalletBaseStub {
   WalletCreateAddressStub(System::Dispatcher& d) : IWalletBaseStub(d) {}
 
   virtual std::string createAddress() override { return address; }
+  virtual std::string createAddress(uint32_t scanHeight) override { return address; }
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, bool reset) override { return address; }
   virtual std::string createAddress(const Crypto::PublicKey& spendPublicKey, bool reset) override { return address; }
   virtual std::string createAddress(const Crypto::SecretKey& spendSecretKey, const uint32_t scanHeight) override { return address; }

@@ -35,6 +35,7 @@ namespace PaymentService {
 Configuration::Configuration() {
   generateNewContainer = false;
   generateDeterministic = false;
+  independentAddresses = false;
   daemonize = false;
   registerService = false;
   unregisterService = false;
@@ -57,6 +58,7 @@ Configuration::Configuration() {
   m_chain_file = "";
   m_key_file = "";
   scanHeight = 0;
+  restoreAddressCount = 1;
 }
 
 void Configuration::initOptions(po::options_description& desc) {
@@ -77,6 +79,8 @@ void Configuration::initOptions(po::options_description& desc) {
       ("spend-key", po::value<std::string>(), "generate a container with this secret spend key")
       ("mnemonic-seed", po::value<std::string>(), "generate a container with this mnemonic seed")
       ("deterministic", "generate a container with deterministic keys. View key is generated from spend key of the first address")
+      ("independent-addresses", "generate a container whose new addresses use independent random spend keys instead of HD-derived spend keys")
+      ("restore-address-count", po::value<uint32_t>(), "number of HD-derived addresses to create when generating or restoring an HD container")
       ("daemon,d", "run as daemon in Unix or as service in Windows")
 #ifdef _WIN32
       ("register-service", "register service and exit (Windows only)")
@@ -183,6 +187,25 @@ void Configuration::init(const po::variables_map& options) {
     generateDeterministic = true;
   }
 
+  if (options.count("independent-addresses") != 0) {
+    if (!generateNewContainer) {
+      throw ConfigurationError("generate-container parameter is required");
+    }
+
+    independentAddresses = true;
+  }
+
+  if (options.count("restore-address-count") != 0) {
+    if (!generateNewContainer) {
+      throw ConfigurationError("generate-container parameter is required");
+    }
+
+    restoreAddressCount = options["restore-address-count"].as<uint32_t>();
+    if (restoreAddressCount == 0) {
+      throw ConfigurationError("restore-address-count must be greater than zero");
+    }
+  }
+
   if (options.count("view-key") != 0) {
     if (!generateNewContainer) {
       throw ConfigurationError("generate-container parameter is required");
@@ -205,6 +228,22 @@ void Configuration::init(const po::variables_map& options) {
       throw ConfigurationError("Cannot specify import via both mnemonic seed and private keys");
     }
     mnemonicSeed = options["mnemonic-seed"].as<std::string>();
+  }
+
+  if (independentAddresses && !mnemonicSeed.empty()) {
+    throw ConfigurationError("Cannot specify both --independent-addresses and --mnemonic-seed");
+  }
+
+  if (independentAddresses && generateDeterministic) {
+    throw ConfigurationError("Cannot specify both --independent-addresses and --deterministic");
+  }
+
+  if (independentAddresses && options.count("restore-address-count") != 0) {
+    throw ConfigurationError("Cannot specify both --independent-addresses and --restore-address-count");
+  }
+
+  if (options.count("restore-address-count") != 0 && (!secretSpendKey.empty() || !secretViewKey.empty())) {
+    throw ConfigurationError("restore-address-count can only be used with HD generated containers or mnemonic restores");
   }
 
   if (options.count("address") != 0) {

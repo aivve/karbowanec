@@ -47,8 +47,10 @@ struct WalletConfiguration {
   std::string secretViewKey;
   std::string secretSpendKey;
   std::string mnemonicSeed;
-  bool generateDeterministic;
-  uint32_t scanHeight;
+  bool generateDeterministic = false;
+  uint32_t scanHeight = 0;
+  bool independentAddresses = false;
+  uint32_t restoreAddressCount = 1;
 };
 
 void generateNewWallet(const CryptoNote::Currency& currency, const WalletConfiguration& conf, Logging::ILogger& logger, System::Dispatcher& dispatcher, CryptoNote::INode& node);
