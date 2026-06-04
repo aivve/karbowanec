@@ -3525,7 +3525,8 @@ TEST_F(WalletApi, transferFailsIfWalletHasManyAddressesSourceAddressesNotSetAndN
 }
 
 TEST_F(WalletApi, transferSendsChangeToSingleSpecifiedSourceAddress) {
-  const uint64_t MONEY = SENT + FEE + 1;
+  const uint64_t CHANGE = SENT;
+  const uint64_t MONEY = SENT + FEE + CHANGE;
 
   alice.createAddress();
 
@@ -3538,10 +3539,11 @@ TEST_F(WalletApi, transferSendsChangeToSingleSpecifiedSourceAddress) {
   params.sourceAddresses = {alice.getAddress(1)};
 
   alice.transfer(params);
-  waitForActualBalance(alice, 0);
+  waitPendingBalanceUpdated(0);
+  waitForActualBalance(0);
 
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance());
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance(alice.getAddress(1)));
+  EXPECT_EQ(CHANGE, alice.getPendingBalance());
+  EXPECT_EQ(CHANGE, alice.getPendingBalance(alice.getAddress(1)));
 }
 
 TEST_F(WalletApi, transferFailsIfNoChangeDestinationAndMultipleSourceAddressesSet) {
@@ -3557,7 +3559,8 @@ TEST_F(WalletApi, transferFailsIfNoChangeDestinationAndMultipleSourceAddressesSe
 }
 
 TEST_F(WalletApi, transferSendsChangeToAddress) {
-  const uint64_t MONEY = SENT + FEE + 1;
+  const uint64_t CHANGE = SENT;
+  const uint64_t MONEY = SENT + FEE + CHANGE;
 
   generator.getSingleOutputTransaction(parseAddress(aliceAddress), MONEY);
   unlockMoney();
@@ -3565,19 +3568,21 @@ TEST_F(WalletApi, transferSendsChangeToAddress) {
   CryptoNote::TransactionParameters params;
   params.destinations = {{RANDOM_ADDRESS, SENT}};
   params.fee = FEE;
-  params.changeDestination = alice.createAddress();
+  auto changeAddress = alice.createAddress();
+  params.changeDestination = changeAddress;
 
   alice.transfer(params);
   node.updateObservers();
 
-  waitActualBalanceUpdated(MONEY);
+  waitPendingBalanceUpdated(0);
+  waitForActualBalance(0);
 
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance());
+  EXPECT_EQ(CHANGE, alice.getPendingBalance());
   EXPECT_EQ(0, alice.getActualBalance());
   EXPECT_EQ(0, alice.getActualBalance(aliceAddress));
   EXPECT_EQ(0, alice.getPendingBalance(aliceAddress));
-  EXPECT_EQ(0, alice.getActualBalance(alice.getAddress(1)));
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance(alice.getAddress(1)));
+  EXPECT_EQ(0, alice.getActualBalance(changeAddress));
+  EXPECT_EQ(CHANGE, alice.getPendingBalance(changeAddress));
 }
 
 TEST_F(WalletApi, checkBaseTransaction) {

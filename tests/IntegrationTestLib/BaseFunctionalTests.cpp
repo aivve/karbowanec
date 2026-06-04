@@ -47,12 +47,6 @@
 #include <errno.h>
 #endif
 
-#ifdef _WIN32
-const std::string DAEMON_FILENAME = "bytecoind.exe";
-#else
-const std::string DAEMON_FILENAME = "bytecoind";
-#endif
-
 using namespace Tests::Common;
 using namespace Tests;
 
@@ -194,11 +188,12 @@ void BaseFunctionalTests::startNode(size_t index) {
 
   config.close();
 
-  boost::filesystem::path daemonPath = index < m_config.daemons.size() ?
-    boost::filesystem::path(m_config.daemons[index]) : (boost::filesystem::path(m_daemonDir) / DAEMON_FILENAME);
+  boost::filesystem::path configuredDaemonPath = index < m_config.daemons.size() ?
+    boost::filesystem::path(m_config.daemons[index]) : (boost::filesystem::path(m_daemonDir) / getTestDaemonFilename());
+  boost::filesystem::path daemonPath = resolveTestDaemonPath(configuredDaemonPath.string());
   boost::system::error_code ignoredEc;
   if (!boost::filesystem::exists(daemonPath, ignoredEc)) {
-    throw std::runtime_error("daemon binary wasn't found");
+    throw std::runtime_error("daemon binary wasn't found: " + daemonPath.string());
   }
 
 #if defined WIN32

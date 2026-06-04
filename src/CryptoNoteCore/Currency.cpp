@@ -534,7 +534,11 @@ namespace CryptoNote {
       nextDiffZ = 100000;
     }
 
-    return nextDiffZ;
+    // Never return 0. Fresh testnet chains can have a large timestamp span
+    // with difficulty-1 work, and integer division can truncate the V2 result
+    // to 0. Core treats that as "difficulty overhead" and refuses to create
+    // the next block template.
+    return std::max<difficulty_type>(1, nextDiffZ);
   }
 
   difficulty_type Currency::nextDifficultyV3(std::vector<uint64_t> timestamps,
