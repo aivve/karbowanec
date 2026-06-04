@@ -707,6 +707,7 @@ bool RpcServer::processJsonRpcRequest(const CryptoNote::HttpRequest& request, Cr
       { "gettransactionsbyheights", { makeMemberMethod(&RpcServer::on_get_transactions_details_by_heights), true } },
       { "getrawtransactionsbyheights", { makeMemberMethod(&RpcServer::on_get_transactions_with_output_global_indexes_by_heights), true } },
       { "getcurrencyid", { makeMemberMethod(&RpcServer::on_get_currency_id), true } },
+      { "getstatsbyheights", { makeMemberMethod(&RpcServer::on_get_stats_by_heights), false } },
       { "getstatsinrange", { makeMemberMethod(&RpcServer::on_get_stats_by_heights_range), false } },
       { "checktransactionkey", { makeMemberMethod(&RpcServer::on_check_transaction_key), true } },
       { "checktransactionbyviewkey", { makeMemberMethod(&RpcServer::on_check_transaction_with_view_key), true } },
@@ -1604,6 +1605,44 @@ bool RpcServer::on_get_info(const COMMAND_RPC_GET_INFO::request& req, COMMAND_RP
     res.finalized_hash = std::string();
   }
 
+  res.status = CORE_RPC_STATUS_OK;
+  return true;
+}
+
+bool RpcServer::on_get_stats_by_heights(const COMMAND_RPC_GET_STATS_BY_HEIGHTS::request& req, COMMAND_RPC_GET_STATS_BY_HEIGHTS::response& res) {
+  std::chrono::steady_clock::time_point timePoint = std::chrono::steady_clock::now();
+
+  const uint32_t currentHeight = m_core.getCurrentBlockchainHeight();
+  if (currentHeight == 0 && !req.heights.empty()) {
+    throw JsonRpc::JsonRpcError{ CORE_RPC_ERROR_CODE_INTERNAL_ERROR, "Blockchain is empty" };
+  }
+
+  const uint64_t requestedBlocks = req.heights.size();
+  if (m_restricted_rpc && requestedBlocks > MAX_NUMBER_OF_BLOCKS_PER_STATS_REQUEST) {
+    throw JsonRpc::JsonRpcError{ CORE_RPC_ERROR_CODE_WRONG_PARAM,
+      "Requested stats count: " + std::to_string(requestedBlocks) + " exceeded max limit of " + std::to_string(MAX_NUMBER_OF_BLOCKS_PER_STATS_REQUEST) };
+  }
+
+  for (const uint32_t height : req.heights) {
+    if (height >= currentHeight) {
+      throw JsonRpc::JsonRpcError{ CORE_RPC_ERROR_CODE_TOO_BIG_HEIGHT,
+        "Too big height: " + std::to_string(height) + ", current blockchain height = " + std::to_string(currentHeight - 1) };
+    }
+  }
+
+  std::vector<BlockStatsEntry> stats;
+  if (!m_core.getBlockStats(req.heights, stats)) {
+    throw JsonRpc::JsonRpcError{
+      CORE_RPC_ERROR_CODE_INTERNAL_ERROR, "Internal error: can't get stats for requested heights" };
+  }
+
+  res.stats.reserve(stats.size());
+  for (const BlockStatsEntry& stat : stats) {
+    res.stats.push_back(make_block_stats_response(stat));
+  }
+
+  std::chrono::duration<double> duration = std::chrono::steady_clock::now() - timePoint;
+  res.duration = duration.count();
   res.status = CORE_RPC_STATUS_OK;
   return true;
 }

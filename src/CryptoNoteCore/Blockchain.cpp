@@ -19,6 +19,7 @@
 #include "Blockchain.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <cstdio>
@@ -65,6 +66,29 @@ bool operator<(const Crypto::KeyImage& keyImage1, const Crypto::KeyImage& keyIma
 } // namespace std
 
 namespace CryptoNote {
+
+namespace {
+
+BlockStatsEntry makeBlockStatsEntry(uint32_t height, const DbBlockMeta& meta, const DbBlockMeta* prevMeta) {
+  BlockStatsEntry entry{};
+  entry.height = height;
+  entry.blockSize = meta.blockCumulativeSize;
+  entry.alreadyGeneratedCoins = meta.alreadyGeneratedCoins;
+  entry.timestamp = meta.timestamp;
+  entry.transactionsCount = meta.txCount > 0 ? meta.txCount - 1 : 0;
+
+  if (prevMeta == nullptr) {
+    entry.difficulty = meta.cumulativeDifficulty;
+    entry.reward = meta.alreadyGeneratedCoins;
+  } else {
+    entry.difficulty = meta.cumulativeDifficulty - prevMeta->cumulativeDifficulty;
+    entry.reward = meta.alreadyGeneratedCoins - prevMeta->alreadyGeneratedCoins;
+  }
+
+  return entry;
+}
+
+} // anonymous namespace
 
 // ─── Constructor ─────────────────────────────────────────────────────────────
 
@@ -3178,24 +3202,61 @@ bool Blockchain::getBlockStats(uint32_t startHeight, uint32_t endHeight, std::ve
   for (uint32_t height = startHeight; height <= endHeight; ++height) {
     const size_t metaIndex = static_cast<size_t>(height) - fromHeight;
     const DbBlockMeta& meta = metas[metaIndex];
+    const DbBlockMeta* prevMeta = height == 0 ? nullptr : &metas[metaIndex - 1];
+    stats.push_back(makeBlockStatsEntry(height, meta, prevMeta));
+  }
 
-    BlockStatsEntry entry{};
-    entry.height = height;
-    entry.blockSize = meta.blockCumulativeSize;
-    entry.alreadyGeneratedCoins = meta.alreadyGeneratedCoins;
-    entry.timestamp = meta.timestamp;
-    entry.transactionsCount = meta.txCount > 0 ? meta.txCount - 1 : 0;
+  return true;
+}
 
-    if (height == 0) {
-      entry.difficulty = meta.cumulativeDifficulty;
-      entry.reward = meta.alreadyGeneratedCoins;
-    } else {
-      const DbBlockMeta& prevMeta = metas[metaIndex - 1];
-      entry.difficulty = meta.cumulativeDifficulty - prevMeta.cumulativeDifficulty;
-      entry.reward = meta.alreadyGeneratedCoins - prevMeta.alreadyGeneratedCoins;
+bool Blockchain::getBlockStats(const std::vector<uint32_t>& heights, std::vector<BlockStatsEntry>& stats) {
+  std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
+
+  stats.clear();
+  if (heights.empty()) {
+    return true;
+  }
+
+  const uint32_t chainHeight = m_db.getChainHeight();
+  std::vector<uint32_t> metaHeights;
+  metaHeights.reserve(heights.size() * 2);
+
+  for (const uint32_t height : heights) {
+    if (height >= chainHeight) {
+      logger(ERROR, BRIGHT_RED) << "wrong block height " << height
+        << " at Blockchain::getBlockStats(), blockchain height = " << chainHeight;
+      return false;
     }
 
-    stats.push_back(entry);
+    if (height > 0) {
+      metaHeights.push_back(height - 1);
+    }
+    metaHeights.push_back(height);
+  }
+
+  std::sort(metaHeights.begin(), metaHeights.end());
+  metaHeights.erase(std::unique(metaHeights.begin(), metaHeights.end()), metaHeights.end());
+
+  std::vector<DbBlockMeta> metas;
+  if (!m_db.getBlockMetaForHeights(metaHeights, metas) || metas.size() != metaHeights.size()) {
+    logger(ERROR, BRIGHT_RED) << "failed to read sparse block meta set at Blockchain::getBlockStats()";
+    return false;
+  }
+
+  stats.reserve(heights.size());
+  for (const uint32_t height : heights) {
+    auto metaIt = std::lower_bound(metaHeights.begin(), metaHeights.end(), height);
+    const size_t metaIndex = static_cast<size_t>(std::distance(metaHeights.begin(), metaIt));
+    const DbBlockMeta& meta = metas[metaIndex];
+
+    const DbBlockMeta* prevMeta = nullptr;
+    if (height > 0) {
+      auto prevMetaIt = std::lower_bound(metaHeights.begin(), metaHeights.end(), height - 1);
+      const size_t prevMetaIndex = static_cast<size_t>(std::distance(metaHeights.begin(), prevMetaIt));
+      prevMeta = &metas[prevMetaIndex];
+    }
+
+    stats.push_back(makeBlockStatsEntry(height, meta, prevMeta));
   }
 
   return true;

@@ -612,6 +612,10 @@ bool ICoreStub::getBlockStats(uint32_t startHeight, uint32_t endHeight, std::vec
   return false;
 }
 
+bool ICoreStub::getBlockStats(const std::vector<uint32_t>& heights, std::vector<CryptoNote::BlockStatsEntry>& stats) {
+  return false;
+}
+
 void ICoreStub::rollbackBlockchain(const uint32_t height) {
 }
 

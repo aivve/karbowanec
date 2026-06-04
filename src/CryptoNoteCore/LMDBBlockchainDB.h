@@ -93,6 +93,10 @@ public:
   // (one read txn, no per-entry open/close overhead).
   bool getBlockMetaRange(uint32_t fromHeight, uint32_t toHeight,
                          std::vector<DbBlockMeta>& out) const;
+  // Reads the requested block_meta records with one read txn and keyed seeks.
+  // `out` is appended in the same order as `heights`.
+  bool getBlockMetaForHeights(const std::vector<uint32_t>& heights,
+                              std::vector<DbBlockMeta>& out) const;
   bool removeLastBlockMeta();
 
   // ── block_data ────────────────────────────────────────────────────────────

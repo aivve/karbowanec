@@ -176,6 +176,10 @@ bool Core::getBlockStats(uint32_t startHeight, uint32_t endHeight, std::vector<B
   return m_blockchain.getBlockStats(startHeight, endHeight, stats);
 }
 
+bool Core::getBlockStats(const std::vector<uint32_t>& heights, std::vector<BlockStatsEntry>& stats) {
+  return m_blockchain.getBlockStats(heights, stats);
+}
+
 std::time_t Core::getStartTime() const {
   return start_time;
 }

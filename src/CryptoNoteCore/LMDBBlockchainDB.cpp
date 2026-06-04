@@ -438,6 +438,36 @@ bool LMDBBlockchainDB::getBlockMetaRange(uint32_t fromHeight, uint32_t toHeight,
   return true;
 }
 
+bool LMDBBlockchainDB::getBlockMetaForHeights(const std::vector<uint32_t>& heights,
+                                              std::vector<DbBlockMeta>& out) const {
+  if (heights.empty()) return true;
+
+  auto guard = readTxn();
+  MDB_cursor* cur = nullptr;
+  int rc = mdb_cursor_open(guard.txn, m_dbiBlockMeta, &cur);
+  if (rc) return false;
+
+  out.reserve(out.size() + heights.size());
+
+  for (const uint32_t height : heights) {
+    uint8_t kbuf[4];
+    encBE32(kbuf, height);
+    MDB_val k = {4, kbuf}, v{};
+    rc = mdb_cursor_get(cur, &k, &v, MDB_SET);
+    if (rc == MDB_NOTFOUND || rc || v.mv_size < sizeof(DbBlockMeta)) {
+      mdb_cursor_close(cur);
+      return false;
+    }
+
+    DbBlockMeta meta{};
+    std::memcpy(&meta, v.mv_data, sizeof(DbBlockMeta));
+    out.push_back(meta);
+  }
+
+  mdb_cursor_close(cur);
+  return true;
+}
+
 bool LMDBBlockchainDB::removeLastBlockMeta() {
   assert(m_writeTxn);
   MDB_cursor* cur = nullptr;
