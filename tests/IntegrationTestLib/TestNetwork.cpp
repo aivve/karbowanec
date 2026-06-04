@@ -23,12 +23,6 @@
 #include "InProcTestNode.h"
 #include "RPCTestNode.h"
 
-#ifdef _WIN32
-const std::string bytecoinDaemon = "bytecoind.exe";
-#else
-const std::string bytecoinDaemon = "bytecoind";
-#endif
-
 namespace {
 
 using namespace Tests;
@@ -135,7 +129,7 @@ TestNodeConfiguration TestNetworkBuilder::buildNodeConfiguration(size_t index) {
     cfg.blockchainLocation = blockchainLocation;
   }
 
-  cfg.daemonPath = bytecoinDaemon; // default
+  cfg.daemonPath = getTestDaemonFilename(); // default
   cfg.testnet = testnet;
   cfg.logFile = "test_bytecoind" + std::to_string(index) + ".log";
 
@@ -242,8 +236,9 @@ void TestNetwork::shutdown() {
 
 
 std::unique_ptr<TestNode> TestNetwork::startDaemon(const TestNodeConfiguration& cfg) {
-  if (!boost::filesystem::exists(cfg.daemonPath)) {
-    throw std::runtime_error("daemon binary wasn't found");
+  const std::string daemonPath = resolveTestDaemonPath(cfg.daemonPath);
+  if (!boost::filesystem::exists(daemonPath)) {
+    throw std::runtime_error("daemon binary wasn't found: " + daemonPath);
   }
 
   writeConfiguration(cfg.dataDir + "/daemon.conf", cfg);
@@ -255,7 +250,7 @@ std::unique_ptr<TestNode> TestNetwork::startDaemon(const TestNodeConfiguration& 
     daemonArgs.emplace_back("--testnet");
   }
 
-  process.startChild(cfg.daemonPath, daemonArgs);
+  process.startChild(daemonPath, daemonArgs);
 
   std::unique_ptr<TestNode> node(new RPCTestNode(cfg.rpcPort, m_dispatcher));
   m_daemons.push_back(process);

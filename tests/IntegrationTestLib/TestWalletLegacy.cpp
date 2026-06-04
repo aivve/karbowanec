@@ -121,6 +121,12 @@ AccountPublicAddress TestWalletLegacy::address() const {
   return address;
 }
 
+AccountKeys TestWalletLegacy::accountKeys() const {
+  AccountKeys keys;
+  m_wallet->getAccountKeys(keys);
+  return keys;
+}
+
 void TestWalletLegacy::synchronizationCompleted(std::error_code result) {
   m_dispatcher.remoteSpawn([this, result]() {
     m_lastSynchronizationResult = result;

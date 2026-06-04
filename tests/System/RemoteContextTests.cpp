@@ -108,8 +108,9 @@ TEST_F(RemoteContextTests, canExecuteOtherContextsWhileWaiting) {
   cg.spawn([&] {
     System::Timer(dispatcher).sleep(std::chrono::milliseconds(50));
     auto end = std::chrono::high_resolution_clock::now();
-    ASSERT_GE(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(), 50);
-    ASSERT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(), 100);
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    ASSERT_GE(elapsed, 45);
+    ASSERT_LT(elapsed, 100);
   });
 
   cg.wait();

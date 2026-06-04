@@ -235,8 +235,24 @@ struct TransferCommand {
 #endif
 
   TransferCommand(const CryptoNote::Currency& currency, const CryptoNote::NodeRpcProxy& node) :
-    m_currency(currency), m_node(node), fake_outs_count(0),
+    m_currency(currency), m_node(node), fake_outs_count(m_currency.minMixin()),
     fee(m_node.getMinimalFee()) {
+  }
+
+  bool validateMixin(LoggerRef& logger) const {
+    // fake_outs_count is the internal decoy count (= ring size - 1); errors
+    // are surfaced in ring-size terms to match the user-facing -m convention.
+    if (fake_outs_count < m_currency.minMixin() && fake_outs_count != 0) {
+      logger(ERROR, BRIGHT_RED) << "Ring size must be at least " << (m_currency.minMixin() + 1);
+      return false;
+    }
+
+    if (fake_outs_count > m_currency.maxMixin()) {
+      logger(ERROR, BRIGHT_RED) << "Ring size must be at most " << (m_currency.maxMixin() + 1);
+      return false;
+    }
+
+    return true;
   }
 
   bool parseArguments(LoggerRef& logger, const std::vector<std::string> &args) {
@@ -244,23 +260,6 @@ struct TransferCommand {
     ArgumentReader<std::vector<std::string>::const_iterator> ar(args.begin(), args.end());
 
     try {
-
-      auto mixin_str = ar.next();
-
-      if (!Common::fromString(mixin_str, fake_outs_count)) {
-        logger(ERROR, BRIGHT_RED) << "mixin_count should be non-negative integer, got " << mixin_str;
-        return false;
-      }
-
-      if (fake_outs_count < m_currency.minMixin() && fake_outs_count != 0) {
-        logger(ERROR, BRIGHT_RED) << "mixIn should be equal to or bigger than " << m_currency.minMixin();
-        return false;
-      }
-
-      if (fake_outs_count > m_currency.maxMixin()) {
-        logger(ERROR, BRIGHT_RED) << "mixIn should be equal to or less than " << m_currency.maxMixin();
-        return false;
-      }
 
       while (!ar.eof()) {
 
@@ -287,6 +286,37 @@ struct TransferCommand {
                 << (m_node.getLastLocalBlockHeaderInfo().majorVersion < CryptoNote::BLOCK_MAJOR_VERSION_4 ? m_currency.minimumFee() : m_node.getMinimalFee());
               return false;
             }
+          } else if (arg == "-m") {
+            // -m is the ring size (total members, real + decoys). Internally
+            // stored as decoys = ringSize - 1 to match the legacy sender's
+            // fake_outs_count convention. Liberal acceptance: snap small or
+            // off-grid values up to the nearest valid ring rather than erroring.
+            uint64_t ringSize = 0;
+            if (!Common::fromString(value, ringSize)) {
+              logger(ERROR, BRIGHT_RED) << "ring_size should be a non-negative integer, got " << value;
+              return false;
+            }
+            if (ringSize == 0) {
+              fake_outs_count = 0;
+            } else {
+              const uint64_t requestedRing = ringSize;
+              // Minimum ring is minMixin + 1 (= 3 by default). Snap up rather
+              // than error so old -m 1/2 typos don't fail.
+              if (ringSize <= m_currency.minMixin()) {
+                ringSize = m_currency.minMixin() + 1;
+              }
+              fake_outs_count = static_cast<size_t>(ringSize - 1);
+              if (!validateMixin(logger)) {
+                return false;
+              }
+              if (requestedRing != ringSize) {
+                logger(INFO, BRIGHT_YELLOW)
+                  << "Ring size adjusted: " << requestedRing << " -> " << ringSize << ".";
+              }
+            }
+          } else {
+            logger(ERROR, BRIGHT_RED) << "Unknown transfer option: " << arg;
+            return false;
           }
         } else {
           WalletLegacyTransfer destination;
@@ -675,11 +705,12 @@ simple_wallet::simple_wallet(System::Dispatcher& dispatcher, const CryptoNote::C
   m_consoleHandler.setHandler("outputs", std::bind(&simple_wallet::show_unlocked_outputs_count, this, std::placeholders::_1), "Show the number of unlocked outputs available for a transaction");
   m_consoleHandler.setHandler("bc_height", std::bind(&simple_wallet::show_blockchain_height, this, std::placeholders::_1), "Show blockchain height");
   m_consoleHandler.setHandler("transfer", std::bind(&simple_wallet::transfer, this, std::placeholders::_1),
-    "transfer <mixin_count> <addr_1> <amount_1> [<addr_2> <amount_2> ... <addr_N> <amount_N>] [-p payment_id] [-f fee]"
+    "transfer <addr_1> <amount_1> [<addr_2> <amount_2> ... <addr_N> <amount_N>] [-p payment_id] [-f fee] [-m ring_size]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. "
-    "<mixin_count> is the number of transactions yours is indistinguishable from (from 0 to maximum available)");
+    "<ring_size> is the total number of ring members (real + decoys); your transaction is "
+    "indistinguishable from the others in the ring. Use -m 0 to sweep unmixable coins.");
   m_consoleHandler.setHandler("prepare", std::bind(&simple_wallet::prepare_tx, this, std::placeholders::_1),
-    "Prepare raw transaction in hex format but do not relay, e.g. for manual relay <addr_1> <amount_1> ... <addr_N> <amount_N> [-p payment_id] [-f fee]"
+    "Prepare raw transaction in hex format but do not relay, e.g. for manual relay <addr_1> <amount_1> ... <addr_N> <amount_N> [-p payment_id] [-f fee] [-m ring_size]"
     " - Transfer <amount_1>,... <amount_N> to <address_1>,... <address_N>, respectively. ");
   m_consoleHandler.setHandler("set_log", std::bind(&simple_wallet::set_log, this, std::placeholders::_1), "set_log <level> - Change current log level, <level> is a number 0-4");
   m_consoleHandler.setHandler("address", std::bind(&simple_wallet::print_address, this, std::placeholders::_1), "Show current wallet public address");
@@ -2219,24 +2250,17 @@ bool simple_wallet::transfer(const std::vector<std::string> &args) {
     return true;
   }
 
-  uint64_t unmixable_balance = m_wallet->unmixableBalance();
-  uint64_t mixIn = 0;
-  std::string mixin_str = args[0];
-  if (!Common::fromString(args[0], mixIn)) {
-    logger(ERROR, BRIGHT_RED) << "mixin_count should be non-negative integer, got " << mixin_str;
-    return false;
-  }
-
-  if (mixIn != 0 && unmixable_balance != 0) {
-    logger(WARNING, BRIGHT_YELLOW) << "You have unmixable coins " << m_currency.formatAmount(unmixable_balance) << " in your wallet. "
-                                   << "If you encounter problems with sending, sweep them by making transaction with zero <mixin_count>.";
-  }
-
   try {
     TransferCommand cmd(m_currency, *m_node);
 
     if (!cmd.parseArguments(logger, args))
       return true;
+
+    uint64_t unmixable_balance = m_wallet->unmixableBalance();
+    if (cmd.fake_outs_count != 0 && unmixable_balance != 0) {
+      logger(WARNING, BRIGHT_YELLOW) << "You have unmixable coins " << m_currency.formatAmount(unmixable_balance) << " in your wallet. "
+                                     << "If you encounter problems with sending, sweep them by making transaction with zero ring size (-m 0).";
+    }
 
 #ifndef __ANDROID__
     for (auto& kv : cmd.aliases) {

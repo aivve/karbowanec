@@ -38,6 +38,7 @@ public:
   void waitForSynchronizationToHeight(uint32_t height);
   CryptoNote::IWalletLegacy* wallet();
   CryptoNote::AccountPublicAddress address() const;
+  CryptoNote::AccountKeys accountKeys() const;
 
 protected:
   virtual void synchronizationCompleted(std::error_code result) override;

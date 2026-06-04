@@ -17,6 +17,7 @@
 
 #include "gtest/gtest.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <numeric>
@@ -1118,20 +1119,50 @@ std::vector<CryptoNote::WalletTransactionWithTransfers> exportWalletTransactions
   return result;
 }
 
+bool hasSameTransactionAndTransferCount(const CryptoNote::WalletTransactionWithTransfers& lhs,
+  const CryptoNote::WalletTransactionWithTransfers& rhs, bool strict) {
+
+  if (prepareTxForComparison(lhs.transaction, strict) != prepareTxForComparison(rhs.transaction, strict)) {
+    return false;
+  }
+
+  return lhs.transfers.size() == rhs.transfers.size();
+}
+
 void compareWalletsTransactionTransfers(const std::vector<CryptoNote::WalletTransactionWithTransfers>& aliceTransactions,
   const CryptoNote::WalletGreen& bob, bool strict) {
 
   ASSERT_EQ(aliceTransactions.size(), bob.getTransactionCount());
+
+  if (!strict) {
+    auto bobTransactions = exportWalletTransactions(bob);
+    std::vector<bool> matchedBobTransactions(bobTransactions.size(), false);
+
+    for (const auto& aliceTransaction: aliceTransactions) {
+      bool found = false;
+      for (size_t i = 0; i < bobTransactions.size(); ++i) {
+        if (!matchedBobTransactions[i] && hasSameTransactionAndTransferCount(aliceTransaction, bobTransactions[i], strict)) {
+          matchedBobTransactions[i] = true;
+          found = true;
+          break;
+        }
+      }
+
+      ASSERT_TRUE(found) << "Missing transaction after wallet resync: "
+        << prepareTxForComparison(aliceTransaction.transaction, strict);
+    }
+
+    return;
+  }
+
   for (size_t i = 0; i < bob.getTransactionCount(); ++i) {
     ASSERT_EQ(prepareTxForComparison(aliceTransactions[i].transaction, strict), prepareTxForComparison(bob.getTransaction(i), strict));
     auto& aliceTransfers = aliceTransactions[i].transfers;
     ASSERT_EQ(aliceTransfers.size(), bob.getTransactionTransferCount(i));
 
-    if (strict) {
-      size_t trCount = bob.getTransactionTransferCount(i);
-      for (size_t j = 0; j < trCount; ++j) {
-        ASSERT_EQ(aliceTransfers[j], bob.getTransactionTransfer(i, j));
-      }
+    size_t trCount = bob.getTransactionTransferCount(i);
+    for (size_t j = 0; j < trCount; ++j) {
+      ASSERT_EQ(aliceTransfers[j], bob.getTransactionTransfer(i, j));
     }
   }
 }
@@ -3494,7 +3525,8 @@ TEST_F(WalletApi, transferFailsIfWalletHasManyAddressesSourceAddressesNotSetAndN
 }
 
 TEST_F(WalletApi, transferSendsChangeToSingleSpecifiedSourceAddress) {
-  const uint64_t MONEY = SENT + FEE + 1;
+  const uint64_t CHANGE = SENT;
+  const uint64_t MONEY = SENT + FEE + CHANGE;
 
   alice.createAddress();
 
@@ -3507,10 +3539,11 @@ TEST_F(WalletApi, transferSendsChangeToSingleSpecifiedSourceAddress) {
   params.sourceAddresses = {alice.getAddress(1)};
 
   alice.transfer(params);
-  waitForActualBalance(alice, 0);
+  waitPendingBalanceUpdated(0);
+  waitForActualBalance(0);
 
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance());
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance(alice.getAddress(1)));
+  EXPECT_EQ(CHANGE, alice.getPendingBalance());
+  EXPECT_EQ(CHANGE, alice.getPendingBalance(alice.getAddress(1)));
 }
 
 TEST_F(WalletApi, transferFailsIfNoChangeDestinationAndMultipleSourceAddressesSet) {
@@ -3526,7 +3559,8 @@ TEST_F(WalletApi, transferFailsIfNoChangeDestinationAndMultipleSourceAddressesSe
 }
 
 TEST_F(WalletApi, transferSendsChangeToAddress) {
-  const uint64_t MONEY = SENT + FEE + 1;
+  const uint64_t CHANGE = SENT;
+  const uint64_t MONEY = SENT + FEE + CHANGE;
 
   generator.getSingleOutputTransaction(parseAddress(aliceAddress), MONEY);
   unlockMoney();
@@ -3534,19 +3568,21 @@ TEST_F(WalletApi, transferSendsChangeToAddress) {
   CryptoNote::TransactionParameters params;
   params.destinations = {{RANDOM_ADDRESS, SENT}};
   params.fee = FEE;
-  params.changeDestination = alice.createAddress();
+  auto changeAddress = alice.createAddress();
+  params.changeDestination = changeAddress;
 
   alice.transfer(params);
   node.updateObservers();
 
-  waitActualBalanceUpdated(MONEY);
+  waitPendingBalanceUpdated(0);
+  waitForActualBalance(0);
 
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance());
+  EXPECT_EQ(CHANGE, alice.getPendingBalance());
   EXPECT_EQ(0, alice.getActualBalance());
   EXPECT_EQ(0, alice.getActualBalance(aliceAddress));
   EXPECT_EQ(0, alice.getPendingBalance(aliceAddress));
-  EXPECT_EQ(0, alice.getActualBalance(alice.getAddress(1)));
-  EXPECT_EQ(MONEY - SENT - FEE, alice.getPendingBalance(alice.getAddress(1)));
+  EXPECT_EQ(0, alice.getActualBalance(changeAddress));
+  EXPECT_EQ(CHANGE, alice.getPendingBalance(changeAddress));
 }
 
 TEST_F(WalletApi, checkBaseTransaction) {
@@ -3637,31 +3673,29 @@ TEST_F(WalletApi, walletRemovesTransactionsForAddressesDeletedAfterSaving) {
   auto address2 = alice.createAddress();
 
   // Create incoming transaction to address2
-  generateBlockReward(address2);
+  generator.getSingleOutputTransaction(parseAddress(address2), 2 * SENT + currency.minimumFee());
   unlockMoney(alice, node);
   auto tx1 = alice.getTransactionCount() - 1;
   ASSERT_EQ(1, tx1);
 
-  // Create transaction, that spend money only from address2
-  // Spend all money in order to transaction doesn't have change
-  uint64_t address2Balance = alice.getActualBalance(address2);
-  uint64_t sendAmount = address2Balance - currency.minimumFee();
-  auto tx2 = sendMoney(alice, { address2 }, RANDOM_ADDRESS, sendAmount, currency.minimumFee());
+  // Create transaction, that spends money only from address2 and returns change to address2
+  auto tx2 = sendMoneyToRandomAddressFrom(address2, SENT, currency.minimumFee(), address2);
   generator.generateEmptyBlocks(1);
 
   // Create transaction, that transfers money from address1 to address2
   uint64_t address1Balance = alice.getActualBalance(address1);
-  sendAmount = (address1Balance - currency.minimumFee()) / 2;
+  ASSERT_GT(address1Balance, SENT + currency.minimumFee());
+  uint64_t sendAmount = SENT;
   auto tx3 = sendMoney(alice, { address1 }, address2, sendAmount, currency.minimumFee());
   generator.generateEmptyBlocks(1);
   unlockMoney(alice, node);
   waitForWalletEvent(alice, CryptoNote::SYNC_COMPLETED, std::chrono::seconds(5));
 
-  // Create transaction, that spends money from address1 and address2 and send change to address1
+  // Create transaction, that spends remaining money from address1 and sends change to address1
   address1Balance = alice.getActualBalance(address1);
-  address2Balance = alice.getActualBalance(address2);
-  sendAmount = address1Balance + address2Balance - currency.minimumFee() - 1;
-  auto tx4 = sendMoney(alice, { address1, address2 }, RANDOM_ADDRESS, sendAmount, currency.minimumFee());
+  ASSERT_GT(address1Balance, currency.minimumFee() + 1);
+  sendAmount = address1Balance - currency.minimumFee() - 1;
+  auto tx4 = sendMoney(alice, { address1 }, RANDOM_ADDRESS, sendAmount, currency.minimumFee());
   generator.generateEmptyBlocks(1);
 
   waitForWalletEvent(alice, CryptoNote::SYNC_COMPLETED, std::chrono::seconds(5));

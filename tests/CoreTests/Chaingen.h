@@ -39,6 +39,28 @@
 #include <Logging/LoggerGroup.h>
 #include <Logging/ConsoleLogger.h>
 
+namespace CryptoNote {
+  class core : public Core {
+  public:
+    core(const Currency& currency, i_cryptonote_protocol* protocol, Logging::ILogger& logger,
+      System::Dispatcher& dispatcher, uint32_t rejectDeepReorgDepth = 0, bool noBlobs = false)
+      : Core(currency, protocol, logger, dispatcher, rejectDeepReorgDepth, noBlobs) {
+    }
+
+    size_t get_pool_transactions_count() { return getPoolTransactionsCount(); }
+    uint32_t get_current_blockchain_height() { return getCurrentBlockchainHeight(); }
+    size_t get_blockchain_total_transactions() { return getBlockchainTotalTransactions(); }
+    size_t get_alternative_blocks_count() { return getAlternativeBlocksCount(); }
+
+    bool get_block_template(Block& b, const AccountPublicAddress& address, difficulty_type& difficulty,
+      uint32_t& height, const BinaryArray& extraNonce) {
+      AccountKeys keys{};
+      keys.address = address;
+      return Core::get_block_template(b, keys, difficulty, height, extraNonce);
+    }
+  };
+}
+
 
 namespace concolor
 {
@@ -379,7 +401,10 @@ inline bool replay_events_through_core(CryptoNote::core& cr, const std::vector<t
 {
   try {
     CHECK_AND_ASSERT_MES(typeid(CryptoNote::Block) == events[0].type(), false, "First event must be genesis block creation");
-    cr.set_genesis_block(boost::get<CryptoNote::Block>(events[0]));
+    const CryptoNote::Block& genesis = boost::get<CryptoNote::Block>(events[0]);
+    if (cr.getBlockIdByHeight(0) != CryptoNote::get_block_hash(genesis)) {
+      cr.set_genesis_block(genesis);
+    }
 
     bool r = true;
     push_core_event_visitor<t_test_class> visitor(cr, events, validator);
@@ -417,7 +442,8 @@ inline bool do_replay_events(std::vector<test_event_entry>& events, t_test_class
   coreConfig.init(vm);
   CryptoNote::MinerConfig emptyMinerConfig;
   CryptoNote::cryptonote_protocol_stub pr; //TODO: stub only for this kind of test, make real validation of relayed objects
-  CryptoNote::core c(validator.currency(), &pr, logger, false);
+  System::Dispatcher dispatcher;
+  CryptoNote::core c(validator.currency(), &pr, logger, dispatcher, 0, false);
   if (!c.init(coreConfig, emptyMinerConfig, false))
   {
     std::cout << concolor::magenta << "Failed to init core" << concolor::normal << std::endl;

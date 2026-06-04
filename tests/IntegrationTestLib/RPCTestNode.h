@@ -21,7 +21,7 @@
 #include <System/Dispatcher.h>
 #include "HTTP/HttpRequest.h"
 #include "HTTP/HttpResponse.h"
-#include "Rpc/HttpClient.h"
+#include "HTTP/HttpClient.h"
 
 #include "TestNode.h"
 
@@ -32,10 +32,10 @@ namespace Tests {
   public:
     RPCTestNode(uint16_t port, System::Dispatcher& d);
 
-    virtual bool startMining(size_t threadsCount, const std::string& address) override;
+    virtual bool startMining(size_t threadsCount, const CryptoNote::AccountKeys& keys) override;
     virtual bool stopMining() override;
     virtual bool stopDaemon() override;
-    virtual bool getBlockTemplate(const std::string& minerAddress, CryptoNote::Block& blockTemplate, uint64_t& difficulty) override;
+    virtual bool getBlockTemplate(const CryptoNote::AccountKeys& minerKeys, CryptoNote::Block& blockTemplate, uint64_t& difficulty) override;
     virtual bool submitBlock(const std::string& block) override;
     virtual bool getTailBlockId(Crypto::Hash& tailBlockId) override;
     virtual bool makeINode(std::unique_ptr<CryptoNote::INode>& node) override;

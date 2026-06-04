@@ -49,6 +49,12 @@ public:
 
 private:
   std::shared_ptr<WalletRequest> makeGetRandomOutsRequest(std::shared_ptr<SendTransactionContext> context);
+  // Shared build path for both relayed (doSendTransaction) and prepare-only
+  // (makeRawTransaction) flows: turns a ready SendTransactionContext into a
+  // signed Transaction and updates the cache hash/secret key. Keeping a single
+  // helper guarantees the prepared raw tx is byte-identical to what a direct
+  // send would relay.
+  Transaction buildTransactionFromContext(std::shared_ptr<SendTransactionContext> context, WalletLegacyTransaction& transaction, uint64_t& totalAmount);
   std::shared_ptr<WalletRequest> doSendTransaction(std::shared_ptr<SendTransactionContext> context, std::deque<std::shared_ptr<WalletLegacyEvent>>& events);
   void prepareInputs(const std::list<TransactionOutputInformation>& selectedTransfers, std::vector<COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::outs_for_amount>& outs,
       std::vector<TxBuildInput>& inputs, uint64_t mixIn);

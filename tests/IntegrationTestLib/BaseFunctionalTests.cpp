@@ -47,12 +47,6 @@
 #include <errno.h>
 #endif
 
-#ifdef _WIN32
-const std::string DAEMON_FILENAME = "bytecoind.exe";
-#else
-const std::string DAEMON_FILENAME = "bytecoind";
-#endif
-
 using namespace Tests::Common;
 using namespace Tests;
 
@@ -194,11 +188,12 @@ void BaseFunctionalTests::startNode(size_t index) {
 
   config.close();
 
-  boost::filesystem::path daemonPath = index < m_config.daemons.size() ?
-    boost::filesystem::path(m_config.daemons[index]) : (boost::filesystem::path(m_daemonDir) / DAEMON_FILENAME);
+  boost::filesystem::path configuredDaemonPath = index < m_config.daemons.size() ?
+    boost::filesystem::path(m_config.daemons[index]) : (boost::filesystem::path(m_daemonDir) / getTestDaemonFilename());
+  boost::filesystem::path daemonPath = resolveTestDaemonPath(configuredDaemonPath.string());
   boost::system::error_code ignoredEc;
   if (!boost::filesystem::exists(daemonPath, ignoredEc)) {
-    throw std::runtime_error("daemon binary wasn't found");
+    throw std::runtime_error("daemon binary wasn't found: " + daemonPath.string());
   }
 
 #if defined WIN32
@@ -307,12 +302,12 @@ namespace {
   };
 }
 
-bool BaseFunctionalTests::mineBlocks(TestNode& node, const CryptoNote::AccountPublicAddress& address, size_t blockCount) {
+bool BaseFunctionalTests::mineBlocks(TestNode& node, const CryptoNote::AccountKeys& minerKeys, size_t blockCount) {
   for (size_t i = 0; i < blockCount; ++i) {
     Block blockTemplate;
     uint64_t difficulty;
 
-    if (!node.getBlockTemplate(m_currency.accountAddressAsString(address), blockTemplate, difficulty)) {
+    if (!node.getBlockTemplate(minerKeys, blockTemplate, difficulty)) {
       return false;
     }
 
@@ -362,7 +357,9 @@ bool BaseFunctionalTests::mineBlock(std::unique_ptr<CryptoNote::IWalletLegacy> &
   Semaphore gotReward;
   WaitForCoinBaseObserver cbo(gotReward, *wallet.get());
   wallet->addObserver(&cbo);
-  if (!nodeDaemons.front()->startMining(1, wallet->getAddress()))
+  CryptoNote::AccountKeys minerKeys;
+  wallet->getAccountKeys(minerKeys);
+  if (!nodeDaemons.front()->startMining(1, minerKeys))
     return false;
   gotReward.wait();
   if (!nodeDaemons.front()->stopMining())
@@ -378,7 +375,9 @@ bool BaseFunctionalTests::mineBlock() {
 bool BaseFunctionalTests::startMining(size_t threads) {
   if (nodeDaemons.empty() || !workingWallet) return false;
   if(!stopMining()) return false;
-  return nodeDaemons.front()->startMining(threads, workingWallet->getAddress());
+  CryptoNote::AccountKeys minerKeys;
+  workingWallet->getAccountKeys(minerKeys);
+  return nodeDaemons.front()->startMining(threads, minerKeys);
 }
 
 bool BaseFunctionalTests::stopMining() {

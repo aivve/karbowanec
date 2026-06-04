@@ -58,7 +58,7 @@ target_link_libraries(CryptoPq PUBLIC oqs chacha20poly1305)
 target_include_directories(CryptoPq PUBLIC
   $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/external/liboqs/include>)
 add_library(CryptoNoteCore ${CryptoNoteCore})
-target_link_libraries(CryptoNoteCore PUBLIC ${LMDB_LIBRARY})
+target_link_libraries(CryptoNoteCore PUBLIC Checkpoints ${LMDB_LIBRARY})
 add_library(Http ${Http})
 add_library(InProcessNode ${InProcessNode})
 add_library(Logging ${Logging})

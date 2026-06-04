@@ -40,7 +40,7 @@ namespace {
     CryptoNote::Block blk_prev = blk_last;
     for (size_t i = 0; i < new_block_count; ++i) {
       CryptoNote::Block blk_next;
-	  CryptoNote::difficulty_type diffic = currency.nextDifficulty(block_major_version, timestamps, cummulative_difficulties);
+	  CryptoNote::difficulty_type diffic = currency.nextDifficulty(static_cast<uint32_t>(events.size()), block_major_version, timestamps, cummulative_difficulties);
       if (!generator.constructBlockManually(blk_next, blk_prev, miner_account,
         test_generator::bf_major_ver | test_generator::bf_timestamp | test_generator::bf_diffic, 
         block_major_version, 0, blk_prev.timestamp, Crypto::Hash(), diffic)) {
@@ -258,21 +258,23 @@ bool gen_block_invalid_nonce::generate(std::vector<test_event_entry>& events) co
   }
 
   // Create invalid nonce
-  difficulty_type diffic = m_currency.nextDifficulty(m_blockMajorVersion, timestamps, commulative_difficulties);
+  difficulty_type diffic = m_currency.nextDifficulty(static_cast<uint32_t>(events.size()), m_blockMajorVersion, timestamps, commulative_difficulties);
   assert(1 < diffic);
   const Block& blk_last = boost::get<Block>(events.back());
-  uint64_t timestamp = blk_last.timestamp;
   Block blk_3;
-  do
-  {
-    ++timestamp;
-    clearTransaction(blk_3.baseTransaction);
-    if (!generator.constructBlockManually(blk_3, blk_last, miner_account,
-      test_generator::bf_major_ver | test_generator::bf_diffic | test_generator::bf_timestamp, m_blockMajorVersion, 0, timestamp, Crypto::Hash(), diffic))
-      return false;
+  if (!generator.constructBlockManually(blk_3, blk_last, miner_account,
+    test_generator::bf_major_ver | test_generator::bf_timestamp, m_blockMajorVersion, 0, blk_last.timestamp + 1)) {
+    return false;
   }
-  while (0 == blk_3.nonce);
-  --blk_3.nonce;
+
+  Crypto::cn_context context;
+  for (uint32_t nonce = 0;; ++nonce) {
+    blk_3.nonce = nonce;
+    Crypto::Hash proof_of_work;
+    if (!get_block_longhash(context, blk_3, proof_of_work) || !check_hash(proof_of_work, diffic)) {
+      break;
+    }
+  }
   events.push_back(blk_3);
 
   return true;
@@ -692,7 +694,7 @@ bool gen_block_invalid_binary_format::generate(std::vector<test_event_entry>& ev
   do
   {
     blk_last = boost::get<Block>(events.back());
-	diffic = m_currency.nextDifficulty(m_blockMajorVersion, timestamps, cummulative_difficulties);
+	diffic = m_currency.nextDifficulty(static_cast<uint32_t>(events.size()), m_blockMajorVersion, timestamps, cummulative_difficulties);
     if (!lift_up_difficulty(m_currency, events, timestamps, cummulative_difficulties, generator, 1, blk_last,
       miner_account, m_blockMajorVersion)) {
       return false;
@@ -709,7 +711,7 @@ bool gen_block_invalid_binary_format::generate(std::vector<test_event_entry>& ev
   std::vector<Crypto::Hash> tx_hashes;
   tx_hashes.push_back(getObjectHash(tx_0));
   size_t txs_size = getObjectBinarySize(tx_0);
-  diffic = m_currency.nextDifficulty(m_blockMajorVersion, timestamps, cummulative_difficulties);
+  diffic = m_currency.nextDifficulty(static_cast<uint32_t>(events.size()), m_blockMajorVersion, timestamps, cummulative_difficulties);
   if (!generator.constructBlockManually(blk_test, blk_last, miner_account,
     test_generator::bf_major_ver | test_generator::bf_diffic | test_generator::bf_timestamp | test_generator::bf_tx_hashes, 
     m_blockMajorVersion, 0, blk_last.timestamp, Crypto::Hash(), diffic, Transaction(), tx_hashes, txs_size))

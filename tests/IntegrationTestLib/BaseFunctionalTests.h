@@ -79,7 +79,7 @@ namespace Tests {
 
       void init(po::options_description& desc) {
         desc.add_options()
-          ("daemon-dir,d", po::value<std::string>()->default_value("."), "path to bytecoind.exe")
+          ("daemon-dir,d", po::value<std::string>()->default_value("."), "path to karbowanecd")
           ("data-dir,n", po::value<std::string>()->default_value("."), "path to daemon's data directory")
           ("add-daemons,a", po::value<std::vector<std::string>>()->multitoken(), "add daemon to topology");
       }
@@ -151,7 +151,7 @@ namespace Tests {
       void stopNode(size_t index);
 
       bool makeWallet(std::unique_ptr<CryptoNote::IWalletLegacy> & wallet, std::unique_ptr<CryptoNote::INode>& node, const std::string& password = "pass");
-      bool mineBlocks(TestNode& node, const CryptoNote::AccountPublicAddress& address, size_t blockCount);
+      bool mineBlocks(TestNode& node, const CryptoNote::AccountKeys& minerKeys, size_t blockCount);
       bool mineBlock(std::unique_ptr<CryptoNote::IWalletLegacy>& wallet);
       bool mineBlock();
       bool startMining(size_t threads);

@@ -47,4 +47,7 @@ struct TestNodeConfiguration {
   }
 };
 
+std::string getTestDaemonFilename();
+std::string resolveTestDaemonPath(const std::string& configuredPath);
+
 }

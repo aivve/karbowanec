@@ -19,15 +19,35 @@
 
 #include <system_error>
 #include <INode.h>
+#include "CryptoNoteCore/Account.h"
+#include "IWallet.h"
+#include "IWalletLegacy.h"
 
 namespace Tests {
 
+inline CryptoNote::AccountKeys accountKeysFromWallet(CryptoNote::IWalletLegacy& wallet) {
+  CryptoNote::AccountKeys keys;
+  wallet.getAccountKeys(keys);
+  return keys;
+}
+
+inline CryptoNote::AccountKeys accountKeysFromWallet(CryptoNote::IWallet& wallet, size_t addressIndex) {
+  CryptoNote::AccountKeys keys;
+  auto spend = wallet.getAddressSpendKey(addressIndex);
+  auto view = wallet.getViewKey();
+  keys.spendSecretKey = spend.secretKey;
+  keys.viewSecretKey = view.secretKey;
+  keys.address.spendPublicKey = spend.publicKey;
+  keys.address.viewPublicKey = view.publicKey;
+  return keys;
+}
+
 class TestNode {
 public:
-  virtual bool startMining(size_t threadsCount, const std::string& address) = 0;
+  virtual bool startMining(size_t threadsCount, const CryptoNote::AccountKeys& keys) = 0;
   virtual bool stopMining() = 0;
   virtual bool stopDaemon() = 0;
-  virtual bool getBlockTemplate(const std::string& minerAddress, CryptoNote::Block& blockTemplate, uint64_t& difficulty) = 0;
+  virtual bool getBlockTemplate(const CryptoNote::AccountKeys& minerKeys, CryptoNote::Block& blockTemplate, uint64_t& difficulty) = 0;
   virtual bool submitBlock(const std::string& block) = 0;
   virtual bool getTailBlockId(Crypto::Hash& tailBlockId) = 0;
   virtual bool makeINode(std::unique_ptr<CryptoNote::INode>& node) = 0;
