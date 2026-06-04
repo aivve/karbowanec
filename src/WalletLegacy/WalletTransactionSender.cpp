@@ -198,24 +198,8 @@ std::string WalletTransactionSender::makeRawTransaction(TransactionId& transacti
   {
     WalletLegacyTransaction& transaction = m_transactionsCache.getTransaction(context->transactionId);
 
-    std::vector<TxBuildInput> inputs;
-    prepareInputs(context->selectedTransfers, context->outs, inputs, context->mixIn);
-
-    TxBuildOutput changeDts;
-    changeDts.amount = 0;
-    uint64_t totalAmount = -transaction.totalAmount;
-    createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
-
-    std::vector<TxBuildOutput> splittedDests;
-    splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
-
-    auto itx = buildTransaction(inputs, splittedDests, m_keys.viewSecretKey,
-        transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, context->tx_key);
-    Transaction tx;
-    if (!fromBinaryArray(tx, itx->getTransactionData()))
-      throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
-
-    getObjectHash(tx, transaction.hash);
+    uint64_t totalAmount = 0;
+    Transaction tx = buildTransactionFromContext(context, transaction, totalAmount);
 
     m_transactionsCache.updateTransaction(context->transactionId, tx, totalAmount, context->selectedTransfers, context->tx_key);
 
@@ -272,6 +256,30 @@ void WalletTransactionSender::sendTransactionRandomOutsByAmount(std::shared_ptr<
     nextRequest = req;
 }
 
+Transaction WalletTransactionSender::buildTransactionFromContext(std::shared_ptr<SendTransactionContext> context, WalletLegacyTransaction& transaction, uint64_t& totalAmount) {
+  std::vector<TxBuildInput> inputs;
+  prepareInputs(context->selectedTransfers, context->outs, inputs, context->mixIn);
+
+  TxBuildOutput changeDts;
+  changeDts.amount = 0;
+  totalAmount = -transaction.totalAmount;
+  createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
+
+  std::vector<TxBuildOutput> splittedDests;
+  splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
+
+  auto itx = buildTransaction(inputs, splittedDests, m_keys.viewSecretKey,
+      transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, context->tx_key);
+  Transaction tx;
+  if (!fromBinaryArray(tx, itx->getTransactionData()))
+    throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
+
+  getObjectHash(tx, transaction.hash);
+  transaction.secretKey = context->tx_key;
+
+  return tx;
+}
+
 std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::shared_ptr<SendTransactionContext> context, std::deque<std::shared_ptr<WalletLegacyEvent>>& events) {
   if (m_isStoping) {
     events.push_back(makeCompleteEvent(m_transactionsCache, context->transactionId, make_error_code(error::TX_CANCELLED)));
@@ -282,30 +290,13 @@ std::shared_ptr<WalletRequest> WalletTransactionSender::doSendTransaction(std::s
   {
     WalletLegacyTransaction& transaction = m_transactionsCache.getTransaction(context->transactionId);
 
-    std::vector<TxBuildInput> inputs;
-    prepareInputs(context->selectedTransfers, context->outs, inputs, context->mixIn);
-
-    TxBuildOutput changeDts;
-    changeDts.amount = 0;
-    uint64_t totalAmount = -transaction.totalAmount;
-    createChangeDestinations(m_keys.address, totalAmount, context->foundMoney, changeDts);
-
-    std::vector<TxBuildOutput> splittedDests;
-    splitDestinations(transaction.firstTransferId, transaction.transferCount, changeDts, context->dustPolicy, splittedDests);
-
-    auto itx = buildTransaction(inputs, splittedDests, m_keys.viewSecretKey,
-        transaction.extra, transaction.unlockTime, m_upperTransactionSizeLimit, context->tx_key);
-    Transaction tx;
-    if (!fromBinaryArray(tx, itx->getTransactionData()))
-      throw std::system_error(make_error_code(error::INTERNAL_WALLET_ERROR));
-
-    getObjectHash(tx, transaction.hash);
-    transaction.secretKey = context->tx_key;
+    uint64_t totalAmount = 0;
+    Transaction tx = buildTransactionFromContext(context, transaction, totalAmount);
 
     m_transactionsCache.updateTransaction(context->transactionId, tx, totalAmount, context->selectedTransfers, context->tx_key);
 
     notifyBalanceChanged(events);
-   
+
     return std::make_shared<WalletRelayTransactionRequest>(tx, std::bind(&WalletTransactionSender::relayTransactionCallback, this, context,
         std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
   }
