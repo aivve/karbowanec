@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "Known-answer vectors for the Karbo PQ Phase 1 domain-separated derivations",
+    "(spec v2.4, sections 6 and 8). These are the published cross-implementation",
+    "test vectors: any node software must reproduce them byte-for-byte. A mismatch",
+    "is a chain split (spec section 14), so these values never change once shipped.",
+    "Mirrored by tests/test_pq_derive.cpp.",
+    "",
+    "Fixed inputs use pat(N,a,b)[i] = (i*a + b) mod 256, i in [0,N).",
+    "Integers (prevOutIndex, amount, fee) are little-endian on the wire.",
+    "All outputs are SHA3-256 / HKDF-SHA3-256 (FIPS 202/SP800-56C), hex-encoded."
+  ],
+  "transaction_version": 4,
+  "block_major_version": 7,
+  "domains": {
+    "inputs_hash":  "karbo-pq-inputs-hash-v1",
+    "out_context":  "karbo-pq-out-context-v1",
+    "spend_seed":   "karbo-pq-spend-seed-v1",
+    "aead_key":     "karbo-pq-aead-key-v1",
+    "spend_commit": "karbo-pq-spend-commit-v1",
+    "nullifier":    "karbo-pq-nullifier-v1",
+    "tx_sign":      "karbo-pq-tx-sign-v1",
+    "_reserved_phase2": "karbo-pq-ct-mask-v1"
+  },
+  "vectors": {
+    "inputs_hash": {
+      "inputs": [
+        { "prev_txid": "pat(32,1,0)",   "prev_out_index": 7 },
+        { "prev_txid": "pat(32,255,5)", "prev_out_index": 16909060 }
+      ],
+      "output": "05369b29b04c0150080312173ec816f49955043648896ac46d21c15860122400"
+    },
+    "out_context": {
+      "inputs_hash": "<inputs_hash above>",
+      "kem_ct": "pat(1088,7,3)",
+      "output_index": 1,
+      "output": "2d8b4e207f8cd9b052e4ebd6e6a752b4a6f1363e52481a00445c8cec0a2f8615"
+    },
+    "spend_seed": {
+      "ss": "pat(32,1,0)",
+      "out_context": "<out_context above>",
+      "output": "64f4dd994f27b62861feb57217a235cab9a05e2da32b9633f2b84317f507d671"
+    },
+    "aead_key": {
+      "ss": "pat(32,1,0)",
+      "out_context": "<out_context above>",
+      "output": "e93bdb04989a7a2833eea56830bb5d5091d2b4ecda8b0754a0abf8d69b0225c9"
+    },
+    "spend_commit": {
+      "pk_i": "pat(1952,5,1)",
+      "rho": "pat(32,3,9)",
+      "output": "e68cb8c9336055b6627ca1a23f7b1a0962a2952d1f58466d28039c67405ca46d"
+    },
+    "nullifier": {
+      "pk_i": "pat(1952,5,1)",
+      "rho": "pat(32,3,9)",
+      "output": "93722da8561f4e172bdfc97d8abbde3ce29b09dc29c86fcb9edb550870c20869"
+    },
+    "tx_signing_digest": {
+      "version": 4,
+      "inputs": [
+        {
+          "prev_txid": "pat(32,1,0)",
+          "prev_out_index": 7,
+          "auth_pub": "pat(1952,5,1)",
+          "rho_reveal": "pat(32,3,9)"
+        }
+      ],
+      "outputs": [
+        {
+          "type": 16,
+          "amount": 1000000,
+          "kem_ct": "pat(1088,7,3)",
+          "enc_payload": "pat(48,2,1)",
+          "spend_commit": "<spend_commit above>"
+        }
+      ],
+      "fee": 12345,
+      "output": "586ee9aba67d7fdf5fa810a6daeda929fa86032db86eb4e248d47ecc21527722"
+    }
+  }
+}
