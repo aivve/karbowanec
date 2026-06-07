@@ -19,7 +19,6 @@
 #include <future>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <functional>
 #include <iostream>
 #include <cstring>
@@ -86,11 +85,13 @@ namespace Common {
     map<WORD, function<void(void)>> callbacks;
 
     callbacks[DNS_TYPE_TEXT] = [&it, &records](void) -> void {
-      std::stringstream stream;
+      std::string record;
       for (DWORD i = 0; i < it->Data.TXT.dwStringCount; i++) {
-        stream << RPC_CSTR(it->Data.TXT.pStringArray[i]) << endl;;
+        if (it->Data.TXT.pStringArray[i] != nullptr) {
+          record += it->Data.TXT.pStringArray[i];
+        }
       }
-      records.push_back(stream.str());
+      records.push_back(record);
     };
 
     for (it = pDnsRecord; it != NULL; it = it->pNext) {
